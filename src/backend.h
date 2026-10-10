@@ -73,6 +73,8 @@ class Backend : public QObject {
     // idle | checking | current | available | failed | off
     Q_PROPERTY(QString updatePhase READ updatePhase NOTIFY updateStatusChanged)
     Q_PROPERTY(QString updateMessage READ updateMessage NOTIFY updateStatusChanged)
+    // True once pacman has replaced the binary under the running app.
+    Q_PROPERTY(bool restartNeeded READ restartNeeded NOTIFY restartNeededChanged)
     Q_PROPERTY(QString updateLatest READ updateLatest NOTIFY updateStatusChanged)
     Q_PROPERTY(QString updateUrl READ updateUrl NOTIFY updateStatusChanged)
 
@@ -112,6 +114,9 @@ public:
     Q_INVOKABLE void toggleQueueAutoplay();
     // Opens the default terminal running `omarchy update`. False if no terminal launcher.
     Q_INVOKABLE bool runSystemUpdate();
+    bool restartNeeded() const { return m_restartNeeded; }
+    // Quits the window and the player, then starts the new version.
+    Q_INVOKABLE void restartApp();
     QString playerDescription() const { return m_playerDescription; }
     double playerPosition() const { return m_playerPosition; }
     double playerDuration() const { return m_playerDuration; }
@@ -212,6 +217,7 @@ public:
     void raiseWindow();
 
 signals:
+    void restartNeededChanged();
     void queueAutoplayChanged();
     void monoChanged();
     void statusChanged();
@@ -347,6 +353,7 @@ private:
     QDBusInterface *m_player = nullptr;
     QDBusServiceWatcher *m_playerWatcher = nullptr;
     QTimer *m_playerStartTimer = nullptr;
+    bool m_restartNeeded = false;
     bool m_startingPlayer = false;
     QList<PendingPlayerCall> m_pendingPlayerCalls;
     QSet<qint64> m_showCoverDownloads;

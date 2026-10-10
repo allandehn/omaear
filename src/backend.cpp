@@ -100,6 +100,19 @@ Backend::Backend(Library &library, QObject *parent)
     m_playerMono = m_library.mono();
     reloadShows();
     reloadQueue();
+    // After an update, pacman swaps the file under us; the kernel then reports
+    // our own executable as "(deleted)". We don't restart on our own, so a
+    // running episode is never cut off; the Info page offers the restart.
+    auto *exeWatch = new QTimer(this);
+    connect(exeWatch, &QTimer::timeout, this, [this, exeWatch]() {
+        const QString exe = QFile::symLinkTarget(QStringLiteral("/proc/self/exe"));
+        if (exe.endsWith(QStringLiteral(" (deleted)"))) {
+            m_restartNeeded = true;
+            exeWatch->stop();
+            emit restartNeededChanged();
+        }
+    });
+    exeWatch->start(15000);
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &Backend::pollPlayer);
     timer->start(500);
@@ -1049,6 +1062,15 @@ void Backend::toggleMute()
     }
     const double restore = m_library.volumeBeforeMute();
     setVolume(restore > 0.0005 ? restore : 1.0);
+}
+
+void Backend::restartApp()
+{
+    // A detached shell outlives us: stop every omaear process (window and
+    // player), wait until they're gone, then start the new version.
+    QProcess::startDetached(QStringLiteral("setsid"),
+        {QStringLiteral("sh"), QStringLiteral("-c"),
+         QStringLiteral("pkill -x omaear; for i in $(seq 50); do pgrep -x omaear >/dev/null || break; sleep 0.1; done; exec omaear")});
 }
 
 bool Backend::runSystemUpdate()

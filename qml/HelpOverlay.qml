@@ -159,6 +159,11 @@ Item {
                 font.weight: Font.Normal
                 text: {
                     var head = "OmaEar " + root.escapeHtml(backend.appVersion)
+                    var hex0 = root.colorHex(theme.accent)
+                    if (backend.restartNeeded)
+                        return head + " - Updated. <a href=\"omaear:restart\" style=\"color:" + hex0
+                               + "; text-decoration: underline\">Restart OmaEar</a> to use the new version."
+                               + "<br>It didn't restart by itself, so whatever you're listening to isn't cut off."
                     if (backend.updatePhase !== "available")
                         return backend.updateMessage.length > 0
                                 ? head + " - " + root.escapeHtml(backend.updateMessage) : head
@@ -173,7 +178,9 @@ Item {
                     return head + " - Version " + linked + " is available, " + upd
                 }
                 onLinkActivated: function (link) {
-                    if (link === "omaear:update") {
+                    if (link === "omaear:restart") {
+                        backend.restartApp()
+                    } else if (link === "omaear:update") {
                         if (!backend.runSystemUpdate())
                             Qt.openUrlExternally(backend.updateUrl)
                     } else {
