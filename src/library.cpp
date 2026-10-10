@@ -30,12 +30,11 @@ namespace {
 // Move <parent>/<legacy> to newPath when newPath is absent (or an empty dir).
 // rename(2) within one filesystem is atomic: the data is either all at the old
 // path or all at the new one.
-QString moveLegacyDir(const QString &newPath)
+QString moveLegacyDir(const QString &newPath, const QString &legacy)
 {
     QFileInfo target(newPath);
     const QString parent = target.absolutePath();
-    const QString legacy = parent + QLatin1Char('/') + QLatin1String(Library::kLegacyAppName);
-    if (target.fileName() == QLatin1String(Library::kLegacyAppName) || !QFileInfo(legacy).isDir())
+    if (legacy == newPath || !QFileInfo(legacy).isDir())
         return {};
     if (target.exists()) {
         QDir dir(newPath);
@@ -56,20 +55,35 @@ bool Library::migrateLegacyLocations(QString *message)
     QStringList log;
     const QString data = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     const QString cache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    // Earlier builds kept data under an "allanjorch/" vendor folder, first as
+    // "podcast", then as "omaear". Move whichever exists to the plain
+    // ~/.local/share/omaear and ~/.cache/omaear (newest name first).
+    const QString app = QCoreApplication::applicationName();
+    const QStringList legacyNames = {QStringLiteral("allanjorch/") + app,
+                                     QStringLiteral("allanjorch/") + QLatin1String(kLegacyAppName)};
     for (const QString &path : {data, cache}) {
-        const QString line = moveLegacyDir(path);
-        if (!line.isEmpty())
-            log << line;
+        const QString parent = QFileInfo(path).absolutePath();
+        for (const QString &name : legacyNames) {
+            const QString line = moveLegacyDir(path, parent + QLatin1Char('/') + name);
+            if (!line.isEmpty()) {
+                log << line;
+                break;
+            }
+        }
+        QDir().rmdir(parent + QStringLiteral("/allanjorch")); // only if now empty
     }
-    // QSettings file: <config>/<org>/<app>.conf
-    const QString configDir = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
-        + QLatin1Char('/') + QCoreApplication::organizationName();
-    const QString oldConf = configDir + QLatin1Char('/') + QLatin1String(kLegacyAppName) + QStringLiteral(".conf");
-    const QString newConf = configDir + QLatin1Char('/') + QCoreApplication::applicationName() + QStringLiteral(".conf");
-    if (oldConf != newConf && QFileInfo::exists(oldConf) && !QFileInfo::exists(newConf)) {
-        log << (QFile::rename(oldConf, newConf) ? QStringLiteral("moved %1 -> %2")
-                                                : QStringLiteral("FAILED to move %1 -> %2")).arg(oldConf, newConf);
+    // QSettings file: was <config>/allanjorch/<app>.conf, now <config>/<app>.conf
+    const QString configRoot = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    const QString newConf = configRoot + QLatin1Char('/') + app + QStringLiteral(".conf");
+    for (const QString &name : legacyNames) {
+        const QString oldConf = configRoot + QLatin1Char('/') + name + QStringLiteral(".conf");
+        if (QFileInfo::exists(oldConf) && !QFileInfo::exists(newConf)) {
+            log << (QFile::rename(oldConf, newConf) ? QStringLiteral("moved %1 -> %2")
+                                                    : QStringLiteral("FAILED to move %1 -> %2")).arg(oldConf, newConf);
+            break;
+        }
     }
+    QDir().rmdir(configRoot + QStringLiteral("/allanjorch"));
     if (message)
         *message = log.join(QLatin1Char('\n'));
     return true;

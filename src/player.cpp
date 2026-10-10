@@ -1687,7 +1687,6 @@ void MprisPlayerAdaptor::OpenUri(const QString &uri)
 int runPlayer(int argc, char **argv)
 {
     QGuiApplication app(argc, argv);
-    app.setOrganizationName(QStringLiteral("allanjorch"));
     app.setApplicationName(QStringLiteral("omaear"));
     app.setApplicationDisplayName(QStringLiteral("OmaEar"));
     app.setQuitOnLastWindowClosed(false);

@@ -155,7 +155,6 @@ int main(int argc, char **argv)
         return runSelfTest(argc, argv);
 
     QGuiApplication app(argc, argv);
-    app.setOrganizationName(QStringLiteral("allanjorch"));
     app.setApplicationName(QStringLiteral("omaear"));
     app.setApplicationDisplayName(QStringLiteral("OmaEar"));
     app.setDesktopFileName(QStringLiteral("com.github.allanjorch.omaear"));

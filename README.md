@@ -60,7 +60,7 @@ Right-click an episode, or use **Mark**, to mark it played or unplayed, mark eve
 
 ## Your data
 
-The library lives in `~/.local/share/allanjorch/omaear/` and downloaded audio and artwork in `~/.cache/allanjorch/omaear/`.
+The library lives in `~/.local/share/omaear/` and downloaded audio and artwork in `~/.cache/omaear/`.
 
 ## Build from source
 

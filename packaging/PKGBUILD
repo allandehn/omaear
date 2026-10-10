@@ -1,6 +1,6 @@
 # Maintainer: Allan Kristensen <allanjorch@proton.me>
 pkgname=omaear
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="A shelf of podcasts for Omarchy, with playback that keeps going"
 arch=('x86_64')
@@ -22,7 +22,7 @@ optdepends=('libnotify: notice when an old pre-rename instance must be quit firs
 # Release: the GitHub tag tarball. packaging/build-local.sh drops a tarball of
 # the local checkout under the same name, so makepkg uses it instead.
 source=("$pkgname-$pkgver.tar.gz::https://github.com/allanjorch/omaear/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP') # replace with the real sum when v0.1.0 is tagged
+sha256sums=('SKIP')
 
 build() {
   cd "$pkgname-$pkgver"
