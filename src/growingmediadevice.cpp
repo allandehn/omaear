@@ -254,8 +254,8 @@ void HttpFileBuffer::start()
     // A host already known to refuse the generic identity gets no second try.
     m_triedFallback = !isGenericUa(m_ua);
     if (existing > 0) {
-        // Resume only bytes fetched with this same UA; another UA can mean another
-        // ad variant, and splicing two variants corrupts the episode.
+        // Resume only bytes fetched with this same UA; another UA can mean a different
+        // file, and splicing two files corrupts the episode.
         QByteArray recorded;
         QByteArray recordedVariant;
         QFile side(uaSidecarPath());
@@ -364,7 +364,7 @@ void HttpFileBuffer::onRedirected(const QUrl &target)
         return;
     const QUrl fallback = staticFallbackUrl(target);
     if (!fallback.isEmpty() && m_variant != "static") {
-        // Dynamic-ad variant: never request it; fetch the static original instead.
+        // Variant URL: fetch the static original it points to instead.
         qInfo("[omaear-cache] episode %lld: %s serves a stitched variant; using its static "
               "fallback %s",
               static_cast<long long>(m_episodeId), qPrintable(target.host()),
@@ -480,7 +480,7 @@ void HttpFileBuffer::evaluateHeaders(QNetworkReply *reply)
             g_appUaHosts.insert(host);
         }
         qWarning("[omaear-cache] %s refused the generic player identity; using the app's "
-                 "own for this session (may include ads)", qPrintable(host));
+                 "own for this session", qPrintable(host));
     }
     m_reqAccepted = true;
     m_gotAudioThisRun = true;

@@ -1,3 +1,4 @@
+#include <QIcon>
 #include "backend.h"
 #include "library.h"
 #include <cstdio>
@@ -24,6 +25,17 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+
+// "?" is Shift+/ on a US layout and a different key elsewhere. Match the
+// character, and Key_Question when the platform reports that instead of text.
+bool isHelpQuestion(const QKeyEvent *key)
+{
+    if (key->isAutoRepeat())
+        return false;
+    if (key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))
+        return false;
+    return key->text() == QLatin1String("?") || key->key() == Qt::Key_Question;
+}
 
 class WindowInputFilter : public QObject {
 public:
@@ -59,6 +71,15 @@ public:
                     QMetaObject::invokeMethod(window, key->key() == Qt::Key_Back ? "back" : "forward",
                                               Qt::DirectConnection);
                 return true;
+            }
+            // Shortcuts overlay. toggleHelp returns false while a text field has
+            // focus so "?" is still typed into search and the add-feed box.
+            if (isHelpQuestion(key)) {
+                QVariant consumed;
+                const bool called = QMetaObject::invokeMethod(
+                    window, "toggleHelp", Qt::DirectConnection,
+                    Q_RETURN_ARG(QVariant, consumed));
+                return called && consumed.toBool();
             }
             return false;
         }
@@ -138,6 +159,7 @@ int main(int argc, char **argv)
     app.setApplicationName(QStringLiteral("omaear"));
     app.setApplicationDisplayName(QStringLiteral("OmaEar"));
     app.setDesktopFileName(QStringLiteral("com.github.allanjorch.omaear"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/omaear.svg")));
     QFont uiFont(QStringLiteral("monospace"));
     uiFont.setStyleHint(QFont::Monospace);
     uiFont.setWeight(QFont::Normal);

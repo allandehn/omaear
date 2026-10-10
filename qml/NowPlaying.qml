@@ -55,6 +55,17 @@ Item {
         tip: "Back"
         onClicked: page.dismissRequested()
     }
+    IconButton {
+        id: helpButton
+        anchors.right: parent.right
+        anchors.rightMargin: page.compact ? 8 : 16
+        anchors.top: parent.top
+        anchors.topMargin: page.compact ? 8 : 16
+        z: 2
+        icon.source: "qrc:/icons/info-symbolic.svg"
+        tip: "Info"
+        onClicked: win.helpOpen = true
+    }
 
     Flickable {
         id: scroller
@@ -303,7 +314,8 @@ Item {
                         font.pixelSize: theme.caption
                         font.weight: Font.Normal
                         font.family: "monospace"
-                        width: 52 * theme.textScale
+                        // As wide as the duration (5:21:57 on long episodes) so the bar never overlaps it.
+                        width: Math.max(remainLabel.implicitWidth, 40 * theme.textScale)
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Scrubber {
@@ -383,8 +395,8 @@ Item {
     StatusNote {
         anchors.left: back.right
         anchors.leftMargin: 12
-        anchors.right: parent.right
-        anchors.rightMargin: 24
+        anchors.right: helpButton.left
+        anchors.rightMargin: 12
         anchors.verticalCenter: back.verticalCenter
         z: 2
         font.pixelSize: theme.bodySmall

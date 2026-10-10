@@ -2,6 +2,7 @@
 #include "explore.h"
 #include "feed.h"
 #include "library.h"
+#include "updates.h"
 
 #include <QUrl>
 
@@ -249,6 +250,17 @@ int runSelfTest(int argc, char **argv)
             check(library.exploreCountry() == QStringLiteral("gb"), "explore country persists");
             library.setExploreCountry(QString());
             check(library.exploreCountry().isEmpty(), "explore country back to automatic");
+            check(library.updateCheckEnabled(), "updates.check defaults on");
+            library.setUpdateCache(QStringLiteral("failed"), QString(), QString(), 10);
+            check(library.updateResult() == QStringLiteral("failed"), "update failure cached");
+            check(library.updateCheckedAt() == 10, "update check time cached");
+            check(library.updateLatest().isEmpty() && library.updateUrl().isEmpty(), "failed check clears version");
+            library.setUpdateCache(QStringLiteral("available"), QStringLiteral("0.2.0"),
+                                   QStringLiteral("https://github.com/allanjorch/omaear/releases/tag/v0.2.0"), 20);
+            check(library.updateLatest() == QStringLiteral("0.2.0"), "update version cached");
+            check(library.updateUrl().endsWith(QStringLiteral("v0.2.0")), "update url cached");
+            check(library.updateCheckedAt() == 20, "update check time replaced");
+            check(library.updateCheckEnabled(), "cache write leaves updates.check on");
             check(library.lastPlayedEpisodeId() == 0, "clear lastPlayed episode id");
             library.setLastPlayedEpisodeId(newest);
             check(library.lastPlayedEpisodeId() == newest, "set lastPlayed for restore");
@@ -278,7 +290,7 @@ int runSelfTest(int argc, char **argv)
             check(shelf.at(2).unheard == 0, "caught up is last");
         }
         check(library.shelfView() == QStringLiteral("gallery"), "shelf starts as gallery");
-        check(library.shelfColumns() == 5, "shelf starts at five columns");
+        check(library.shelfColumns() == 6, "shelf starts at six columns");
         library.setShelfView(QStringLiteral("list"));
         library.setShelfColumns(0);
         check(library.shelfView() == QStringLiteral("list"), "shelf list");
@@ -294,7 +306,7 @@ int runSelfTest(int argc, char **argv)
         check(library.shelfListSize() == 0, "list cover stays at least the smallest");
         library.setShelfListSize(9);
         check(library.shelfListSize() == 4, "list cover stays at most the largest");
-        check(library.episodeListSize() == 0, "episode list cover starts at the smallest");
+        check(library.episodeListSize() == 2, "episode list cover starts two steps up");
         library.setEpisodeListSize(-3);
         check(library.episodeListSize() == 0, "episode list cover stays at least the smallest");
         library.setEpisodeListSize(9);
@@ -415,6 +427,36 @@ int runSelfTest(int argc, char **argv)
         for (const QString &code : Explore::storefronts())
             unknown += QLocale::codeToTerritory(code) == QLocale::AnyTerritory ? 1 : 0;
         check(unknown == 0 && Explore::storefronts().size() >= 40, "explore storefront codes map to territories");
+    }
+
+    check(versionIsNewer(QStringLiteral("v0.2.0"), QStringLiteral("0.1.0")), "0.2.0 is newer than 0.1.0");
+    check(versionIsNewer(QStringLiteral("0.1.10"), QStringLiteral("0.1.9")), "0.1.10 is newer than 0.1.9");
+    check(versionIsNewer(QStringLiteral("0.2"), QStringLiteral("0.1.9")), "0.2 is newer than 0.1.9");
+    check(versionIsNewer(QStringLiteral("1.0.0"), QStringLiteral("0.9.9")), "1.0.0 is newer than 0.9.9");
+    check(!versionIsNewer(QStringLiteral("v0.1.0"), QStringLiteral("0.1.0")), "same version is not newer");
+    check(!versionIsNewer(QStringLiteral("V0.1.0"), QStringLiteral("0.1.0")), "capital V is the same version");
+    check(!versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("v0.2.0")), "older tag is not newer");
+    check(!versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0.0")), "trailing zero is the same version");
+    check(!versionIsNewer(QString(), QStringLiteral("0.1.0")), "empty tag is not newer");
+    {
+        const QByteArray newer = R"({"tag_name":"v0.2.0","html_url":"https://github.com/allanjorch/omaear/releases/tag/v0.2.0"})";
+        const UpdateOffer offer = parseLatestRelease(newer, 200, QStringLiteral("0.1.0"));
+        check(offer.kind == UpdateKind::Available && offer.latest == QStringLiteral("0.2.0"), "release json strips v");
+        check(offer.url.endsWith(QStringLiteral("v0.2.0")), "release json keeps html_url");
+        const UpdateOffer same = parseLatestRelease(newer, 200, QStringLiteral("0.2.0"));
+        check(same.kind == UpdateKind::Current, "matching release is up to date");
+        const UpdateOffer ahead = parseLatestRelease(newer, 200, QStringLiteral("0.3.0"));
+        check(ahead.kind == UpdateKind::Current, "local build ahead of the release is up to date");
+        check(parseLatestRelease(QByteArray("{\"message\":\"Not Found\"}"), 404, QStringLiteral("0.1.0")).kind
+                  == UpdateKind::Failed,
+              "404 release check fails");
+        check(parseLatestRelease(QByteArray("{\"message\":\"rate limit\"}"), 403, QStringLiteral("0.1.0")).kind
+                  == UpdateKind::Failed,
+              "rate limit release check fails");
+        check(parseLatestRelease(QByteArray(), 0, QStringLiteral("0.1.0")).kind == UpdateKind::Failed,
+              "offline release check fails");
+        check(parseLatestRelease(QByteArray("not-json"), 200, QStringLiteral("0.1.0")).kind == UpdateKind::Failed,
+              "bad release json fails");
     }
 
     if (g_fails == 0) {

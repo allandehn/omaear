@@ -1,82 +1,80 @@
-# OmaEar
+<p align="center"><img src="assets/icons/banner.png" srcset="assets/icons/banner@2x.png 2x" alt="OmaEar"></p>
 
-A shelf of shows. Close the window and the episode keeps playing.
-
-Paste a feed, or bring a whole library over with an OPML export from Podcast Addict. Covers sit in a gallery or a list. Anything still unheard stays in front, including an old backlog. The player stays up for the Omarchy bar after the window is gone.
-
-The command is `omaear`. The launcher name is OmaEar. This repo is [omaear](https://github.com/allanjorch/omaear). (Formerly “Podcasts”/`podcast`; data from that name moves over automatically on first start.)
+OmaEar is a podcast player for [Omarchy](https://omarchy.org). It keeps a shelf of your shows and keeps playing after you close the window.
 
 Designed together by [Allan Kristensen](https://github.com/allanjorch) and [Grok](https://x.ai).
 
+![OmaEar shelf with a few shows and an episode playing](assets/screenshots/shelf.png)
+
+![Now Playing](assets/screenshots/now-playing.png)
+
+## Install
+
+On Omarchy, run:
+
+```
+curl -fsSL https://raw.githubusercontent.com/allanjorch/omaear/main/install.sh | bash
+```
+
+It adds the OmaEar package repository, with packages signed by Allan Kristensen (key `AC6F F13C 76D8 916C CCF2  DA05 C322 5162 B525 7DB4`), and installs the app. Updates then arrive with `omarchy update`. Open **OmaEar** from the app launcher, or run `omaear`.
+
+Prefer to do it by hand? Read [install.sh](install.sh). It's a handful of lines.
+
+## Getting started
+
+Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your whole library over from another podcast app with **Import OPML**.
+
 ## Features
 
-**Shelf.** Shows with unheard episodes sit in front, ordered by newest unheard. Caught-up shows follow. The badge is the unheard count; caught-up covers sit back. Switch gallery and list from the header. Ctrl+wheel (or Ctrl+= / Ctrl+−) zooms covers.
+**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only.
 
-**Show.** Open a cover for the episode list. Play from the art on each row. Left-click a row for details. Right-click (or Mark) for played, unplayed, older, newer, or the whole show. Refresh that feed, or remove the show (history goes with it).
+**Explore.** Search the podcast directory or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
 
-**Episode details.** Full description and art when the feed has them, plus date, duration, and progress. Play and Mark from the header.
+**Episodes.** Play straight from the episode art. Open an episode for its full notes, where links open in your browser and timestamps jump the player to that point.
 
-**Now Playing.** Tap the bar cover or the expand control. Large cover, titles, transport, scrubber, and speed. Short windows collapse to a compact layout; the player bar stays underneath.
+**Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished. With **autoplay** on, the queue decides what plays next. With it off, the queue is simply a pinned list.
 
-**Player bar.** Back 15s, play/pause, forward 30s, scrubber, volume, speed cycle, Now Playing, and Mark. Click the title for that episode’s details (Back from there returns to the shelf). Visible whenever an episode is loaded. After a full quit, the last started episode comes back paused at its saved position.
+**Player.** Back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds from 0.5× to 2×, volume (click to mute), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel.
 
-**Volume.** App-specific via Qt Multimedia on this player’s output (0–100%). Remembered in the library. Soft gain above 100% is not available.
+**Keeps playing.** Close the window and the episode carries on, with controls in the Omarchy bar and media keys. Open OmaEar again and the same window comes back.
 
-**Theme.** Colors and type from Omarchy (`~/.local/state/omarchy/current/theme/`). A theme switch retints the window. Without Omarchy, a built-in dark palette (or light when mode asks for it) is used. Text size follows the desktop text scale.
+**Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Text size follows your display scale.
 
-**Navigation.** Escape, Alt+Left, Backspace (outside text fields), or the mouse Back button steps back through Now Playing, episode, and show. Alt+Right or mouse Forward restores after Back. Space pauses and resumes. Ctrl+Q closes the window and leaves the audio running.
-
-Open OmaEar again and the same window comes back. Stop playback with nothing left loaded, and the player exits.
-
-## Mark played
-
-- **Mark as played** / **Mark as unplayed** for that episode.
-- **Mark older as played** for episodes of this show published before it (the one you chose stays as it is).
-- **Mark newer as played** for episodes published after it.
-- **Mark all as played** for the whole show (asks first).
-
-Marking does not stop playback. The status line reports how many episodes changed. An episode also counts as heard in the last few percent, so a trailing jingle does not pin the show to the front. One you have started and not finished still counts as unheard.
+**Info.** The ⓘ button (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available.
 
 ## Shortcuts
 
 | Key / mouse | Action |
 | --- | --- |
 | Space | Play / pause |
-| Escape, Alt+Left, Backspace | Back |
-| Alt+Right | Forward (after Back) |
-| Mouse Back / Forward | Same as Alt+Left / Alt+Right |
-| Ctrl+= / Ctrl+−, Ctrl+wheel | Zoom shelf or episode list |
-| Ctrl+Q | Close window (audio keeps playing) |
+| Esc, Alt+Left, Backspace, mouse Back | Back |
+| Alt+Right, mouse Forward | Forward |
+| Ctrl+wheel, Ctrl+= / Ctrl+− | Resize covers and art |
+| Ctrl+0 | Reset art to its default size |
+| ? | Info |
+| Ctrl+Q | Close the window (audio keeps playing) |
 
-## Build
+## Marking played
 
-Qt 6 with Quick, Quick Controls, Multimedia, SQL (SQLite), Network, and D-Bus. On Omarchy those libraries are already installed. `cmake` is not required.
+Right-click an episode, or use **Mark**, to mark it played or unplayed, mark everything older or newer, or mark the whole show. An episode counts as heard in its last few percent, so a closing jingle doesn't keep a show in front.
+
+## Your data
+
+The library lives in `~/.local/share/allanjorch/omaear/` and downloaded audio and artwork in `~/.cache/allanjorch/omaear/`.
+
+## Build from source
+
+Needs Qt 6 (Quick, Quick Controls, Multimedia, SQL, Network, D-Bus), all already on Omarchy.
 
 ```
 qmake6
 make -j
 ./omaear --self-test
-make install    # ~/.local/bin/omaear and an OmaEar launcher entry
+make install    # installs to ~/.local, no root needed
 ```
 
-`make install` needs no root. The desktop entry runs `~/.local/bin/omaear`.
+To build the Arch package yourself, use `packaging/PKGBUILD`, or run `packaging/build-local.sh` to build one from this checkout.
 
-This version streams and remembers where you stopped. The library is `~/.local/share/allanjorch/omaear/library.db`.
+## License
 
-## Package (Arch / Omarchy)
-
-`packaging/PKGBUILD` builds `omaear` into `/usr` (binary, desktop entry, license). For a release it uses the GitHub tag tarball `v$pkgver`. To build from this checkout instead:
-
-```
-packaging/build-local.sh     # makepkg on HEAD, then refreshes dist/repo (pacman repo)
-```
-
-Install from a hosted repo by adding this to `/etc/pacman.conf` (URL to be finalised; GitHub Releases or Pages):
-
-```
-[omaear]
-SigLevel = Optional TrustAll
-Server = https://github.com/allanjorch/omaear/releases/download/repo
-```
-
-then `sudo pacman -Sy omaear`. To try the local repo: `Server = file:///home/allan/Work/omaear/dist/repo`.
+[MIT](LICENSE)

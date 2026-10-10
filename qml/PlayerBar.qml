@@ -7,10 +7,13 @@ Rectangle {
     // refresh runs. Spinner / StatusNote still use backend.busy elsewhere.
     signal markAllRequested()
     signal nowPlayingRequested()
+    signal nowPlayingCollapseRequested()
     color: theme.darkMode ? Qt.darker(theme.background, 1.25) : Qt.lighter(theme.background, 1.08)
     implicitHeight: 96 * theme.textScale
     height: implicitHeight
 
+    // True while the Now Playing page is the visible history entry.
+    property bool nowPlayingOpen: false
     property var markedPlayed: false
 
     // Ascending picker order; values match backend kRates.
@@ -92,6 +95,9 @@ Rectangle {
         spacing: 14
 
         Item {
+            id: barArt
+            // Small window: drop the art so the controls get the room.
+            visible: bar.width >= 420 * theme.textScale
             width: 52 * theme.textScale
             height: width
             anchors.verticalCenter: parent.verticalCenter
@@ -118,7 +124,7 @@ Rectangle {
         }
 
         Column {
-            width: parent.width - 70 * theme.textScale
+            width: parent.width - (barArt.visible ? 70 * theme.textScale : 0)
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
@@ -156,7 +162,7 @@ Rectangle {
                     }
                     IconButton {
                         // queueCount / playerEpisodeId re-run the lookup on any queue or track change.
-                        visible: backend.queueCount > 0 && backend.playerEpisodeId >= 0
+                        visible: backend.queueAutoplay && backend.queueCount > 0 && backend.playerEpisodeId >= 0
                                  && backend.nextQueuedId() !== 0
                         icon.name: "media-skip-forward-symbolic"
                         tip: "Next in queue"
@@ -165,6 +171,14 @@ Rectangle {
                 }
                 Row {
                     id: extras
+                    // Too narrow for both rows: transport wins, extras step aside.
+                    // Width as last measured while shown, so hiding can't feed back
+                    // into the check (no binding loop), and hidden means no hover popups.
+                    property real fullWidth: 0
+                    onImplicitWidthChanged: if (visible && implicitWidth > 0) fullWidth = implicitWidth
+                    Component.onCompleted: fullWidth = implicitWidth
+                    readonly property bool fits: transport.width + fullWidth + 8 <= parent.width
+                    visible: fits
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
@@ -206,11 +220,17 @@ Rectangle {
                         onClicked: backend.cycleRate()
                     }
                     IconButton {
-                        icon.name: "view-fullscreen-symbolic"
-                        tip: "Now playing"
+                        icon.name: bar.nowPlayingOpen ? "view-restore-symbolic"
+                                                      : "view-fullscreen-symbolic"
+                        tip: bar.nowPlayingOpen ? "Minimize" : "Now playing"
                         // enabled: !backend.busy
                         enabled: true
-                        onClicked: bar.nowPlayingRequested()
+                        onClicked: {
+                            if (bar.nowPlayingOpen)
+                                bar.nowPlayingCollapseRequested()
+                            else
+                                bar.nowPlayingRequested()
+                        }
                     }
                     IconButton {
                         icon.name: "check-plain-symbolic"
@@ -226,7 +246,8 @@ Rectangle {
                 SelectableText {
                     id: titleText
                     anchors.left: transport.right
-                    anchors.right: extras.left
+                    anchors.right: extras.fits ? extras.left : parent.right
+                    visible: width >= 48
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: 12
                     anchors.rightMargin: 12
@@ -236,6 +257,13 @@ Rectangle {
                     wrapMode: TextEdit.NoWrap
                     clip: true
                     onActivated: win.openEpisodePage(backend.playerEpisodeId)
+
+                    // Full title on hover when it's cut off.
+                    HoverHandler { id: titleHover }
+                    AppTip {
+                        text: backend.playerTitle
+                        visible: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
+                    }
                 }
             }
 
@@ -249,18 +277,28 @@ Rectangle {
             }
 
             Row {
+                id: timeRow
                 width: parent.width
                 spacing: 8
+                // Both time labels fit the longest the duration can read (e.g. 5:21:57),
+                // so long episodes never push the bar into the numbers.
+                TextMetrics {
+                    id: timeMetrics
+                    font.pixelSize: theme.caption
+                    font.family: "monospace"
+                    text: scrubber.durationText.replace(/[0-9]/g, "0")
+                }
+                readonly property real labelWidth: Math.ceil(Math.max(timeMetrics.advanceWidth, 1)) + 2
                 Text {
                     text: scrubber.elapsedText
                     color: theme.dim
                     font.pixelSize: theme.caption
                     font.weight: Font.Normal
-                    width: 48 * theme.textScale
+                    width: timeRow.labelWidth
                 }
                 Scrubber {
                     id: scrubber
-                    width: parent.width - 110 * theme.textScale
+                    width: parent.width - timeRow.labelWidth * 2 - parent.spacing * 2
                     anchors.verticalCenter: parent.verticalCenter
                     // interactive: !backend.busy
                     interactive: true
@@ -270,6 +308,8 @@ Rectangle {
                     color: theme.dim
                     font.pixelSize: theme.caption
                     font.weight: Font.Normal
+                    width: timeRow.labelWidth
+                    horizontalAlignment: Text.AlignRight
                 }
             }
         }

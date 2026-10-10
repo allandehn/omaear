@@ -215,6 +215,8 @@ Item {
         }
         Row {
             id: actions
+            // Narrow window: keep back + title; buttons return once they fit.
+            visible: back.x + back.width + 18 + 120 + implicitWidth + 28 <= parent.width
             anchors.right: parent.right
             anchors.rightMargin: 28
             anchors.verticalCenter: parent.verticalCenter
@@ -246,10 +248,15 @@ Item {
                     markMenu.popup()
                 }
             }
+            IconButton {
+                icon.source: "qrc:/icons/info-symbolic.svg"
+                tip: "Info"
+                onClicked: win.helpOpen = true
+            }
         }
         Column {
             anchors.left: back.right
-            anchors.right: actions.left
+            anchors.right: actions.visible ? actions.left : parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 18
             anchors.rightMargin: 18

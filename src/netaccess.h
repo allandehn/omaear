@@ -6,11 +6,9 @@
 
 // User-Agent for EPISODE AUDIO only (HttpFileBuffer: play, prefetch, resume).
 //
-// Some hosts (e.g. Flightcast, which serves The Diary of a CEO) stitch local
-// ads into the file when the request comes from a recognised podcast app in
-// certain countries. A generic media player identity (the one ffmpeg, mpv and
-// VLC send) gets the plain file. If a host refuses that identity, the
-// downloader retries once with kAudioAppUserAgent (may carry ads). Feeds,
+// Episode audio is fetched with a generic media player identity (the one
+// ffmpeg, mpv and VLC send). If a host refuses that identity, the
+// downloader retries once with kAudioAppUserAgent. Feeds,
 // artwork and Explore keep the app's own identity.
 inline constexpr const char kAudioGenericUserAgent[] = "Lavf/61.1.100";
 inline constexpr const char kAudioAppUserAgent[] =

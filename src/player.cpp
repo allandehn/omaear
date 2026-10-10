@@ -188,7 +188,7 @@ public:
     double rate() const { return m_rate; }
     double volume() const { return m_volume; }
     qint64 positionMs() const { return m_positionMs; }
-    bool canGoNext() const { return m_library.queueAfter(m_episode.id) != 0 || m_library.adjacent(m_episode.id, true, false) != 0; }
+    bool canGoNext() const { return (m_library.queueAutoplay() && m_library.queueAfter(m_episode.id) != 0) || m_library.adjacent(m_episode.id, true, false) != 0; }
     bool canGoPrevious() const { return m_library.adjacent(m_episode.id, false, false) != 0; }
     QVariantMap metadata() const;
     void setMpris(MprisPlayerAdaptor *mpris) { m_mpris = mpris; }
@@ -372,7 +372,7 @@ void PlayerService::skip(bool older)
     if (m_episode.id == 0)
         return;
     // Next prefers the up-next queue; Previous stays chronological.
-    qint64 id = older ? m_library.queueAfter(m_episode.id) : 0;
+    qint64 id = (older && m_library.queueAutoplay()) ? m_library.queueAfter(m_episode.id) : 0;
     if (id == 0)
         id = m_library.adjacent(m_episode.id, older, false);
     if (id != 0)
@@ -571,7 +571,11 @@ PlayerService::PlayerService(Library &library, QObject *parent)
         m_episode.played = true;
         // Up-next queue wins; otherwise the next older unplayed episode of this show.
         // Pick the follower by position first, then drop the finished one.
+        // Finished episodes always leave the queue; it only picks what's next
+        // when queue autoplay is on.
         qint64 next = m_library.finishQueued(m_episode.id);
+        if (!m_library.queueAutoplay())
+            next = 0;
         if (next == 0)
             next = m_library.adjacent(m_episode.id, true, true);
         const int gen = m_mediaGeneration;
@@ -1600,7 +1604,7 @@ void PlayerService::maybePrefetchNext()
 {
     if (m_episode.id == 0)
         return;
-    qint64 nextId = m_library.queueAfter(m_episode.id);
+    qint64 nextId = m_library.queueAutoplay() ? m_library.queueAfter(m_episode.id) : 0;
     if (nextId == 0)
         nextId = m_library.adjacent(m_episode.id, true, true);
     if (nextId == 0)
@@ -1709,8 +1713,8 @@ int runPlayer(int argc, char **argv)
         return 0;
     if (!bus.registerService(kMprisService))
         return 0;
-    // One-time: audio cached before the generic player identity may carry
-    // stitched-in ads. This process owns the media cache and nothing is playing
+    // One-time: audio cached before the generic player identity may differ
+    // from the current fetch. This process owns the media cache and nothing is playing
     // yet, so drop it all; episodes re-download on the next play or prefetch.
     // Library rows (played, position) are untouched.
     if (library.audioCacheUa() != QStringLiteral("generic-v1")) {
@@ -1718,8 +1722,8 @@ int runPlayer(int argc, char **argv)
         library.setAudioCacheUa(QStringLiteral("generic-v1"));
         qInfo("[omaear-cache] audio identity changed: removed %d cached episode files", removed);
     }
-    // One-time: Audioboom audio cached before the static-fallback fix has
-    // stitched-in ads. A new player process plays nothing yet, so it is safe.
+    // One-time: Audioboom audio cached before the static-fallback change may
+    // differ from the original. A new player process plays nothing yet, so it is safe.
     if (!library.cacheMigrationDone(QStringLiteral("audio_cache_static_fallback"))) {
         const QList<qint64> ids = library.episodeIdsViaHost(QStringLiteral("audioboom.com"));
         const int removed = HttpFileBuffer::purgeEpisodes(ids);

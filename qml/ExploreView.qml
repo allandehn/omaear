@@ -142,12 +142,23 @@ Item {
             onAccepted: explore.searchNow()
         }
 
+        IconButton {
+            id: helpButton
+            visible: header.width >= 380
+            anchors.right: parent.right
+            anchors.rightMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            icon.source: "qrc:/icons/info-symbolic.svg"
+            tip: "Info"
+            onClicked: win.helpOpen = true
+        }
+
         // Region picker: the flag of the region in use (emoji from the two-letter
         // code) plus a small dropdown arrow. Falls back to the globe if no code.
         IconButton {
             id: flagButton
-            anchors.right: parent.right
-            anchors.rightMargin: 16
+            anchors.right: helpButton.visible ? helpButton.left : parent.right
+            anchors.rightMargin: 2
             anchors.verticalCenter: parent.verticalCenter
             readonly property string code: (explore.countryCode || "").toUpperCase()
             readonly property string flag: code.length === 2

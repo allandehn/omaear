@@ -674,6 +674,16 @@ void Library::setVolume(double volume)
     setSetting(QStringLiteral("volume"), QString::number(clamped, 'f', 3));
 }
 
+bool Library::queueAutoplay() const
+{
+    return setting(QStringLiteral("queue.autoplay"), QStringLiteral("1")) == QStringLiteral("1");
+}
+
+void Library::setQueueAutoplay(bool on)
+{
+    setSetting(QStringLiteral("queue.autoplay"), on ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
 bool Library::mono() const
 {
     return setting(QStringLiteral("playback.mono"), QStringLiteral("0")) == QStringLiteral("1");
@@ -727,9 +737,9 @@ void Library::setShelfView(const QString &view)
 int Library::shelfColumns() const
 {
     bool ok = false;
-    const int value = setting(QStringLiteral("shelf.columns"), QStringLiteral("5")).toInt(&ok);
+    const int value = setting(QStringLiteral("shelf.columns"), QStringLiteral("6")).toInt(&ok);
     if (!ok)
-        return 5;
+        return 6;
     return qBound(1, value, 10);
 }
 
@@ -755,11 +765,12 @@ void Library::setShelfListSize(int size)
 
 int Library::episodeListSize() const
 {
-    // Same five steps as ShelfView list covers (0 through 4).
+    // Same five steps as ShelfView list covers (0 through 4). 0 is the original
+    // 44px cover; a new library starts two steps above that.
     bool ok = false;
-    const int value = setting(QStringLiteral("show.listSize"), QStringLiteral("0")).toInt(&ok);
+    const int value = setting(QStringLiteral("show.listSize"), QStringLiteral("2")).toInt(&ok);
     if (!ok)
-        return 0;
+        return 2;
     return qBound(0, value, 4);
 }
 
@@ -932,4 +943,41 @@ void Library::setExploreCountry(const QString &code)
     const QString clean = code.trimmed().toLower();
     // Non-null empty string: a null QString binds as SQL NULL and the write fails.
     setSetting(QStringLiteral("explore.country"), clean.size() == 2 ? clean : QStringLiteral(""));
+}
+
+bool Library::updateCheckEnabled() const
+{
+    // Missing key stays on. Only an explicit 0 turns the check off.
+    return setting(QStringLiteral("updates.check"), QStringLiteral("1")) != QStringLiteral("0");
+}
+
+qint64 Library::updateCheckedAt() const
+{
+    bool ok = false;
+    const qint64 value = setting(QStringLiteral("updates.checkedAt"), QStringLiteral("0")).toLongLong(&ok);
+    return ok ? value : 0;
+}
+
+QString Library::updateResult() const
+{
+    return setting(QStringLiteral("updates.result"), QString());
+}
+
+QString Library::updateLatest() const
+{
+    return setting(QStringLiteral("updates.latest"), QString());
+}
+
+QString Library::updateUrl() const
+{
+    return setting(QStringLiteral("updates.url"), QString());
+}
+
+void Library::setUpdateCache(const QString &result, const QString &latest, const QString &url, qint64 checkedAtMs)
+{
+    setSetting(QStringLiteral("updates.result"), result);
+    // A null QString binds as SQL NULL and the write fails.
+    setSetting(QStringLiteral("updates.latest"), latest.isNull() ? QStringLiteral("") : latest);
+    setSetting(QStringLiteral("updates.url"), url.isNull() ? QStringLiteral("") : url);
+    setSetting(QStringLiteral("updates.checkedAt"), QString::number(checkedAtMs));
 }

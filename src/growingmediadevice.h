@@ -49,7 +49,7 @@ public:
     // Audio User-Agent to try first for this URL's host this session: the generic
     // player identity, or the app's own if that host refused the generic one.
     static QByteArray preferredUserAgent(const QUrl &url);
-    // Static original behind a dynamic-ad variant URL (…/v1/variant/…?fallback_url=…
+    // Static original behind a variant URL (…/v1/variant/…?fallback_url=…
     // media_type=static, e.g. Audioboom). Empty when the URL is not such a variant.
     static QUrl staticFallbackUrl(const QUrl &url);
     // Deletes cached files (finished, .part, sidecar) of these episodes.
@@ -106,7 +106,7 @@ private:
 
     // User-Agent consistency: every request for one .part uses m_ua; the
     // sidecar records which UA produced the bytes on disk so a resume never
-    // splices two ad variants together.
+    // splices two different files together.
     QByteArray m_ua;
     QByteArray m_sidecarUa;     // UA recorded for the bytes currently on disk
     bool m_reqHeadersSeen = false; // per request

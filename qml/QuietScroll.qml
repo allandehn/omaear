@@ -5,15 +5,14 @@ import QtQuick
 // Thumb length is the visible fraction of contentHeight. Count is part of
 // that binding: a later append (more shows or episodes) must shrink and
 // shift the thumb, not leave the first-paint ratio in place.
-// The bar does not take input, so FastWheel on the view still sees the wheel.
+// The bar can be dragged or clicked. Wheel events pass through to the view.
 Item {
     id: bar
     property var view: null
     // Bind to the view's count where it has one. Plain Flickables stay at 0.
     property int loadedCount: 0
 
-    width: 6
-    enabled: false
+    width: 14
     z: 2
 
     // Bumped from contentHeight and loadedCount so a var-typed view cannot
@@ -51,7 +50,7 @@ Item {
 
     Timer {
         id: idle
-        interval: 280
+        interval: 900
         onTriggered: bar.scrolling = false
     }
 
@@ -81,7 +80,7 @@ Item {
         if (!overflows || contentSpan <= 0 || track <= 0)
             return 0
         var natural = track * (view.height / contentSpan)
-        var floor = Math.min(track, 10)
+        var floor = Math.min(track, 24)
         if (natural < floor)
             return floor
         if (natural > track)
@@ -109,12 +108,48 @@ Item {
     visible: overflows
 
     Rectangle {
-        x: parent.width - width - 1
+        x: parent.width - width - 2
         y: bar.thumbY
-        width: 2
         height: Math.max(0, bar.thumbLen)
-        radius: 1
-        color: bar.scrolling ? theme.foreground : theme.muted
-        opacity: bar.scrolling ? 0.9 : 0.75
+        radius: 3
+        width: (grab.containsMouse || grab.pressed) ? 8 : 6
+        color: (grab.pressed || grab.containsMouse) ? theme.foreground : theme.muted
+        // Hidden at rest; appears instantly on scroll or hover, fades out after.
+        readonly property bool shown: bar.scrolling || grab.pressed || grab.containsMouse
+        opacity: shown ? 0.9 : 0
+        Behavior on opacity {
+            enabled: !parent.shown
+            NumberAnimation { duration: 350; easing.type: Easing.OutQuad }
+        }
+    }
+
+    function scrollTo(thumbTop) {
+        if (!view || track <= thumbLen)
+            return
+        var minPos = view.originY - view.topMargin
+        var span = contentSpan - view.height
+        var f = (thumbTop - inset) / (track - thumbLen)
+        f = Math.max(0, Math.min(1, f))
+        view.contentY = minPos + f * span
+    }
+
+    MouseArea {
+        id: grab
+        anchors.fill: parent
+        hoverEnabled: true
+        preventStealing: true
+        cursorShape: Qt.PointingHandCursor
+        property real grabOffset: 0
+        onPressed: (mouse) => {
+            if (typeof bar.view.cancelFlick === "function")
+                bar.view.cancelFlick()
+            var onThumb = mouse.y >= bar.thumbY && mouse.y <= bar.thumbY + bar.thumbLen
+            // Clicking the track jumps there; the thumb then follows the drag.
+            grabOffset = onThumb ? mouse.y - bar.thumbY : bar.thumbLen / 2
+            if (!onThumb)
+                bar.scrollTo(mouse.y - grabOffset)
+        }
+        onPositionChanged: (mouse) => { if (pressed) bar.scrollTo(mouse.y - grabOffset) }
+        onWheel: (wheel) => wheel.accepted = false
     }
 }

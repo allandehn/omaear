@@ -100,6 +100,9 @@ public:
     // Level to restore when unmuting (0 = none saved).
     // Playback downmix to mono (settings key playback.mono).
     bool mono() const;
+    // Queue autoplay: when off the queue is a pinned list and never drives playback.
+    bool queueAutoplay() const;
+    void setQueueAutoplay(bool on);
     void setMono(bool on);
     double volumeBeforeMute() const;
     void setVolumeBeforeMute(double volume);
@@ -120,6 +123,14 @@ public:
     // Explore store country (two-letter code); empty = automatic.
     QString exploreCountry() const;
     void setExploreCountry(const QString &code);
+    // updates.check defaults on. "0" disables the GitHub release check. No UI yet.
+    // The last result is updates.result / updates.latest / updates.url / updates.checkedAt.
+    bool updateCheckEnabled() const;
+    qint64 updateCheckedAt() const;
+    QString updateResult() const;
+    QString updateLatest() const;
+    QString updateUrl() const;
+    void setUpdateCache(const QString &result, const QString &latest, const QString &url, qint64 checkedAtMs);
     void setNowPlayingArtScale(double scale);
     void setEpisodeShowAll(bool showAll);
     // Which audio User-Agent generation the media cache was downloaded with.

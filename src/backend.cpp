@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "feed.h"
+#include "updates.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -39,6 +40,8 @@ const QList<double> kRates = {1.0, 1.2, 1.5, 1.8, 2.0, 0.5, 0.8};
 const QString kLastRefreshKey = QStringLiteral("refresh/lastSuccessMs");
 constexpr qint64 kAutoRefreshSkipMs = 30 * 60 * 1000; // skip launch refresh if last success within this window
 constexpr int kMaxEpisodeCoverDownloads = 6;
+constexpr qint64 kUpdateHelpIntervalMs = 10 * 60 * 1000;
+constexpr qint64 kUpdateDayMs = 24LL * 60 * 60 * 1000;
 
 QString coverExtension(const QByteArray &bytes, const QString &contentType)
 {
@@ -104,6 +107,9 @@ Backend::Backend(Library &library, QObject *parent)
         restoreLastPlayed();
         maybeAutoRefreshOnLaunch();
     });
+    loadUpdateCache();
+    // Once a day, after the window is up. Opening help rechecks after 10 minutes.
+    QTimer::singleShot(30000, this, [this]() { maybeDailyUpdateCheck(); });
 }
 
 void Backend::setStatus(const QString &status)
@@ -439,11 +445,10 @@ void Backend::openPlayingEpisode()
     m_returnToShelfOnClose = true;
 }
 
-void Backend::removeOpenShow()
+void Backend::removeShow(qint64 showId)
 {
-    if (m_openShowId == 0)
+    if (showId == 0)
         return;
-    const qint64 showId = m_openShowId;
     if (m_playerShowId == showId)
         stopPlayback();
     const qint64 lastId = m_library.lastPlayedEpisodeId();
@@ -452,7 +457,7 @@ void Backend::removeOpenShow()
         if (last.id == 0 || last.showId == showId)
             m_library.setLastPlayedEpisodeId(0);
     }
-    const QString title = m_openShowTitle;
+    const QString title = showId == m_openShowId ? m_openShowTitle : m_library.showTitle(showId);
     const QString image = m_library.showImage(showId);
     QStringList episodeImages;
     for (const auto &row : m_library.episodes(showId)) {
@@ -465,9 +470,15 @@ void Backend::removeOpenShow()
         QFile::remove(image);
     for (const QString &path : episodeImages)
         QFile::remove(path);
-    closeShow();
+    if (m_openShowId == showId)
+        closeShow();
     reloadShows();
     setStatus(QStringLiteral("Removed %1.").arg(title));
+}
+
+void Backend::removeOpenShow()
+{
+    removeShow(m_openShowId);
 }
 
 void Backend::enqueue(const QStringList &urls)
@@ -1038,6 +1049,13 @@ void Backend::toggleMute()
     }
     const double restore = m_library.volumeBeforeMute();
     setVolume(restore > 0.0005 ? restore : 1.0);
+}
+
+void Backend::toggleQueueAutoplay()
+{
+    m_library.setQueueAutoplay(!m_library.queueAutoplay());
+    emit queueAutoplayChanged();
+    emit queueChanged();
 }
 
 void Backend::toggleMono()
@@ -1733,4 +1751,107 @@ void Backend::copyArtworkUrl(qint64 episodeId, qint64 showId)
     }
     QGuiApplication::clipboard()->setText(src.url);
     setStatus(QStringLiteral("Image URL copied."));
+}
+
+void Backend::loadUpdateCache()
+{
+    if (!m_library.updateCheckEnabled()) {
+        publishUpdate(QStringLiteral("off"), {}, {});
+        return;
+    }
+    const QString result = m_library.updateResult();
+    if (result != QLatin1String("current") && result != QLatin1String("available")
+        && result != QLatin1String("failed")) {
+        publishUpdate(QStringLiteral("idle"), {}, {});
+        return;
+    }
+    publishUpdate(result, m_library.updateLatest(), m_library.updateUrl());
+}
+
+bool Backend::updateFresh(qint64 maxAgeMs) const
+{
+    const qint64 last = m_library.updateCheckedAt();
+    if (last <= 0)
+        return false;
+    const qint64 age = QDateTime::currentMSecsSinceEpoch() - last;
+    return age >= 0 && age < maxAgeMs;
+}
+
+void Backend::publishUpdate(const QString &phase, const QString &latest, const QString &url)
+{
+    QString message;
+    if (phase == QLatin1String("checking"))
+        message = QStringLiteral("Checking for updates…");
+    else if (phase == QLatin1String("current"))
+        message = QStringLiteral("Up to date ✓");
+    else if (phase == QLatin1String("failed"))
+        message = QStringLiteral("Couldn't check for updates");
+    if (m_updatePhase == phase && m_updateLatest == latest && m_updateUrl == url && m_updateMessage == message)
+        return;
+    m_updatePhase = phase;
+    m_updateLatest = latest;
+    m_updateUrl = url;
+    m_updateMessage = message;
+    emit updateStatusChanged();
+}
+
+void Backend::requestUpdateCheck()
+{
+    if (!m_library.updateCheckEnabled() || m_updateReply)
+        return;
+    if (updateFresh(kUpdateHelpIntervalMs))
+        return;
+    startUpdateCheck();
+}
+
+void Backend::maybeDailyUpdateCheck()
+{
+    if (!m_library.updateCheckEnabled() || m_updateReply)
+        return;
+    if (updateFresh(kUpdateDayMs))
+        return;
+    startUpdateCheck();
+}
+
+void Backend::startUpdateCheck()
+{
+    if (m_updateReply || !m_library.updateCheckEnabled())
+        return;
+    publishUpdate(QStringLiteral("checking"), {}, {});
+
+    QNetworkRequest request{
+        QUrl(QStringLiteral("https://api.github.com/repos/allanjorch/omaear/releases/latest"))};
+    // Same identity as feed fetches. HTTP/1.1 (and its IPv4 race) comes from m_network.
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allanjorch/omaear)"));
+    request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(20000);
+    QNetworkReply *reply = m_network.get(request);
+    m_updateReply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (m_updateReply == reply)
+            m_updateReply = nullptr;
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const UpdateOffer offer = parseLatestRelease(reply->readAll(), status, QStringLiteral(OMAEAR_VERSION));
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (offer.kind == UpdateKind::Available) {
+            m_library.setUpdateCache(QStringLiteral("available"), offer.latest, offer.url, now);
+            publishUpdate(QStringLiteral("available"), offer.latest, offer.url);
+            qInfo().noquote() << QStringLiteral("[omaear-update] %1 is available").arg(offer.latest);
+            return;
+        }
+        if (offer.kind == UpdateKind::Current) {
+            m_library.setUpdateCache(QStringLiteral("current"), offer.latest, QString(), now);
+            publishUpdate(QStringLiteral("current"), offer.latest, {});
+            qInfo().noquote() << QStringLiteral("[omaear-update] up to date");
+            return;
+        }
+        m_library.setUpdateCache(QStringLiteral("failed"), QString(), QString(), now);
+        publishUpdate(QStringLiteral("failed"), {}, {});
+        qInfo().noquote() << QStringLiteral("[omaear-update] check failed, HTTP %1, %2")
+                                 .arg(status)
+                                 .arg(reply->errorString());
+    });
 }

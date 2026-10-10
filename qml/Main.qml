@@ -38,6 +38,13 @@ ApplicationWindow {
     property bool confirmLibrary: false
     property bool confirmRemove: false
     property bool confirmQueue: false
+    property bool helpOpen: false
+    onHelpOpenChanged: {
+        if (helpOpen)
+            backend.requestUpdateCheck()
+    }
+    property double unsubscribeShowId: 0
+    property string unsubscribeTitle: ""
     property rect normalGeometry: Qt.rect(x, y, width, height)
     property bool wasMaximized: false
 
@@ -139,7 +146,20 @@ ApplicationWindow {
         return true
     }
 
+    // Same confirm dialog as the episodes-page Unsubscribe button.
+    function confirmUnsubscribe(showId, title) {
+        if (!showId)
+            return
+        unsubscribeShowId = showId
+        unsubscribeTitle = title
+        confirmRemove = true
+    }
+
     function back() {
+        if (helpOpen) {
+            helpOpen = false
+            return
+        }
         if (closeModals())
             return
         // Explore's region picker and preview card are page-level overlays: close them first.
@@ -166,6 +186,15 @@ ApplicationWindow {
     function navigateBack() { back() }
     function navigateForward() { forward() }
 
+    // Called from the app-wide key filter. False leaves "?" for a text field.
+    function toggleHelp() {
+        var item = win.activeFocusItem
+        if (item instanceof TextInput)
+            return false
+        helpOpen = !helpOpen
+        return true
+    }
+
     function openShowPage(showId) { navigate(makeEntry("show", showId, 0)) }
     function openEpisodePage(episodeId) {
         navigate(makeEntry("episode", backend.episodeShowId(episodeId), episodeId))
@@ -175,6 +204,23 @@ ApplicationWindow {
     function openNowPlayingPage() {
         if (backend.playerEpisodeId !== 0)
             navigate(makeEntry("nowPlaying", 0, 0))
+    }
+
+    // Player-bar toggle. Same path as the back button and the mouse side
+    // button. If Now Playing is the root entry, Back would stop; put the
+    // shelf under it and show that page (forward history stays).
+    function collapseNowPlaying() {
+        if (pageKind === "nowPlaying" && historyIndex <= 0 && !modalOpen) {
+            var list = history.slice()
+            list.unshift(makeEntry("shelf", 0, 0))
+            if (list.length > historyLimit)
+                list.pop()
+            history = list
+            historyIndex = 0
+            applyPage()
+            return
+        }
+        back()
     }
 
     // Is this entry still showable? Shows/episodes can vanish under us.
@@ -331,7 +377,7 @@ ApplicationWindow {
     }
 
     function zoomFromWheel(delta) {
-        if (modalOpen)
+        if (modalOpen || helpOpen)
             return false
         // Now Playing: Ctrl+wheel sizes the art (and never reaches the shelf zoom).
         if (pageKind === "nowPlaying") {
@@ -360,7 +406,7 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
         onActivated: {
             if (pageKind === "show") {
                 var page = win.activeShow()
@@ -374,7 +420,7 @@ ApplicationWindow {
     Shortcut {
         sequence: StandardKey.ZoomOut
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
         onActivated: {
             if (pageKind === "show") {
                 var page = win.activeShow()
@@ -412,6 +458,9 @@ ApplicationWindow {
                 onMarkLibraryRequested: win.confirmLibrary = true
                 onQueueRequested: win.openQueuePage()
                 onExploreRequested: win.openExplorePage()
+                onUnsubscribeRequested: function(showId, title) {
+                    win.confirmUnsubscribe(showId, title)
+                }
             }
 
             // One episode page per visited show. Back only hides it, so the
@@ -427,7 +476,7 @@ ApplicationWindow {
                     z: 1
                     visible: win.pageKind === "show" && win.currentPage.showId === showId
                     onMarkAllRequested: win.confirmAll = true
-                    onRemoveRequested: win.confirmRemove = true
+                    onRemoveRequested: win.confirmUnsubscribe(showId, backend.openShowTitle)
                     onQueueRequested: win.openQueuePage()
                 }
             }
@@ -467,8 +516,10 @@ ApplicationWindow {
         PlayerBar {
             Layout.fillWidth: true
             visible: backend.playerEpisodeId !== 0
+            nowPlayingOpen: win.nowPlayingOpen
             onMarkAllRequested: win.confirmAll = true
             onNowPlayingRequested: win.openNowPlayingPage()
+            onNowPlayingCollapseRequested: win.collapseNowPlaying()
         }
     }
 
@@ -570,7 +621,7 @@ ApplicationWindow {
                     text: confirmQueue
                           ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
                           : confirmRemove
-                          ? "Remove " + backend.openShowTitle + "? Playback history for this show goes with it."
+                          ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
                           : confirmLibrary
                             ? "Mark every episode of every podcast as played?"
                             : "Mark every episode of " + (backend.playerShowId !== 0 && backend.openShowId === 0
@@ -580,12 +631,12 @@ ApplicationWindow {
                 Row {
                     spacing: 8
                     TextButton {
-                        label: confirmQueue ? "Clear queue" : confirmRemove ? "Remove" : "Mark all as played"
+                        label: confirmQueue ? "Clear queue" : confirmRemove ? "Unsubscribe" : "Mark all as played"
                         onClicked: {
                             if (confirmQueue)
                                 backend.clearQueue()
                             else if (confirmRemove)
-                                backend.removeOpenShow()
+                                backend.removeShow(unsubscribeShowId)
                             else if (confirmLibrary)
                                 backend.markLibraryPlayed()
                             else
@@ -608,6 +659,13 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    HelpOverlay {
+        anchors.fill: parent
+        z: 40
+        open: win.helpOpen
+        onDismiss: win.helpOpen = false
     }
 
     // Shared "Save artwork…" dialog (Now Playing art, shelf covers).
@@ -633,8 +691,19 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+0"
         context: Qt.ApplicationShortcut
-        enabled: pageKind === "nowPlaying" && !modalOpen
-        onActivated: backend.setNowPlayingArtScale(1.0)
+        // Reset this page's art size to its default (defaults match library.cpp).
+        enabled: !modalOpen && !helpOpen
+                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show")
+        onActivated: {
+            if (pageKind === "nowPlaying")
+                backend.setNowPlayingArtScale(1.0)
+            else if (pageKind === "show")
+                backend.setEpisodeListSize(2)
+            else if (backend.shelfView === "list")
+                backend.setShelfListSize(0)
+            else
+                backend.setShelfColumns(6)
+        }
     }
 
     FileDialog {

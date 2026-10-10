@@ -63,10 +63,22 @@ Item {
         }
         Row {
             id: actions
+            // Narrow window: keep back + title; buttons return once they fit.
+            visible: back.x + back.width + 18 + 120 + implicitWidth + 28 <= parent.width
             anchors.right: parent.right
             anchors.rightMargin: 28
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
+            IconButton {
+                // Bright when on, dimmed when off, like the other toggles.
+                icon.width: 24 * theme.textScale
+                icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-on-symbolic.svg"
+                                                   : "qrc:/icons/autoplay-off-symbolic.svg"
+                glyph: backend.queueAutoplay ? theme.foreground : theme.muted
+                tip: backend.queueAutoplay ? "Autoplay on: the queue plays next"
+                                           : "Autoplay off: the queue is just a pinned list"
+                onClicked: backend.toggleQueueAutoplay()
+            }
             IconButton {
                 visible: backend.queueCount > 0
                 icon.source: "qrc:/icons/queue-clear-symbolic.svg"
@@ -74,10 +86,15 @@ Item {
                 tip: "Clear queue"
                 onClicked: page.clearRequested()
             }
+            IconButton {
+                icon.source: "qrc:/icons/info-symbolic.svg"
+                tip: "Info"
+                onClicked: win.helpOpen = true
+            }
         }
         Column {
             anchors.left: back.right
-            anchors.right: actions.left
+            anchors.right: actions.visible ? actions.left : parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 18
             anchors.rightMargin: 18

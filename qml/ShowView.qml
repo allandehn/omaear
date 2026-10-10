@@ -14,6 +14,7 @@ Item {
     property double showId: 0
     property var episodeModel: null
     // Same five list-cover steps as ShelfView. 0 matches Shelf's original 44px.
+    // New libraries start at index 2 (Library::episodeListSize).
     readonly property var listCoverSteps: [44, 64, 88, 120, 160]
     readonly property int listCoverBase: listCoverSteps[Math.max(0, Math.min(backend.episodeListSize, listCoverSteps.length - 1))]
     readonly property real listCover: listCoverBase * theme.textScale
@@ -111,6 +112,8 @@ Item {
         }
         Row {
             id: actions
+            // Narrow window: keep back + title; buttons return once they fit.
+            visible: back.x + back.width + 18 + 120 + implicitWidth + 28 <= parent.width
             anchors.right: parent.right
             anchors.rightMargin: 28
             anchors.verticalCenter: parent.verticalCenter
@@ -143,13 +146,18 @@ Item {
             IconButton {
                 icon.name: "list-remove-symbolic"
                 glyph: theme.dim
-                tip: "Remove"
+                tip: "Unsubscribe"
                 onClicked: page.removeRequested()
+            }
+            IconButton {
+                icon.source: "qrc:/icons/info-symbolic.svg"
+                tip: "Info"
+                onClicked: win.helpOpen = true
             }
         }
         Column {
             anchors.left: back.right
-            anchors.right: actions.left
+            anchors.right: actions.visible ? actions.left : parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 18
             anchors.rightMargin: 18

@@ -11,7 +11,7 @@ ToolTip {
     rightPadding: 10
     topPadding: 5
     bottomPadding: 5
-    x: parent ? Math.round((parent.width - implicitWidth) / 2) : 0
+    x: parent ? Math.round((parent.width - width) / 2) : 0
     y: -implicitHeight - 8
 
     enter: Transition {
@@ -21,7 +21,11 @@ ToolTip {
         NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 60; easing.type: Easing.InQuad }
     }
 
+    // Long text (e.g. a full episode title) wraps inside the window.
+    width: Math.min(implicitWidth, (typeof win !== "undefined" && win ? win.width : 600) - 24)
+
     contentItem: Text {
+        wrapMode: Text.Wrap
         text: tip.text
         font: tip.font
         color: theme.foreground

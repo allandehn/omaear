@@ -2,6 +2,7 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file alias="Main.qml">qml/Main.qml</file>
+        <file alias="HelpOverlay.qml">qml/HelpOverlay.qml</file>
         <file alias="ShelfView.qml">qml/ShelfView.qml</file>
         <file alias="ShowView.qml">qml/ShowView.qml</file>
         <file alias="EpisodeView.qml">qml/EpisodeView.qml</file>
@@ -21,9 +22,13 @@
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
+        <file alias="icons/info-symbolic.svg">qml/icons/info-symbolic.svg</file>
+        <file alias="icons/autoplay-on-symbolic.svg">qml/icons/autoplay-on-symbolic.svg</file>
+        <file alias="icons/autoplay-off-symbolic.svg">qml/icons/autoplay-off-symbolic.svg</file>
         <file alias="icons/queue-add-symbolic.svg">qml/icons/queue-add-symbolic.svg</file>
         <file alias="icons/queue-remove-symbolic.svg">qml/icons/queue-remove-symbolic.svg</file>
         <file alias="icons/queue-clear-symbolic.svg">qml/icons/queue-clear-symbolic.svg</file>
         <file alias="icons/globe-symbolic.svg">qml/icons/globe-symbolic.svg</file>
+        <file alias="icons/omaear.svg">assets/icons/omaear.svg</file>
     </qresource>
 </RCC>

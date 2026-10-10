@@ -2,6 +2,7 @@
 
 #include "library.h"
 #include "models.h"
+#include "updates.h"
 
 #include <QHash>
 #include "netaccess.h"
@@ -52,6 +53,7 @@ class Backend : public QObject {
     Q_PROPERTY(double playerRate READ playerRate NOTIFY playerStateChanged)
     Q_PROPERTY(double playerVolume READ playerVolume NOTIFY playerStateChanged)
     Q_PROPERTY(bool playerMono READ playerMono NOTIFY monoChanged)
+    Q_PROPERTY(bool queueAutoplay READ queueAutoplay NOTIFY queueAutoplayChanged)
     Q_PROPERTY(QString playerDescription READ playerDescription NOTIFY playerStateChanged)
     Q_PROPERTY(double playerPosition READ playerPosition NOTIFY playerPositionChanged)
     Q_PROPERTY(double playerDuration READ playerDuration NOTIFY playerStateChanged)
@@ -67,6 +69,12 @@ class Backend : public QObject {
     Q_PROPERTY(EpisodeModel *queueModel READ queueModel CONSTANT)
     Q_PROPERTY(double nowPlayingArtScale READ nowPlayingArtScale NOTIFY nowPlayingArtScaleChanged)
     Q_PROPERTY(int queueCount READ queueCount NOTIFY queueChanged)
+    Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    // idle | checking | current | available | failed | off
+    Q_PROPERTY(QString updatePhase READ updatePhase NOTIFY updateStatusChanged)
+    Q_PROPERTY(QString updateMessage READ updateMessage NOTIFY updateStatusChanged)
+    Q_PROPERTY(QString updateLatest READ updateLatest NOTIFY updateStatusChanged)
+    Q_PROPERTY(QString updateUrl READ updateUrl NOTIFY updateStatusChanged)
 
 public:
     explicit Backend(Library &library, QObject *parent = nullptr);
@@ -100,6 +108,8 @@ public:
     double playerRate() const { return m_playerRate; }
     double playerVolume() const { return m_playerVolume; }
     bool playerMono() const { return m_playerMono; }
+    bool queueAutoplay() const { return m_library.queueAutoplay(); }
+    Q_INVOKABLE void toggleQueueAutoplay();
     QString playerDescription() const { return m_playerDescription; }
     double playerPosition() const { return m_playerPosition; }
     double playerDuration() const { return m_playerDuration; }
@@ -130,6 +140,9 @@ public:
     Q_INVOKABLE void openEpisode(qint64 episodeId);
     Q_INVOKABLE void openPlayingEpisode();
     Q_INVOKABLE void closeEpisode();
+    // Same removal as removeOpenShow(), including a show that is not open
+    // (shelf cover menu). removeOpenShow() calls this for the open show.
+    Q_INVOKABLE void removeShow(qint64 showId);
     Q_INVOKABLE void removeOpenShow();
     // Page history checks (Main.qml navigation).
     Q_INVOKABLE bool hasShow(qint64 showId) const;
@@ -176,6 +189,14 @@ public:
 
     Q_INVOKABLE void setNowPlayingArtScale(double scale);
 
+    QString appVersion() const { return QStringLiteral(OMAEAR_VERSION); }
+    QString updatePhase() const { return m_updatePhase; }
+    QString updateMessage() const { return m_updateMessage; }
+    QString updateLatest() const { return m_updateLatest; }
+    QString updateUrl() const { return m_updateUrl; }
+    // Help overlay: refresh the GitHub release check when the last one is older than 10 minutes.
+    Q_INVOKABLE void requestUpdateCheck();
+
     // Artwork actions (Now Playing art, shelf covers). episodeId != 0 means that
     // episode's art (falling back to its show cover); otherwise the show cover.
     // Always the full-resolution original: cached download bytes or the feed URL.
@@ -189,6 +210,7 @@ public:
     void raiseWindow();
 
 signals:
+    void queueAutoplayChanged();
     void monoChanged();
     void statusChanged();
     void busyChanged();
@@ -204,6 +226,7 @@ signals:
     void nowPlayingArtScaleChanged();
     void episodeModelDiscarded(qint64 showId);
     void raised();
+    void updateStatusChanged();
 
 private:
     struct Job {
@@ -264,6 +287,11 @@ private:
     // Local bytes now, or download the remote original, then call done(bytes, contentType).
     void fetchArtwork(const ArtSource &src, std::function<void(const QByteArray &, const QString &)> done);
     QString countMessage(int count, const QString &what) const;
+    void loadUpdateCache();
+    void maybeDailyUpdateCheck();
+    void startUpdateCheck();
+    bool updateFresh(qint64 maxAgeMs) const;
+    void publishUpdate(const QString &phase, const QString &latest, const QString &url);
 
     struct PendingPlayerCall {
         QString method;
@@ -330,4 +358,9 @@ private:
     // Bumped when a force-reload supersedes an in-flight download of the same id.
     QHash<qint64, int> m_showCoverGen;
     QHash<qint64, int> m_episodeCoverGen;
+    QString m_updatePhase = QStringLiteral("idle");
+    QString m_updateMessage;
+    QString m_updateLatest;
+    QString m_updateUrl;
+    QPointer<QNetworkReply> m_updateReply;
 };

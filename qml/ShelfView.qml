@@ -8,6 +8,7 @@ Item {
     signal markLibraryRequested()
     signal queueRequested()
     signal exploreRequested()
+    signal unsubscribeRequested(double showId, string title)
 
     readonly property int columnFloor: 112
     readonly property real galleryGap: 12
@@ -88,18 +89,56 @@ Item {
             color: theme.background
         }
 
-        SelectableText {
-            id: title
+        // Ear logo: the framed app tile, recoloured from the live Omarchy theme
+        // (Design Champ's rule). Rebuilds instantly when the theme changes.
+        Image {
+            id: logo
+            function lum(c) {
+                function ch(v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+                return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
+            }
+            function mix(a, b, t) { return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1) }
+            function hex(c) {
+                function h(v) { var s = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16); return s.length < 2 ? "0" + s : s }
+                return "#" + h(c.r) + h(c.g) + h(c.b)
+            }
+            readonly property bool light: lum(theme.background) > 0.5
+            readonly property color tile: mix(theme.background, theme.foreground, light ? 0.05 : 0.06)
+            readonly property color frame: mix(theme.background, theme.foreground, 0.20)
+            readonly property color ink: {
+                var a = lum(theme.accent), t = lum(tile)
+                return (Math.max(a, t) + 0.05) / (Math.min(a, t) + 0.05) >= 3.0 ? theme.accent : theme.foreground
+            }
             anchors.left: parent.left
             anchors.leftMargin: 22
+            anchors.verticalCenter: title.verticalCenter
+            width: Math.round(title.implicitHeight * 1.15)
+            height: width
+            sourceSize.width: width * 2
+            sourceSize.height: height * 2
+            smooth: true
+            cache: false
+            source: "data:image/svg+xml;utf8," + encodeURIComponent(
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'>"
+                + "<rect x='1' y='1' width='46' height='46' rx='11' fill='" + hex(tile) + "' stroke='" + hex(frame) + "'/>"
+                + "<path d='M13 22C13 15.5 18 11 24 11S35 15.5 35 22C35 28 31.5 30 30.5 33.5C29.5 37 27.5 40 23.5 40C20 40 17.5 37.5 17.5 34.5' fill='none' stroke='" + hex(ink) + "' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>"
+                + "<path d='M21 18.5L28.5 23L21 27.5Z' fill='" + hex(ink) + "' stroke='" + hex(ink) + "' stroke-width='1.5' stroke-linejoin='round'/></svg>")
+        }
+        SelectableText {
+            id: title
+            anchors.left: logo.right
+            anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            text: "Podcasts"
+            text: "OmaEar"
             color: theme.foreground
             font.pixelSize: theme.display
             wrapMode: TextEdit.NoWrap
         }
         Row {
             id: actions
+            // Narrow window: keep just the logo and title; the buttons come back
+            // as soon as they fit without overlapping.
+            visible: title.x + title.implicitWidth + 24 + implicitWidth + 28 <= header.width
             anchors.right: parent.right
             anchors.rightMargin: 28
             anchors.verticalCenter: parent.verticalCenter
@@ -192,6 +231,11 @@ Item {
                 enabled: true
                 onClicked: shelf.importRequested()
             }
+            IconButton {
+                icon.source: "qrc:/icons/info-symbolic.svg"
+                tip: "Info"
+                onClicked: win.helpOpen = true
+            }
         }
         StatusNote {
             anchors.left: title.right
@@ -203,17 +247,32 @@ Item {
         }
     }
 
-    SelectableText {
+    Column {
         visible: grid.count === 0
         anchors.centerIn: parent
         width: Math.min(parent.width - 80, 520)
-        horizontalAlignment: TextEdit.AlignHCenter
-        wrapMode: TextEdit.Wrap
-        color: theme.dim
-        font.pixelSize: theme.body
-        text: backend.shelfShowAll
-              ? "Add a feed to start. An OPML export from Podcast Addict brings the shows with it."
-              : "No shows with unplayed episodes."
+        spacing: 10
+        SelectableText {
+            width: parent.width
+            horizontalAlignment: TextEdit.AlignHCenter
+            wrapMode: TextEdit.Wrap
+            color: theme.dim
+            font.pixelSize: theme.body
+            text: backend.shelfShowAll
+                  ? "Add a feed to start. An OPML export from another podcast app brings the shows with it."
+                  : "No shows with unplayed episodes."
+        }
+        Text {
+            visible: backend.showCount === 0
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: "Press ? for shortcuts"
+            color: theme.dim
+            font.pixelSize: theme.caption
+            font.family: "monospace"
+            font.weight: Font.Normal
+        }
     }
 
     GridView {
@@ -329,7 +388,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
-                        shelf.openCoverMenu(model.showId)
+                        shelf.openCoverMenu(model.showId, model.title)
                     else
                         win.openShowPage(model.showId)
                 }
@@ -472,7 +531,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
-                        shelf.openCoverMenu(model.showId)
+                        shelf.openCoverMenu(model.showId, model.title)
                     else
                         win.openShowPage(model.showId)
                 }
@@ -483,8 +542,10 @@ Item {
 
     // Right-click on a show cover (gallery tile or list row).
     property real coverMenuShow: 0
-    function openCoverMenu(showId) {
+    property string coverMenuTitle: ""
+    function openCoverMenu(showId, title) {
         coverMenuShow = showId
+        coverMenuTitle = title
         coverMenu.info = backend.artworkInfo(0, showId)
         coverMenu.popup()
     }
@@ -505,6 +566,11 @@ Item {
             text: "Copy image URL"
             enabled: coverMenu.info.hasUrl === true
             onTriggered: backend.copyArtworkUrl(0, shelf.coverMenuShow)
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Unsubscribe"
+            onTriggered: shelf.unsubscribeRequested(shelf.coverMenuShow, shelf.coverMenuTitle)
         }
     }
 
