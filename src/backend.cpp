@@ -1773,6 +1773,14 @@ void Backend::loadUpdateCache()
         publishUpdate(QStringLiteral("idle"), {}, {});
         return;
     }
+    // A cached "available" from before this version was installed is stale:
+    // drop it so the next check runs right away instead of nagging.
+    if (result == QLatin1String("available")
+        && !versionIsNewer(m_library.updateLatest(), QStringLiteral(OMAEAR_VERSION))) {
+        m_library.setUpdateCache(QString(), QString(), QString(), 0);
+        publishUpdate(QStringLiteral("idle"), {}, {});
+        return;
+    }
     publishUpdate(result, m_library.updateLatest(), m_library.updateUrl());
 }
 
