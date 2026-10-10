@@ -1051,6 +1051,14 @@ void Backend::toggleMute()
     setVolume(restore > 0.0005 ? restore : 1.0);
 }
 
+bool Backend::runSystemUpdate()
+{
+    // Same as typing `omarchy update` in a terminal: the user sees progress and
+    // enters their password there. xdg-terminal-exec honours Omarchy's default terminal.
+    return QProcess::startDetached(QStringLiteral("xdg-terminal-exec"),
+                                   {QStringLiteral("omarchy"), QStringLiteral("update")});
+}
+
 void Backend::toggleQueueAutoplay()
 {
     m_library.setQueueAutoplay(!m_library.queueAutoplay());

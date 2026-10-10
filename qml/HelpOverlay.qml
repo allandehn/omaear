@@ -169,9 +169,17 @@ Item {
                             ? "<a href=\"" + root.escapeAttr(href) + "\" style=\"color:" + hex
                               + "; text-decoration: underline\">" + version + "</a>"
                             : version
-                    return head + " - Version " + linked + " is available, run omarchy update"
+                    var upd = "<a href=\"omaear:update\" style=\"color:" + hex + "; text-decoration: underline\">update now</a>"
+                    return head + " - Version " + linked + " is available, " + upd
                 }
-                onLinkActivated: function (link) { Qt.openUrlExternally(link) }
+                onLinkActivated: function (link) {
+                    if (link === "omaear:update") {
+                        if (!backend.runSystemUpdate())
+                            Qt.openUrlExternally(backend.updateUrl)
+                    } else {
+                        Qt.openUrlExternally(link)
+                    }
+                }
 
                 HoverHandler {
                     cursorShape: updateText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor

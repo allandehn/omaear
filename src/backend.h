@@ -110,6 +110,8 @@ public:
     bool playerMono() const { return m_playerMono; }
     bool queueAutoplay() const { return m_library.queueAutoplay(); }
     Q_INVOKABLE void toggleQueueAutoplay();
+    // Opens the default terminal running `omarchy update`. False if no terminal launcher.
+    Q_INVOKABLE bool runSystemUpdate();
     QString playerDescription() const { return m_playerDescription; }
     double playerPosition() const { return m_playerPosition; }
     double playerDuration() const { return m_playerDuration; }
