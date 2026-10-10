@@ -169,7 +169,7 @@ Item {
                             ? "<a href=\"" + root.escapeAttr(href) + "\" style=\"color:" + hex
                               + "; text-decoration: underline\">" + version + "</a>"
                             : version
-                    var upd = "<a href=\"omaear:update\" style=\"color:" + hex + "; text-decoration: underline\">update now</a>"
+                    var upd = "<a href=\"omaear:update\" style=\"color:" + hex + "; text-decoration: underline\">run omarchy update</a>"
                     return head + " - Version " + linked + " is available, " + upd
                 }
                 onLinkActivated: function (link) {

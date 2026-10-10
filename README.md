@@ -40,7 +40,7 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 **Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Text size follows your display scale.
 
-**Info.** The ⓘ button (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available. One click on "update now" runs `omarchy update` for you.
+**Info.** The ⓘ button (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available. Click "run omarchy update" and it does just that.
 
 ## Shortcuts
 
