@@ -149,7 +149,7 @@ Item {
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
             icon.source: "qrc:/icons/info-symbolic.svg"
-            dot: backend.updatePhase === "available" || backend.restartNeeded
+            dot: backend.updatePhase === "available"
             tip: "Info"
             onClicked: win.helpOpen = true
         }

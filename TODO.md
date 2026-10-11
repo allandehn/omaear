@@ -25,4 +25,4 @@ Planned work and ideas for OmaEar. Checked items are done.
 21. [x] **Now Playing art** — Ctrl+wheel resizes the cover (20–100%, saved, Ctrl+0 resets) without flicker; right-click Copy / Save artwork… / Copy image URL on Now Playing art and shelf covers.
 22. [ ] **Search: episodes within library** — Search episode titles/notes across subscribed shows.
 23. [x] **Explore: publisher link** — On an Explore podcast preview, make the publisher subtitle (e.g. "DR", "RADIO IIII") clickable to run a new search showing that publisher's podcasts.
-24. [x] **Update dot on ⓘ** — Show a small dot on the Info button when an update is available or a restart is needed, so people notice without opening the Info page.
+24. [x] **Update dot on ⓘ** — Show a small dot on the Info button when an update is available (after an update OmaEar restarts itself and resumes playback), so people notice without opening the Info page.

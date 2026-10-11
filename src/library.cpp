@@ -1,3 +1,4 @@
+#include <QSettings>
 #include "library.h"
 
 #include <QCoreApplication>
@@ -84,9 +85,38 @@ bool Library::migrateLegacyLocations(QString *message)
         }
     }
     QDir().rmdir(configRoot + QStringLiteral("/allanjorch"));
+    // Some builds wrote QSettings to "<config>/Unknown Organization/<app>.conf".
+    // Merge it in; keys already in the current file win.
+    const QString strayDir = configRoot + QStringLiteral("/Unknown Organization");
+    const QString strayConf = strayDir + QLatin1Char('/') + app + QStringLiteral(".conf");
+    if (QFileInfo::exists(strayConf)) {
+        {
+            QSettings from(strayConf, QSettings::IniFormat);
+            QSettings to(newConf, QSettings::IniFormat);
+            int merged = 0;
+            for (const QString &key : from.allKeys()) {
+                if (!to.contains(key)) {
+                    to.setValue(key, from.value(key));
+                    ++merged;
+                }
+            }
+            to.sync();
+            if (to.status() == QSettings::NoError) {
+                QFile::remove(strayConf);
+                log << QStringLiteral("merged %1 settings from %2 -> %3").arg(merged).arg(strayConf, newConf);
+            }
+        }
+        QDir().rmdir(strayDir); // only if now empty
+    }
     if (message)
         *message = log.join(QLatin1Char('\n'));
     return true;
+}
+
+QString Library::settingsPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QLatin1Char('/')
+           + QCoreApplication::applicationName() + QStringLiteral(".conf");
 }
 
 Library::Library(const QString &path)

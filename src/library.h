@@ -52,6 +52,8 @@ struct ParsedShow {
 class Library {
 public:
     static QString defaultPath();
+    // The one settings file every process uses: ~/.config/<app>.conf.
+    static QString settingsPath();
     // One-time move of data/cache/config from the pre-rename "podcast" names to
     // the current application name (atomic directory renames, never copies).
     // Call after setApplicationName and before opening a Library. Returns false

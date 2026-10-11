@@ -101,23 +101,23 @@ Backend::Backend(Library &library, QObject *parent)
     reloadShows();
     reloadQueue();
     // After an update, pacman swaps the file under us; the kernel then reports
-    // our own executable as "(deleted)". We don't restart on our own, so a
-    // running episode is never cut off; the Info page offers the restart.
+    // our own executable as "(deleted)". We then restart into the new version
+    // on our own and carry on where playback was (see restartForUpdate).
     auto *exeWatch = new QTimer(this);
     connect(exeWatch, &QTimer::timeout, this, [this, exeWatch]() {
         const QString exe = QFile::symLinkTarget(QStringLiteral("/proc/self/exe"));
         if (exe.endsWith(QStringLiteral(" (deleted)"))) {
-            m_restartNeeded = true;
             exeWatch->stop();
-            emit restartNeededChanged();
+            restartForUpdate(exe.chopped(10));
         }
     });
-    exeWatch->start(15000);
+    exeWatch->start(2000);
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &Backend::pollPlayer);
     timer->start(500);
     QTimer::singleShot(0, this, [this]() {
-        restoreLastPlayed();
+        if (!resumeAfterUpdate())
+            restoreLastPlayed();
         maybeAutoRefreshOnLaunch();
     });
     loadUpdateCache();
@@ -1064,13 +1064,74 @@ void Backend::toggleMute()
     setVolume(restore > 0.0005 ? restore : 1.0);
 }
 
-void Backend::restartApp()
+void Backend::restartForUpdate(const QString &newExe)
 {
-    // A detached shell outlives us: stop every omaear process (window and
-    // player), wait until they're gone, then start the new version.
-    QProcess::startDetached(QStringLiteral("setsid"),
-        {QStringLiteral("sh"), QStringLiteral("-c"),
-         QStringLiteral("pkill -x omaear; for i in $(seq 50); do pgrep -x omaear >/dev/null || break; sleep 0.1; done; exec omaear")});
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // Loop guard: never restart again within a minute of an automatic restart.
+    const qint64 last = settings.value(QStringLiteral("update/autoRestartAt")).toLongLong();
+    if (last > 0 && now - last < 60000) {
+        qWarning("[omaear-update] binary replaced again right after a restart; not restarting");
+        return;
+    }
+    if (!QFileInfo(newExe).isExecutable()) {
+        qWarning("[omaear-update] %s is not there yet; checking again shortly", qPrintable(newExe));
+        QTimer::singleShot(2000, this, [this, newExe]() { restartForUpdate(newExe); });
+        return;
+    }
+    pollPlayer();
+    const bool wasPlaying = m_playerStatus == QStringLiteral("playing");
+    const qint64 episodeId = m_playerEpisodeId;
+    qInfo("[omaear-update] new version installed; restarting (episode %lld, %s, %.1fs)",
+          episodeId, wasPlaying ? "playing" : "not playing", m_playerPosition);
+    // Pause makes the player write the exact position to the library.
+    if (wasPlaying)
+        callPlayer(QStringLiteral("Pause"));
+    settings.setValue(QStringLiteral("update/autoRestartAt"), now);
+    if (episodeId != 0) {
+        settings.setValue(QStringLiteral("update/resumeAt"), now);
+        settings.setValue(QStringLiteral("update/resumeEpisode"), episodeId);
+        settings.setValue(QStringLiteral("update/resumePlaying"), wasPlaying);
+    }
+    settings.sync();
+    // A short pause lets the player finish writing its position and the
+    // current download chunk before it is stopped.
+    QTimer::singleShot(400, this, [newExe]() {
+        const QString pid = QString::number(QCoreApplication::applicationPid());
+        // A detached shell outlives us: wait for this window to exit cleanly
+        // (it saves its geometry), stop the player, then start the new version.
+        QProcess::startDetached(QStringLiteral("setsid"),
+            {QStringLiteral("sh"), QStringLiteral("-c"),
+             QStringLiteral("for i in $(seq 40); do kill -0 %1 2>/dev/null || break; sleep 0.05; done; "
+                            "pkill -x omaear; for i in $(seq 40); do pgrep -x omaear >/dev/null || break; sleep 0.05; done; "
+                            "exec \"$0\"").arg(pid), newExe});
+        QCoreApplication::quit();
+    });
+}
+
+bool Backend::resumeAfterUpdate()
+{
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+    const qint64 at = settings.value(QStringLiteral("update/resumeAt")).toLongLong();
+    const qint64 episodeId = settings.value(QStringLiteral("update/resumeEpisode")).toLongLong();
+    const bool playing = settings.value(QStringLiteral("update/resumePlaying")).toBool();
+    // One shot: clear before acting so a crash can't make it repeat.
+    settings.remove(QStringLiteral("update/resumeAt"));
+    settings.remove(QStringLiteral("update/resumeEpisode"));
+    settings.remove(QStringLiteral("update/resumePlaying"));
+    const qint64 age = QDateTime::currentMSecsSinceEpoch() - at;
+    if (at <= 0 || episodeId == 0 || age < 0 || age > 120000)
+        return false;
+    const EpisodeRow row = m_library.episode(episodeId);
+    if (row.id == 0)
+        return false;
+    qInfo("[omaear-update] resuming episode %lld at %.1fs after update (%s)",
+          episodeId, row.positionMs / 1000.0, playing ? "playing" : "paused");
+    if (!row.imageUrl.isEmpty())
+        downloadEpisodeCover(row.id, row.imageUrl);
+    callPlayer(playing ? QStringLiteral("Load") : QStringLiteral("LoadPaused"),
+               {QVariant::fromValue<qlonglong>(episodeId)});
+    return true;
 }
 
 bool Backend::runSystemUpdate()
@@ -1466,7 +1527,7 @@ void Backend::openEpisodeFromQueue(qint64 episodeId)
 
 void Backend::maybeAutoRefreshOnLaunch()
 {
-    QSettings settings;
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
     const qint64 lastMs = settings.value(kLastRefreshKey, 0).toLongLong();
     if (lastMs > 0) {
         const qint64 age = QDateTime::currentMSecsSinceEpoch() - lastMs;
@@ -1516,7 +1577,7 @@ void Backend::finishShelfRefresh()
 
 void Backend::noteSuccessfulShelfRefresh()
 {
-    QSettings settings;
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
     settings.setValue(kLastRefreshKey, QDateTime::currentMSecsSinceEpoch());
     settings.sync(); // persist now; do not rely on a clean shutdown
     emit lastRefreshChanged();
@@ -1539,7 +1600,7 @@ QString Backend::formatDay(qint64 unixSecs) const
 
 QString Backend::lastRefreshLabel() const
 {
-    QSettings settings;
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
     const qint64 lastMs = settings.value(kLastRefreshKey, 0).toLongLong();
     if (lastMs <= 0)
         return {};
@@ -1566,7 +1627,7 @@ QString Backend::lastRefreshLabel() const
 
 QVariantMap Backend::windowGeometry() const
 {
-    QSettings settings;
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
     QVariantMap map;
     if (!settings.contains(QStringLiteral("window/width")))
         return map;
@@ -1581,7 +1642,7 @@ QVariantMap Backend::windowGeometry() const
 
 void Backend::saveWindowGeometry(int x, int y, int width, int height, bool maximized)
 {
-    QSettings settings;
+    QSettings settings(Library::settingsPath(), QSettings::IniFormat);
     settings.setValue(QStringLiteral("window/x"), x);
     settings.setValue(QStringLiteral("window/y"), y);
     settings.setValue(QStringLiteral("window/width"), width);
