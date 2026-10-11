@@ -62,6 +62,22 @@ Right-click an episode, or use **Mark**, to mark it played or unplayed, mark eve
 
 The library lives in `~/.local/share/omaear/` and downloaded audio and artwork in `~/.cache/omaear/`.
 
+## Uninstall
+
+Press Del on OmaEar in the app menu, or run:
+
+```sh
+sudo pacman -Rns omaear
+```
+
+That removes the app but keeps your shows, progress, and settings, so a reinstall picks up where you left off. To remove those too:
+
+```sh
+rm -rf ~/.local/share/omaear ~/.cache/omaear ~/.config/omaear.conf
+```
+
+To also remove the OmaEar package source, delete the `[omaear]` section from `/etc/pacman.conf` and run `sudo pacman-key --delete AC6FF13C76D8916CCCF2DA05C3225162B5257DB4`.
+
 ## Build from source
 
 Needs Qt 6 (Quick, Quick Controls, Multimedia, SQL, Network, D-Bus), all already on Omarchy.
