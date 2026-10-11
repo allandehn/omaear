@@ -88,6 +88,7 @@ Item {
             }
             IconButton {
                 icon.source: "qrc:/icons/info-symbolic.svg"
+                dot: backend.updatePhase === "available" || backend.restartNeeded
                 tip: "Info"
                 onClicked: win.helpOpen = true
             }

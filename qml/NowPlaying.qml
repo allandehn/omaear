@@ -63,6 +63,7 @@ Item {
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
         icon.source: "qrc:/icons/info-symbolic.svg"
+        dot: backend.updatePhase === "available" || backend.restartNeeded
         tip: "Info"
         onClicked: win.helpOpen = true
     }

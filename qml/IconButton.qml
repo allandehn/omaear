@@ -7,6 +7,8 @@ Button {
     property string tip: ""
     property string caption: ""
     property color glyph: enabled ? theme.foreground : theme.muted
+    // Small notice dot at the top-right of the icon (e.g. an update on Info).
+    property bool dot: false
 
     flat: true
     hoverEnabled: true
@@ -41,6 +43,18 @@ Button {
     HoverHandler {
         enabled: control.enabled
         cursorShape: Qt.PointingHandCursor
+    }
+
+    Rectangle {
+        visible: control.dot
+        width: Math.round(7 * theme.textScale)
+        height: width
+        radius: width / 2
+        color: theme.accent
+        border.color: theme.background
+        border.width: 1
+        x: control.width / 2 + control.icon.width / 2 - width * 0.6
+        y: control.height / 2 - control.icon.height / 2 - height * 0.4
     }
 
     AppTip {
