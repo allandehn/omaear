@@ -9,6 +9,12 @@ Button {
     property color glyph: enabled ? theme.foreground : theme.muted
     // Small notice dot at the top-right of the icon (e.g. an update on Info).
     property bool dot: false
+    // Keyboard navigation ring (shelf top bar / player bar). Set by Main.qml.
+    property bool kbdFocus: false
+
+    // Arrow/Tab navigation is driven by Main.qml; buttons never take Qt focus.
+    focusPolicy: Qt.NoFocus
+    onVisibleChanged: if (!visible) kbdFocus = false
 
     flat: true
     hoverEnabled: true
@@ -36,8 +42,10 @@ Button {
         radius: 6
         color: !control.enabled ? "transparent"
              : control.down ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.16)
-             : control.hovered ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
+             : control.hovered || control.kbdFocus ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
              : "transparent"
+        border.width: control.kbdFocus ? 1 : 0
+        border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
     }
 
     HoverHandler {

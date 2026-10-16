@@ -231,6 +231,8 @@ signals:
     void episodeModelDiscarded(qint64 showId);
     void raised();
     void updateStatusChanged();
+    // Episodes or their played state may have changed (library search listens).
+    void libraryChanged();
 
 private:
     struct Job {

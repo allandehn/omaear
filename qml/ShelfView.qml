@@ -8,6 +8,7 @@ Item {
     signal markLibraryRequested()
     signal queueRequested()
     signal exploreRequested()
+    signal searchRequested()
     signal unsubscribeRequested(double showId, string title)
 
     readonly property int columnFloor: 112
@@ -29,6 +30,57 @@ Item {
     readonly property real listRowHeight: listCover + 20 * theme.textScale
 
     property real zoomPending: 0
+
+    // ---- Keyboard navigation (driven by Main.qml) ---------------------------
+    // Ring on the podcast at kbdIndex while Main says the grid area is active.
+    property bool kbdRing: false
+    property int kbdIndex: 0
+    property double kbdShowId: 0
+    readonly property int navCount: grid.count
+    // Gallery moves by row of `columns`; the list is one column.
+    readonly property int navColumns: backend.shelfView === "list" ? 1 : columns
+
+    function navItems() {
+        var list = []
+        if (!actions.visible)
+            return list
+        for (var i = 0; i < actions.children.length; ++i) {
+            var kid = actions.children[i]
+            if (kid.visible && kid.enabled && kid.kbdFocus !== undefined)
+                list.push(kid)
+        }
+        return list
+    }
+
+    // Keep the ring on the same show when the shelf reorders or filters.
+    function syncNavIndex() {
+        var row = kbdShowId ? backend.shows.rowOf(kbdShowId) : -1
+        if (row >= 0)
+            kbdIndex = row
+        kbdIndex = Math.max(0, Math.min(kbdIndex, navCount - 1))
+        kbdShowId = backend.shows.showIdAt(kbdIndex)
+    }
+
+    function setNavIndex(index) {
+        kbdIndex = Math.max(0, Math.min(index, navCount - 1))
+        kbdShowId = backend.shows.showIdAt(kbdIndex)
+        var view = backend.shelfView === "list" ? showList : grid
+        view.positionViewAtIndex(kbdIndex, ListView.Contain)
+    }
+
+    function openNavMenu() {
+        if (navCount === 0) return
+        var view = backend.shelfView === "list" ? showList : grid
+        var id = backend.shows.showIdAt(kbdIndex)
+        coverMenuShow = id
+        coverMenuTitle = view.itemAtIndex(kbdIndex) ? view.itemAtIndex(kbdIndex).navTitle : ""
+        coverMenu.info = backend.artworkInfo(0, id)
+        coverMenu.popupAt(view.itemAtIndex(kbdIndex))
+    }
+    function openNavItem() {
+        if (navCount > 0)
+            win.openShowPage(backend.shows.showIdAt(kbdIndex))
+    }
 
     function zoomIn() {
         if (backend.shelfView === "list")
@@ -213,8 +265,15 @@ Item {
                 onClicked: shelf.markLibraryRequested()
             }
             IconButton {
+                // With shows: search your own episodes. Empty shelf: straight to Explore.
                 icon.name: "system-search-symbolic"
-                tip: "Explore podcasts"
+                tip: actions.hasShows ? "Search your episodes (Ctrl+F)" : "Explore podcasts"
+                onClicked: actions.hasShows ? shelf.searchRequested() : shelf.exploreRequested()
+            }
+            IconButton {
+                visible: actions.hasShows
+                icon.source: "qrc:/icons/globe-symbolic.svg"
+                tip: "Explore podcasts online"
                 onClicked: shelf.exploreRequested()
             }
             IconButton {
@@ -285,7 +344,7 @@ Item {
         anchors.bottom: parent.bottom
         leftMargin: 16
         rightMargin: 16
-        topMargin: 4
+        topMargin: 8
         clip: true
         cellWidth: shelf.cellWidth
         cellHeight: shelf.cellHeight
@@ -295,6 +354,7 @@ Item {
         cacheBuffer: height
 
         delegate: Item {
+            readonly property string navTitle: model.title
             width: grid.cellWidth
             height: grid.cellHeight
 
@@ -390,8 +450,11 @@ Item {
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
                         shelf.openCoverMenu(model.showId, model.title)
-                    else
+                    else {
+                        shelf.kbdIndex = index
+                        shelf.kbdShowId = model.showId
                         win.openShowPage(model.showId)
+                    }
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
                 Rectangle {
@@ -400,6 +463,18 @@ Item {
                     color: theme.selection
                     opacity: parent.containsMouse ? 0.28 : 0
                 }
+            }
+            // Keyboard ring: a quiet theme-foreground outline around the cover.
+            Rectangle {
+                visible: shelf.kbdRing && index === shelf.kbdIndex
+                x: (parent.width - shelf.coverSize) / 2 - 4
+                y: -4
+                width: shelf.coverSize + 8
+                height: shelf.coverSize + 8
+                radius: 4
+                color: "transparent"
+                border.width: 2
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
             }
         }
     }
@@ -422,6 +497,7 @@ Item {
         spacing: 2
 
         delegate: Item {
+            readonly property string navTitle: model.title
             width: showList.width
             height: shelf.listRowHeight
 
@@ -430,6 +506,14 @@ Item {
                 radius: 4
                 color: theme.selection
                 opacity: rowMouse.containsMouse ? 0.35 : 0
+            }
+            Rectangle {
+                anchors.fill: parent
+                visible: shelf.kbdRing && index === shelf.kbdIndex
+                radius: 4
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
             }
 
             Item {
@@ -533,8 +617,11 @@ Item {
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
                         shelf.openCoverMenu(model.showId, model.title)
-                    else
+                    else {
+                        shelf.kbdIndex = index
+                        shelf.kbdShowId = model.showId
                         win.openShowPage(model.showId)
+                    }
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
             }

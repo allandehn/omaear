@@ -99,8 +99,21 @@ Item {
                     ShortcutRow { keys: "Mouse back / forward"; blurb: "Previous or next page" }
                     ShortcutRow { keys: "Alt+Left / Alt+Right"; blurb: "Previous or next page" }
                     ShortcutRow { keys: "Back / Forward keys"; blurb: "Previous or next page" }
-                    ShortcutRow { keys: "Esc"; blurb: "Go back. Closes this panel, dialogs, and page overlays first" }
+                    ShortcutRow { keys: "Esc"; blurb: "Go back. Closes this panel, dialogs, and page overlays first; hides the keyboard ring on the main page" }
                     ShortcutRow { keys: "Backspace"; blurb: "Go back, outside a text field" }
+                    ShortcutRow { keys: "Enter on episode details"; blurb: "Play or resume it (pauses if it is playing); with the ring on a button, presses that" }
+                    ShortcutRow { keys: "Arrows"; blurb: "Move through buttons, podcasts, episodes and the player bar; Enter opens or presses" }
+                    ShortcutRow { keys: "Tab / Shift+Tab"; blurb: "Jump between areas (top bar, list, player bar)" }
+                    ShortcutRow { keys: "Menu / Shift+F10"; blurb: "Open the right-click menu for the highlighted item" }
+                    ShortcutRow { keys: "Delete in the queue"; blurb: "Remove the highlighted episode from the queue" }
+                    ShortcutRow { keys: "PgUp / PgDn on episode details"; blurb: "Scroll the show notes" }
+                    ShortcutRow { keys: "Typing in Explore"; blurb: "Goes to the search field from anywhere on the page" }
+                    ShortcutRow { keys: "\u2190 / \u2192 on the Now Playing bar"; blurb: "Seek 10 seconds back or forward" }
+                    ShortcutRow { keys: "Ctrl+F"; blurb: "Search your episodes (titles and show notes)" }
+                    ShortcutRow { keys: "Enter in search"; blurb: "Open the top result" }
+                    ShortcutRow { keys: "\u2193 / \u2191 / Tab in search"; blurb: "Move through results; Enter opens one; typing returns to the field" }
+                    ShortcutRow { keys: "Alt+1 / 2 / 3 in search"; blurb: "Search show names, titles, notes on or off" }
+                    ShortcutRow { keys: "PgUp / PgDn / Home / End"; blurb: "Jump through search results" }
                     ShortcutRow { keys: "Ctrl+Q"; blurb: "Close the window. Audio keeps playing" }
                 }
                 ShortcutGroup {

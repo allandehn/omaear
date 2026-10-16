@@ -28,6 +28,8 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 **Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only.
 
+**Search.** The magnifier (or Ctrl+F) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. The globe button sends the same words to Explore.
+
 **Explore.** Search the podcast directory or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
 
 **Episodes.** Play straight from the episode art. Open an episode for its full notes, where links open in your browser and timestamps jump the player to that point.
@@ -35,6 +37,8 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 **Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished. With **autoplay** on, the queue decides what plays next. With it off, the queue is simply a pinned list.
 
 **Player.** Back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds from 0.5× to 2×, volume (click to mute), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel.
+
+**Keyboard.** Every page works from the keyboard: arrows and Tab move a quiet focus ring through the buttons, podcasts, episodes and player bar, Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from.
 
 **Keeps playing.** Close the window and the episode carries on, with controls in the Omarchy bar and media keys. Open OmaEar again and the same window comes back.
 
@@ -47,6 +51,11 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 | Key / mouse | Action |
 | --- | --- |
 | Space | Play / pause |
+| Arrows | Move through buttons, podcasts, episodes and the player bar; Enter opens or presses |
+| Tab / Shift+Tab | Jump between areas (top bar, list, player bar) |
+| Menu / Shift+F10 | Right-click menu for the highlighted item |
+| Delete (queue) | Remove the highlighted episode from the queue |
+| Ctrl+F | Search your episodes (Enter opens the top result) |
 | Esc, Alt+Left, Backspace, mouse Back | Back |
 | Alt+Right, mouse Forward | Forward |
 | Ctrl+wheel, Ctrl+= / Ctrl+− | Resize covers and art |
@@ -56,7 +65,7 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 ## Marking played
 
-Right-click an episode, or use **Mark**, to mark it played or unplayed, mark everything older or newer, or mark the whole show. An episode counts as heard in its last few percent, so a closing jingle doesn't keep a show in front.
+Right-click an episode, or use **Mark**, to mark it played or unplayed, mark everything older or newer, or mark the whole show. An episode counts as heard in its last few percent, so a closing jingle doesn't keep a show in front. Playing an episode you've already heard marks it unplayed again.
 
 ## Your data
 

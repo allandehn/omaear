@@ -206,3 +206,31 @@ QList<qint64> EpisodeModel::ids() const
         out.append(row.id);
     return out;
 }
+
+qint64 ShowModel::showIdAt(int row) const
+{
+    return row >= 0 && row < m_rows.size() ? m_rows.at(row).id : 0;
+}
+
+int ShowModel::rowOf(qint64 showId) const
+{
+    for (int i = 0; i < m_rows.size(); ++i) {
+        if (m_rows.at(i).id == showId)
+            return i;
+    }
+    return -1;
+}
+
+qint64 EpisodeModel::episodeIdAt(int row) const
+{
+    return row >= 0 && row < m_rows.size() ? m_rows.at(row).id : 0;
+}
+
+int EpisodeModel::rowOfEpisode(qint64 episodeId) const
+{
+    for (int i = 0; i < m_rows.size(); ++i) {
+        if (m_rows.at(i).id == episodeId)
+            return i;
+    }
+    return -1;
+}

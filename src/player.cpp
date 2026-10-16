@@ -215,6 +215,7 @@ signals:
 private:
     void loadEpisode(qlonglong episodeId, bool autoPlay);
     void savePosition();
+    void unmarkForPlayback(qint64 startMs);
     void publish();
     void noteSeek(qint64 positionMs);
     void tryResumeSeek(bool forceReposition = false);
@@ -712,6 +713,24 @@ QString artForEpisode(Library &library, const EpisodeRow &episode)
     return QUrl::fromLocalFile(showImage).toString();
 }
 
+// Starting playback on an episode marked played makes it unplayed again (in
+// progress), so its show comes back on the shelf. Every play path goes through
+// Load or Play, so this is the one place. Not when starting inside the last 5%
+// (e.g. resuming the outro after an update restart): that stays played.
+void PlayerService::unmarkForPlayback(qint64 startMs)
+{
+    if (m_episode.id == 0)
+        return;
+    // The library is the truth: the window may have marked it while loaded.
+    if (!m_library.episode(m_episode.id).played)
+        return;
+    if (m_durationMs >= 15000 && startMs >= m_durationMs * 95 / 100)
+        return;
+    m_library.markPlayed(m_episode.id, false);
+    m_episode.played = false;
+    m_marked = false;
+}
+
 void PlayerService::Load(qlonglong episodeId)
 {
     loadEpisode(episodeId, true);
@@ -747,6 +766,8 @@ void PlayerService::loadEpisode(qlonglong episodeId, bool autoPlay)
             tryResumeSeek(false);
         }
         m_library.setLastPlayedEpisodeId(episodeId);
+        if (autoPlay)
+            unmarkForPlayback(resume > 5000 ? resume : m_player->position());
         if (autoPlay)
             m_player->play();
         else
@@ -785,6 +806,8 @@ void PlayerService::loadEpisode(qlonglong episodeId, bool autoPlay)
     m_rate = m_library.rate();
     m_player->setPlaybackRate(m_rate);
     m_library.setLastPlayedEpisodeId(episode.id);
+    if (autoPlay)
+        unmarkForPlayback(resume);
     startEpisodeBuffer(episode.id, QUrl(episode.audioUrl), autoPlay);
     publish();
 }
@@ -793,6 +816,7 @@ void PlayerService::Play()
 {
     if (m_episode.id == 0)
         return;
+    unmarkForPlayback(m_positionMs);
     // Episode switch still filling the head buffer — do not treat leftover demux
     // errors from the previous source as a reason to recover/rebind.
     if (!m_sourceBound) {

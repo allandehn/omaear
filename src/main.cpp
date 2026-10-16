@@ -1,6 +1,7 @@
 #include <QIcon>
 #include "backend.h"
 #include "library.h"
+#include "search.h"
 #include <cstdio>
 #include "covercache.h"
 #include "explore.h"
@@ -204,6 +205,8 @@ int main(int argc, char **argv)
     Theme theme;
     Backend backend(library);
     Explore explore(library, backend);
+    LibrarySearch librarySearch(library);
+    QObject::connect(&backend, &Backend::libraryChanged, &librarySearch, &LibrarySearch::libraryChanged);
     UiBridge bridge(&backend);
     bus.registerObject(QStringLiteral("/com/github/allanjorch/omaear/Ui"), &bridge,
                        QDBusConnection::ExportAllSlots);
@@ -218,18 +221,18 @@ int main(int argc, char **argv)
     engine.rootContext()->setContextProperty(QStringLiteral("theme"), &theme);
     engine.rootContext()->setContextProperty(QStringLiteral("coverCache"), &coverCache);
     engine.rootContext()->setContextProperty(QStringLiteral("explore"), &explore);
+    engine.rootContext()->setContextProperty(QStringLiteral("librarySearch"), &librarySearch);
     engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 1;
     if (startupTiming()) {
         fprintf(stderr, "timing: qml loaded %lld ms\n", qint64(startupTimer().elapsed()));
         if (auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst())) {
-            auto *conn = new QMetaObject::Connection;
-            *conn = QObject::connect(win, &QQuickWindow::frameSwapped, win, [conn]() {
+            // Single-shot: frameSwapped is queued from the render thread and can be
+            // delivered twice before a manual disconnect runs.
+            QObject::connect(win, &QQuickWindow::frameSwapped, win, []() {
                 fprintf(stderr, "timing: first frame %lld ms\n", qint64(startupTimer().elapsed()));
-                QObject::disconnect(*conn);
-                delete conn;
-            });
+            }, Qt::SingleShotConnection);
         }
         // Harness: grow the window (bigger tiles) to check resizes never reload covers.
         if (qEnvironmentVariableIntValue("OMAEAR_TIMING_RESIZE") == 1) {

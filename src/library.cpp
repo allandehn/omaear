@@ -1025,3 +1025,66 @@ void Library::setUpdateCache(const QString &result, const QString &latest, const
     setSetting(QStringLiteral("updates.url"), url.isNull() ? QStringLiteral("") : url);
     setSetting(QStringLiteral("updates.checkedAt"), QString::number(checkedAtMs));
 }
+
+QList<SearchRow> Library::searchRows() const
+{
+    QList<SearchRow> rows;
+    QSqlQuery q(dbOf(m_connection));
+    q.setForwardOnly(true);
+    if (!q.exec(QStringLiteral(
+            "SELECT e.id, e.show_id, e.title, e.description, e.image_path, e.published_at, "
+            "e.duration_secs, e.played, e.position_ms, s.image_path "
+            "FROM episodes e JOIN shows s ON s.id = e.show_id")))
+        return rows;
+    QHash<QString, bool> exists;
+    auto fileOk = [&exists](const QString &path) {
+        if (path.isEmpty())
+            return false;
+        auto it = exists.constFind(path);
+        if (it != exists.constEnd())
+            return it.value();
+        const bool ok = QFileInfo::exists(path);
+        exists.insert(path, ok);
+        return ok;
+    };
+    while (q.next()) {
+        SearchRow row;
+        row.id = q.value(0).toLongLong();
+        row.showId = q.value(1).toLongLong();
+        row.title = q.value(2).toString();
+        row.description = q.value(3).toString();
+        row.imagePath = q.value(4).toString();
+        row.published = q.value(5).toLongLong();
+        row.durationSecs = q.value(6).toInt();
+        row.played = q.value(7).toInt() != 0;
+        row.positionMs = q.value(8).toInt();
+        if (!fileOk(row.imagePath))
+            row.imagePath = q.value(9).toString();
+        rows.append(row);
+    }
+    return rows;
+}
+
+QString Library::searchSignature() const
+{
+    QSqlQuery q(dbOf(m_connection));
+    if (!q.exec(QStringLiteral(
+            "SELECT count(*), max(id), total(length(title)), total(length(description)), "
+            "(SELECT group_concat(id || ':' || title || ':' || image_path) FROM shows) FROM episodes"))
+        || !q.next())
+        return QString();
+    return QStringList{q.value(0).toString(), q.value(1).toString(), q.value(2).toString(),
+                       q.value(3).toString(), q.value(4).toString()}.join(QLatin1Char('|'));
+}
+
+QHash<qint64, QPair<bool, int>> Library::playState() const
+{
+    QHash<qint64, QPair<bool, int>> state;
+    QSqlQuery q(dbOf(m_connection));
+    q.setForwardOnly(true);
+    if (!q.exec(QStringLiteral("SELECT id, played, position_ms FROM episodes")))
+        return state;
+    while (q.next())
+        state.insert(q.value(0).toLongLong(), qMakePair(q.value(1).toInt() != 0, q.value(2).toInt()));
+    return state;
+}

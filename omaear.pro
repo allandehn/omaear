@@ -4,7 +4,7 @@ CONFIG -= app_bundle
 
 TARGET = omaear
 # Single source of the app version (--version, User-Agent strings, package).
-VERSION = 0.1.7
+VERSION = 0.1.8
 DEFINES += OMAEAR_VERSION=\\\"$$VERSION\\\"
 TEMPLATE = app
 
@@ -20,7 +20,8 @@ SOURCES += \
     src/growingmediadevice.cpp \
     src/selftest.cpp \
     src/explore.cpp \
-    src/updates.cpp
+    src/updates.cpp \
+    src/search.cpp
 
 HEADERS += \
     src/library.h \
@@ -33,7 +34,8 @@ HEADERS += \
     src/growingmediadevice.h \
     src/explore.h \
     src/netaccess.h \
-    src/updates.h
+    src/updates.h \
+    src/search.h
 
 RESOURCES += resources.qrc
 

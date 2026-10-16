@@ -10,6 +10,7 @@
         <file alias="Scrubber.qml">qml/Scrubber.qml</file>
         <file alias="ExploreView.qml">qml/ExploreView.qml</file>
         <file alias="QueueView.qml">qml/QueueView.qml</file>
+        <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>
         <file alias="StatusNote.qml">qml/StatusNote.qml</file>

@@ -22,6 +22,9 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setRows(const QList<ShowRow> &rows);
+    // Keyboard navigation on the shelf: map grid index <-> show id.
+    Q_INVOKABLE qint64 showIdAt(int row) const;
+    Q_INVOKABLE int rowOf(qint64 showId) const;
 
 private:
     QList<ShowRow> m_rows;
@@ -56,6 +59,9 @@ public:
     // Move one row without a reset (live drag reordering in the queue).
     bool moveRow(int from, int to);
     QList<qint64> ids() const;
+    // Keyboard navigation: map list index <-> episode id.
+    Q_INVOKABLE qint64 episodeIdAt(int row) const;
+    Q_INVOKABLE int rowOfEpisode(qint64 episodeId) const;
 
 private:
     QList<EpisodeRow> m_rows;

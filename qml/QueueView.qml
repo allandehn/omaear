@@ -9,6 +9,53 @@ Item {
     signal dismissRequested()
     signal clearRequested()
 
+
+    // ---- Keyboard navigation (driven by Main.qml) ---------------------------
+    function navItems() {
+        var list = [back]
+        if (actions.visible) {
+            for (var i = 0; i < actions.children.length; ++i) {
+                var kid = actions.children[i]
+                if (kid.visible && kid.enabled && kid.kbdFocus !== undefined)
+                    list.push(kid)
+            }
+        }
+        return list
+    }
+    // Episode list as a one-column grid; the ring follows the episode id.
+    property bool kbdRing: false
+    property int kbdIndex: 0
+    property double kbdEpisodeId: 0
+    readonly property int navCount: list.count
+    readonly property int navColumns: 1
+    function syncNavIndex() {
+        var row = kbdEpisodeId ? list.model.rowOfEpisode(kbdEpisodeId) : -1
+        if (row >= 0)
+            kbdIndex = row
+        kbdIndex = Math.max(0, Math.min(kbdIndex, navCount - 1))
+        kbdEpisodeId = list.model.episodeIdAt(kbdIndex)
+    }
+    function setNavIndex(index) {
+        kbdIndex = Math.max(0, Math.min(index, navCount - 1))
+        kbdEpisodeId = list.model.episodeIdAt(kbdIndex)
+        list.positionViewAtIndex(kbdIndex, ListView.Contain)
+    }
+    function openNavItem() {
+        if (navCount > 0)
+            win.openEpisodePage(list.model.episodeIdAt(kbdIndex))
+    }
+    function openNavMenu() {
+        if (navCount === 0) return
+        menuEpisode = list.model.episodeIdAt(kbdIndex)
+        menuIndex = kbdIndex
+        rowMenu.popupAt(list.itemAtIndex(kbdIndex))
+    }
+    // Delete on a ring row removes it from the queue.
+    function navDelete() {
+        if (navCount > 0)
+            backend.removeFromQueue(list.model.episodeIdAt(kbdIndex))
+    }
+
     function snippet(text) {
         if (!text || text.length === 0)
             return ""
@@ -180,6 +227,16 @@ Item {
                  : "transparent"
 
             Rectangle {
+                anchors.fill: parent
+                visible: page.kbdRing && row.index === page.kbdIndex
+                radius: 4
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+                z: 5
+            }
+
+            Rectangle {
                 width: 3
                 anchors.left: parent.left
                 anchors.top: parent.top
@@ -330,6 +387,8 @@ Item {
                         page.menuIndex = row.index
                         rowMenu.popup()
                     } else {
+                        page.kbdIndex = row.index
+                        page.kbdEpisodeId = row.model.episodeId
                         win.openEpisodePage(row.model.episodeId)
                     }
                 }

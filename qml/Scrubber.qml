@@ -11,6 +11,15 @@ Item {
     // interactive defaults on. PlayerBar used to set interactive: !backend.busy
     // during refresh; that busy gate is commented out so scrubbing stays available.
     property bool interactive: true
+    // Keyboard navigation (Now Playing): ring, Left/Right seek 10 s, Enter plays/pauses.
+    property bool kbdFocus: false
+    signal clicked()
+    onClicked: backend.togglePlayback()
+    function navNudge(dir) {
+        var next = Math.max(0, backend.playerPosition + dir * 10)
+        if (duration > 0) next = Math.min(next, duration)
+        backend.seekTo(next)
+    }
     property bool dragging: false
     property real dragFraction: 0
 
@@ -45,9 +54,18 @@ Item {
     }
 
     property real hoverFraction: 0
-    readonly property real tipFraction: dragging ? dragFraction : hoverFraction
-    readonly property bool tipOpen: interactive && duration > 0 && (dragging || hover.hovered)
+    readonly property real tipFraction: dragging ? dragFraction : hover.hovered ? hoverFraction : shownFraction
+    readonly property bool tipOpen: interactive && duration > 0 && (dragging || hover.hovered || kbdFocus)
 
+    Rectangle {
+        visible: scrubber.kbdFocus
+        anchors.fill: parent
+        anchors.margins: -5
+        radius: 6
+        color: "transparent"
+        border.width: 1
+        border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
+    }
     Rectangle {
         anchors.fill: parent
         radius: 3

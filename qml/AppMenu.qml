@@ -11,6 +11,31 @@ Menu {
     topPadding: 4
     bottomPadding: 4
     Material.elevation: 0
+    // Esc / Back close the open menu first (Main.back), then hand keys back
+    // to page navigation with the ring where it was.
+    onOpened: win.openPopup = menu
+    onClosed: {
+        if (win.openPopup === menu)
+            win.openPopup = null
+        if (win.navPages.indexOf(win.pageKind) >= 0)
+            Qt.callLater(win.navRestoreFocus)
+    }
+
+    // Keyboard open (Menu key / Shift+F10): beside the item, first usable entry lit.
+    function popupAt(item) {
+        if (item)
+            popup(item, Math.min(item.width * 0.5, 160), Math.min(item.height * 0.5, 80))
+        else
+            popup()
+        for (var i = 0; i < count; ++i) {
+            var entry = itemAt(i)
+            if (entry && entry.enabled && entry.text !== undefined && entry.text.length > 0) {
+                currentIndex = i
+                break
+            }
+        }
+        forceActiveFocus()
+    }
 
     // List content reports no implicit width, so the panel would collapse to the border.
     implicitWidth: {

@@ -19,6 +19,22 @@ Rectangle {
     // Ascending picker order; values match backend kRates.
     readonly property var rateChoices: [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0]
 
+    // Keyboard navigation: the bar's buttons, left to right, that are showing now.
+    function navItems() {
+        var list = []
+        var rows = [transport]
+        if (extras.visible)
+            rows.push(extras)
+        for (var r = 0; r < rows.length; ++r) {
+            var kids = rows[r].children
+            for (var i = 0; i < kids.length; ++i) {
+                if (kids[i].visible && kids[i].enabled && kids[i].kbdFocus !== undefined)
+                    list.push(kids[i])
+            }
+        }
+        return list
+    }
+
     function rateLabel(value) {
         var rounded = Math.round(value * 10) / 10
         return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)) + "×"
@@ -336,6 +352,8 @@ Rectangle {
     Popup {
         id: volumePopup
         parent: bar
+        onOpened: win.openPopup = volumePopup
+        onClosed: if (win.openPopup === volumePopup) win.openPopup = null
         width: 44 * theme.textScale
         height: 148 * theme.textScale
         padding: 10
@@ -432,6 +450,8 @@ Rectangle {
     Popup {
         id: speedPopup
         parent: bar
+        onOpened: win.openPopup = speedPopup
+        onClosed: if (win.openPopup === speedPopup) win.openPopup = null
         width: 64 * theme.textScale
         height: speedColumn.implicitHeight + topPadding + bottomPadding
         padding: 6

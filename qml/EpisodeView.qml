@@ -11,6 +11,31 @@ Item {
                                   ? backend.openEpisodeCover
                                   : backend.openShowCover
 
+
+    // ---- Keyboard navigation (driven by Main.qml) ---------------------------
+    function navItems() {
+        var list = [back]
+        if (actions.visible) {
+            for (var i = 0; i < actions.children.length; ++i) {
+                var kid = actions.children[i]
+                if (kid.visible && kid.enabled && kid.kbdFocus !== undefined)
+                    list.push(kid)
+            }
+        }
+        return list
+    }
+    // Menu key: the Mark menu, beside the Mark button.
+    function openNavMenu() {
+        markedEpisode = backend.openEpisodeId
+        markedPlayed = backend.openEpisodePlayed
+        markMenu.popupAt(markButton.visible ? markButton : back)
+    }
+    // PgUp / PgDn scroll the show notes.
+    function scrollPage(dir) {
+        var max = Math.max(0, scroller.contentHeight - scroller.height)
+        scroller.contentY = Math.max(0, Math.min(max, scroller.contentY + dir * scroller.height * 0.85))
+    }
+
     function clock(seconds) {
         if (!seconds || seconds < 1)
             return ""
@@ -240,6 +265,7 @@ Item {
                                   : backend.addToQueue(backend.openEpisodeId)
             }
             IconButton {
+                id: markButton
                 icon.name: "check-plain-symbolic"
                 tip: "Mark"
                 onClicked: {

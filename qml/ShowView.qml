@@ -23,6 +23,41 @@ Item {
 
     property real zoomPending: 0
 
+    // ---- Keyboard navigation (driven by Main.qml) ---------------------------
+    function navItems() {
+        var list = [back]
+        if (actions.visible) {
+            for (var i = 0; i < actions.children.length; ++i) {
+                var kid = actions.children[i]
+                if (kid.visible && kid.enabled && kid.kbdFocus !== undefined)
+                    list.push(kid)
+            }
+        }
+        return list
+    }
+    // Episode list as a one-column grid; the ring follows the episode id.
+    property bool kbdRing: false
+    property int kbdIndex: 0
+    property double kbdEpisodeId: 0
+    readonly property int navCount: list.count
+    readonly property int navColumns: 1
+    function syncNavIndex() {
+        var row = kbdEpisodeId ? list.model.rowOfEpisode(kbdEpisodeId) : -1
+        if (row >= 0)
+            kbdIndex = row
+        kbdIndex = Math.max(0, Math.min(kbdIndex, navCount - 1))
+        kbdEpisodeId = list.model.episodeIdAt(kbdIndex)
+    }
+    function setNavIndex(index) {
+        kbdIndex = Math.max(0, Math.min(index, navCount - 1))
+        kbdEpisodeId = list.model.episodeIdAt(kbdIndex)
+        list.positionViewAtIndex(kbdIndex, ListView.Contain)
+    }
+    function openNavItem() {
+        if (navCount > 0)
+            win.openEpisodePage(list.model.episodeIdAt(kbdIndex))
+    }
+
     function zoomIn() {
         backend.setEpisodeListSize(backend.episodeListSize + 1)
     }
@@ -81,11 +116,19 @@ Item {
         return flat.slice(0, descriptionLimit - 1).replace(/\s+\S*$/, "") + "…"
     }
 
-    function openMarkMenu(episodeId, played) {
+    function openMarkMenu(episodeId, played, anchor) {
         markedEpisode = episodeId
         markedPlayed = played
         markedQueued = backend.isQueued(episodeId)
-        markMenu.popup()
+        if (anchor)
+            markMenu.popupAt(anchor)
+        else
+            markMenu.popup()
+    }
+    function openNavMenu() {
+        var row = list.itemAtIndex(kbdIndex)
+        if (navCount > 0 && row)
+            openMarkMenu(list.model.episodeIdAt(kbdIndex), row.navPlayed, row)
     }
 
     Item {
@@ -208,9 +251,20 @@ Item {
 
         delegate: Rectangle {
             id: row
+            readonly property bool navPlayed: model.played
             width: list.width
             height: Math.max(page.listRowHeight, contentColumn.implicitHeight + 20 * theme.textScale)
             color: hover.containsMouse ? theme.selection : "transparent"
+
+            Rectangle {
+                anchors.fill: parent
+                visible: page.kbdRing && index === page.kbdIndex
+                radius: 4
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+                z: 5
+            }
 
             Rectangle {
                 width: 3
@@ -346,8 +400,11 @@ Item {
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
                         page.openMarkMenu(model.episodeId, model.played)
-                    else
+                    else {
+                        page.kbdIndex = index
+                        page.kbdEpisodeId = model.episodeId
                         win.openEpisodePage(model.episodeId)
+                    }
                 }
                 onWheel: (wheel) => page.takeWheel(wheel)
             }

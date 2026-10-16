@@ -16,6 +16,7 @@ ApplicationWindow {
          : pageKind === "show" ? backend.openShowTitle
          : pageKind === "queue" ? "Queue"
          : pageKind === "explore" ? "Explore"
+         : pageKind === "search" ? "Search"
          : pageKind === "nowPlaying" ? backend.playerTitle
          : "OmaEar"
     color: theme.background
@@ -42,6 +43,8 @@ ApplicationWindow {
     onHelpOpenChanged: {
         if (helpOpen)
             backend.requestUpdateCheck()
+        else
+            Qt.callLater(focusPage)
     }
     property double unsubscribeShowId: 0
     property string unsubscribeTitle: ""
@@ -155,7 +158,15 @@ ApplicationWindow {
         confirmRemove = true
     }
 
+    // The menu or popup that is open right now (AppMenu, player-bar popups).
+    property var openPopup: null
+
     function back() {
+        // An open menu takes Esc / Back first and the page stays put.
+        if (openPopup && openPopup.opened) {
+            openPopup.close()
+            return
+        }
         if (helpOpen) {
             helpOpen = false
             return
@@ -169,8 +180,10 @@ ApplicationWindow {
             explore.closePreview()
             return
         }
-        if (historyIndex <= 0)
+        if (historyIndex <= 0) {
+            navShown = false   // Esc on the shelf just hides the keyboard ring
             return
+        }
         historyIndex = historyIndex - 1
         applyPage()
     }
@@ -201,6 +214,16 @@ ApplicationWindow {
     }
     function openQueuePage() { navigate(makeEntry("queue", 0, 0)) }
     function openExplorePage() { navigate(makeEntry("explore", 0, 0)) }
+    function openSearchPage() {
+        navigate(makeEntry("search", 0, 0))
+        searchPage.focusSearch()
+    }
+    // From library search: Explore with the same words already searched.
+    function exploreFor(text) {
+        navigate(makeEntry("explore", 0, 0))
+        if (text.length > 0)
+            explorePage.searchFor(text)
+    }
     function openNowPlayingPage() {
         if (backend.playerEpisodeId !== 0)
             navigate(makeEntry("nowPlaying", 0, 0))
@@ -281,6 +304,23 @@ ApplicationWindow {
         }
         // queue / nowPlaying cover the content and leave the backend as is.
         navGuard = false
+        focusPage()
+    }
+
+    // Keys go to the visible page only. A hidden page keeps active focus in Qt
+    // Quick, so its list would still take arrows/Enter; park focus on the content
+    // stack. Search and Explore place their own focus when they show.
+    function focusPage() {
+        var kind = currentPage.kind
+        if (kind === "search")
+            return
+        if (kind === "explore") {
+            if (navShown) navRestoreFocus()   // else Explore focuses its own field
+            return
+        }
+        if (modalOpen || helpOpen)
+            return
+        contentStack.forceActiveFocus()
     }
 
     // Does the backend still show what the current entry asks for?
@@ -336,6 +376,24 @@ ApplicationWindow {
         onActivated: back()
     }
     Shortcut {
+        sequence: StandardKey.Find
+        context: Qt.ApplicationShortcut
+        enabled: !modalOpen
+        onActivated: {
+            helpOpen = false
+            openSearchPage()
+        }
+    }
+    // Episode details: Enter = the page's play button (plays or resumes from the
+    // saved spot; pauses if this episode is playing). Not while typing or selecting.
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        context: Qt.ApplicationShortcut
+        enabled: pageKind === "episode" && !modalOpen && !helpOpen && !navActive && !openPopup
+                 && !(win.activeFocusItem instanceof TextInput || win.activeFocusItem instanceof TextEdit)
+        onActivated: backend.playEpisode(backend.openEpisodeId)
+    }
+    Shortcut {
         sequence: "Alt+Right"
         context: Qt.ApplicationShortcut
         onActivated: forward()
@@ -350,6 +408,308 @@ ApplicationWindow {
         }
         onActivated: back()
     }
+
+    // ---- Keyboard navigation (main page, Explore, Now Playing) ---------------
+    // Each page is a stack of areas: a row of buttons, or a grid (podcasts,
+    // Explore results). Up/Down and Tab/Shift+Tab move between areas, Left/Right
+    // within one and run on into the next area at the ends; a grid moves by row
+    // and leaves at its top/bottom row. Enter activates. Areas that aren't
+    // showing are skipped. The ring appears after the first nav key and hides on
+    // mouse movement; each page remembers where it was.
+    readonly property var navPages: ["shelf", "explore", "nowPlaying", "show", "episode", "queue"]
+    property string navArea: "grid"
+    property var navIdx: ({})          // area name -> button index
+    property var navStates: ({})       // page kind -> {area, idx}
+    property string navKind: "shelf"   // page the state above belongs to
+    property bool navShown: false
+    property var navPainted: []
+    property point navMouseAt: Qt.point(-1, -1)
+    readonly property bool navActive: navShown && navPages.indexOf(pageKind) >= 0
+                                      && !modalOpen && !helpOpen && !explorePage.regionOpen
+
+    function navDefaults(kind) {
+        if (kind === "explore") return { area: "top", idx: { top: 1, player: 1, preview: 0 } }
+        if (kind === "episode") return { area: "top", idx: { top: 1, player: 1 } }   // Play
+        if (kind === "nowPlaying") return { area: "transport", idx: { top: 0, transport: 1, seek: 0, player: 1 } }
+        return { area: "grid", idx: { top: 0, player: 1 } }
+    }
+    function navSwitchPage() {
+        if (navKind === pageKind) return
+        var states = navStates
+        states[navKind] = { area: navArea, idx: navIdx }
+        navStates = states
+        var next = states[pageKind] || navDefaults(pageKind)
+        navKind = pageKind
+        navIdx = next.idx
+        navArea = next.area
+    }
+    function navAreasFor(kind) {
+        var list = []
+        var player = playerBar.visible && !nowPlayingOpen ? playerBar.navItems() : []
+        if (kind === "shelf") {
+            list.push({ name: "top", items: shelfView.navItems() })
+            list.push({ name: "grid", grid: shelfView })
+        } else if (kind === "explore") {
+            if (explore.previewOpen)
+                return [{ name: "preview", items: explorePage.previewItems() }]
+            list.push({ name: "top", items: explorePage.navItems() })
+            list.push({ name: "grid", grid: explorePage })
+        } else if (kind === "show") {
+            var sp = activeShow()
+            if (sp) {
+                list.push({ name: "top", items: sp.navItems() })
+                list.push({ name: "grid", grid: sp })
+            }
+        } else if (kind === "queue") {
+            list.push({ name: "top", items: queuePage.navItems() })
+            list.push({ name: "grid", grid: queuePage })
+        } else if (kind === "episode") {
+            list.push({ name: "top", items: episodePage.navItems() })
+        } else if (kind === "nowPlaying") {
+            list.push({ name: "top", items: nowPlayingPage.navTop() })
+            list.push({ name: "transport", items: nowPlayingPage.navTransport() })
+            list.push({ name: "seek", items: nowPlayingPage.navSeek() })
+            player = playerBar.visible ? playerBar.navItems() : []
+        }
+        list.push({ name: "player", items: player })
+        return list.filter(function(a) { return a.grid ? a.grid.navCount > 0 : a.items.length > 0 })
+    }
+    function navAreas() { return navAreasFor(pageKind) }
+    function navFind(areas, name) {
+        for (var i = 0; i < areas.length; ++i) if (areas[i].name === name) return areas[i]
+        return null
+    }
+    function navBarIndex(name) { return navIdx[name] !== undefined ? navIdx[name] : 0 }
+    function navSetBar(name, i) {
+        var m = navIdx; m[name] = i; navIdx = m
+        navApplyFocus()
+        navRefreshRing()
+    }
+    // Enter an area. edge: "first", "last", or "" for where you left it.
+    function navEnter(area, edge) {
+        navArea = area.name
+        if (area.grid) {
+            area.grid.syncNavIndex()
+            area.grid.setNavIndex(edge === "first" ? 0 : edge === "last" ? area.grid.navCount - 1 : area.grid.kbdIndex)
+            navApplyFocus()
+            navRefreshRing()
+            return
+        }
+        var n = area.items.length
+        var i = edge === "first" ? 0 : edge === "last" ? n - 1 : navBarIndex(area.name)
+        navSetBar(area.name, Math.max(0, Math.min(i, n - 1)))
+    }
+    function navStep(step) {        // previous/next area, wrapping
+        var areas = navAreas()
+        if (areas.length === 0) return
+        var at = areas.indexOf(navFind(areas, navArea))
+        navEnter(areas[at < 0 ? 0 : (at + step + areas.length) % areas.length], "")
+    }
+    function navRun(step) {         // Left/Right past the end of an area
+        var areas = navAreas()
+        if (areas.length === 0) return
+        var at = Math.max(0, areas.indexOf(navFind(areas, navArea)))
+        navEnter(areas[(at + step + areas.length) % areas.length], step > 0 ? "first" : "last")
+    }
+    function navCurrent() {
+        var areas = navAreas()
+        if (areas.length === 0) return null
+        var area = navFind(areas, navArea)
+        if (!area) {
+            area = navFind(areas, "grid") || areas[0]
+            navEnter(area, "")
+        } else if (!area.grid) {
+            var n = area.items.length
+            if (navBarIndex(area.name) > n - 1) navSetBar(area.name, n - 1)
+        }
+        return area
+    }
+    function navIsField(item) { return item && item.selectAll !== undefined && item.cursorPosition !== undefined }
+    // A text field in a row takes real focus (its own underline is the ring);
+    // everything else leaves Qt focus on the page so these keys reach shelfKey.
+    function navApplyFocus() {
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen || explorePage.regionOpen) return
+        navSwitchPage()
+        var area = navFind(navAreas(), navArea)
+        var item = area && area.items ? area.items[navBarIndex(area.name)] : null
+        if (navIsField(item)) {
+            if (!item.activeFocus) item.forceActiveFocus()
+        } else if (!contentStack.activeFocus || win.activeFocusItem instanceof TextInput) {
+            contentStack.forceActiveFocus()
+        }
+    }
+    // Focus back where navigation expects it (after dialogs, menus, Info).
+    function navRestoreFocus() {
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
+        if (pageKind === "explore" && !navShown) { explorePage.focusSearch(); return }
+        navApplyFocus()
+        if (!navIsField(win.activeFocusItem)) contentStack.forceActiveFocus()
+    }
+    // Called by a field (Explore search) for keys it doesn't use itself.
+    function navFromField(key) {
+        navShown = true
+        if (key === Qt.Key_Left) navMove(-1)
+        else if (key === Qt.Key_Right) navMove(1)
+        else if (key === Qt.Key_Up || key === Qt.Key_Backtab) navStep(-1)
+        else navStep(1)
+    }
+    function navMove(dir) {
+        var area = navCurrent()
+        if (!area) return
+        if (area.grid) {
+            var idx = area.grid.kbdIndex
+            if (dir < 0 ? idx > 0 : idx < area.grid.navCount - 1) area.grid.setNavIndex(idx + dir)
+            else navRun(dir)
+            return
+        }
+        var bi = navBarIndex(area.name)
+        if (dir < 0 ? bi > 0 : bi < area.items.length - 1) navSetBar(area.name, bi + dir)
+        else navRun(dir)
+    }
+    function shelfKey(event) {
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
+        navSwitchPage()
+        var k = event.key
+        var mods = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+        if (mods) return
+        // Explore: typing anywhere goes to the search field.
+        if (pageKind === "explore" && !explore.previewOpen && event.text.length === 1
+                && event.text.charCodeAt(0) > 32 && event.text.charCodeAt(0) !== 127) {
+            event.accepted = true
+            var items = explorePage.navItems()
+            navArea = "top"
+            navSetBar("top", items.indexOf(explorePage.searchFieldItem))
+            explorePage.typeIntoSearch(event.text)
+            return
+        }
+        // Menu key / Shift+F10: the ringed item's context menu.
+        if (k === Qt.Key_Menu || (k === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+            event.accepted = true
+            var marea = navCurrent()
+            navShown = true
+            navRefreshRing()
+            if (marea && marea.grid && marea.grid.openNavMenu !== undefined)
+                marea.grid.openNavMenu()
+            else if (pageKind === "episode")
+                episodePage.openNavMenu()
+            else if (pageKind === "nowPlaying")
+                nowPlayingPage.openNavMenu()
+            return
+        }
+        if (pageKind === "episode" && (k === Qt.Key_PageUp || k === Qt.Key_PageDown)) {
+            event.accepted = true
+            episodePage.scrollPage(k === Qt.Key_PageUp ? -1 : 1)
+            return
+        }
+        var navKeys = [Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right, Qt.Key_Tab, Qt.Key_Backtab,
+                       Qt.Key_Return, Qt.Key_Enter, Qt.Key_Home, Qt.Key_End, Qt.Key_Delete]
+        if (navKeys.indexOf(k) < 0) return
+        event.accepted = true
+        var area = navCurrent()
+        if (!area) return
+        // First key only reveals where you are (no surprise jump).
+        if (!navShown && k !== Qt.Key_Return && k !== Qt.Key_Enter) {
+            navShown = true
+            navRefreshRing()
+            return
+        }
+        navShown = true
+        if (k === Qt.Key_Tab) { navStep(1); return }
+        if (k === Qt.Key_Backtab) { navStep(-1); return }
+        if (area.grid) {
+            var g = area.grid, idx = g.kbdIndex, count = g.navCount, cols = g.navColumns
+            if (k === Qt.Key_Return || k === Qt.Key_Enter) g.openNavItem()
+            else if (k === Qt.Key_Delete) { if (g.navDelete !== undefined) g.navDelete() }
+            else if (k === Qt.Key_Home) g.setNavIndex(0)
+            else if (k === Qt.Key_End) g.setNavIndex(count - 1)
+            else if (k === Qt.Key_Left) navMove(-1)
+            else if (k === Qt.Key_Right) navMove(1)
+            else if (k === Qt.Key_Up) { if (idx - cols >= 0) g.setNavIndex(idx - cols); else navStep(-1) }
+            else if (k === Qt.Key_Down) {
+                if (idx + cols < count) g.setNavIndex(idx + cols)
+                // Last partial row below: land on the last item first.
+                else if (Math.floor(idx / cols) < Math.floor((count - 1) / cols)) g.setNavIndex(count - 1)
+                else navStep(1)
+            }
+            return
+        }
+        var bi = navBarIndex(area.name)
+        var item = area.items[bi]
+        if (k === Qt.Key_Delete) return
+        if (k === Qt.Key_Return || k === Qt.Key_Enter) {
+            if (navIsField(item)) { item.forceActiveFocus(); return }
+            if (item.reloadArtwork !== undefined) item.reloadArtwork = false
+            item.clicked()
+        }
+        else if (k === Qt.Key_Home) navSetBar(area.name, 0)
+        else if (k === Qt.Key_End) navSetBar(area.name, area.items.length - 1)
+        // A slider (the Now Playing scrubber) uses Left/Right itself.
+        else if ((k === Qt.Key_Left || k === Qt.Key_Right) && item.navNudge !== undefined)
+            item.navNudge(k === Qt.Key_Left ? -1 : 1)
+        else if (k === Qt.Key_Left) navMove(-1)
+        else if (k === Qt.Key_Right) navMove(1)
+        else if (k === Qt.Key_Up) navStep(-1)
+        else if (k === Qt.Key_Down) navStep(1)
+    }
+    // Paint the ring: clear what was lit, then light the current spot.
+    function navRefreshRing() {
+        for (var p = 0; p < navPainted.length; ++p) {
+            var old = navPainted[p]
+            if (old.kbdRing !== undefined) old.kbdRing = false
+            else if (old.kbdFocus !== undefined) old.kbdFocus = false
+        }
+        var lit = []
+        if (navActive) {
+            var area = navFind(navAreas(), navArea)
+            if (area && area.grid) {
+                area.grid.kbdRing = true
+                lit.push(area.grid)
+            } else if (area) {
+                var item = area.items[navBarIndex(area.name)]
+                if (item && item.kbdFocus !== undefined) {
+                    item.kbdFocus = true
+                    lit.push(item)
+                }
+            }
+        }
+        navPainted = lit
+    }
+    onNavActiveChanged: navRefreshRing()
+    onNavAreaChanged: navRefreshRing()
+    onPageKindChanged: {
+        navSwitchPage()
+        var listPage = pageKind === "shelf" ? shelfView : pageKind === "explore" ? explorePage
+                     : pageKind === "queue" ? queuePage : pageKind === "show" ? activeShow() : null
+        if (listPage) Qt.callLater(function() {
+            var g = pageKind === "shelf" ? shelfView : pageKind === "explore" ? explorePage
+                  : pageKind === "queue" ? queuePage : pageKind === "show" ? activeShow() : null
+            if (!g) return
+            g.syncNavIndex()
+            if (navArea === "grid" && g.navCount > 0) g.setNavIndex(g.kbdIndex)
+            navRefreshRing()
+        })
+        else navRefreshRing()
+    }
+    // Dialogs and Info closing must hand the keys back (Esc out of Add feed
+    // used to leave focus on the hidden field, so nothing responded).
+    onModalOpenChanged: if (!modalOpen) Qt.callLater(focusPage)
+    Connections {
+        target: explore
+        function onPreviewOpenChanged() {
+            if (explore.previewOpen) {
+                if (win.navShown) { win.navArea = "preview"; win.navSetBar("preview", 0) }
+            } else {
+                win.navArea = "grid"
+            }
+            Qt.callLater(win.navRestoreFocus)
+            win.navRefreshRing()
+        }
+    }
+    Connections {
+        target: backend.shows
+        function onModelReset() { if (win.navShown) Qt.callLater(function() { shelfView.syncNavIndex() }) }
+    }
+
     function rememberShow(showId) {
         if (!showId)
             return
@@ -436,6 +796,16 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
 
+        // Any real mouse movement hides the keyboard ring (its place is kept).
+        HoverHandler {
+            onPointChanged: {
+                var p = point.scenePosition
+                if (win.navMouseAt.x >= 0 && (p.x !== win.navMouseAt.x || p.y !== win.navMouseAt.y))
+                    win.navShown = false
+                win.navMouseAt = p
+            }
+        }
+
         // Content stack sits above the always-visible PlayerBar so Now Playing
         // never paints under / behind the chrome.
         Item {
@@ -443,6 +813,9 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            focus: true
+            // Shelf keyboard navigation; other pages ignore these keys here.
+            Keys.onPressed: function(event) { win.shelfKey(event) }
 
             ShelfView {
                 id: shelfView
@@ -458,6 +831,7 @@ ApplicationWindow {
                 onMarkLibraryRequested: win.confirmLibrary = true
                 onQueueRequested: win.openQueuePage()
                 onExploreRequested: win.openExplorePage()
+                onSearchRequested: win.openSearchPage()
                 onUnsubscribeRequested: function(showId, title) {
                     win.confirmUnsubscribe(showId, title)
                 }
@@ -482,6 +856,7 @@ ApplicationWindow {
             }
 
             EpisodeView {
+                id: episodePage
                 anchors.fill: parent
                 z: 2
                 visible: win.pageKind === "episode"
@@ -496,7 +871,17 @@ ApplicationWindow {
                 onDismissRequested: win.back()
             }
 
+            SearchView {
+                id: searchPage
+                anchors.fill: parent
+                z: 1.5
+                visible: win.pageKind === "search"
+                onDismissRequested: win.back()
+                onExploreRequested: function(text) { win.exploreFor(text) }
+            }
+
             QueueView {
+                id: queuePage
                 anchors.fill: parent
                 z: 1.5
                 visible: win.pageKind === "queue"
@@ -514,6 +899,7 @@ ApplicationWindow {
         }
 
         PlayerBar {
+            id: playerBar
             Layout.fillWidth: true
             visible: backend.playerEpisodeId !== 0
             nowPlayingOpen: win.nowPlayingOpen
@@ -686,7 +1072,8 @@ ApplicationWindow {
         title: "Save artwork"
         fileMode: FileDialog.SaveFile
         nameFilters: ["Images (*.jpg *.jpeg *.png *.webp *.gif)", "All files (*)"]
-        onAccepted: backend.saveArtwork(episodeId, showId, selectedFile)
+        onAccepted: { backend.saveArtwork(episodeId, showId, selectedFile); win.focusPage() }
+        onRejected: win.focusPage()
     }
     Shortcut {
         sequence: "Ctrl+0"
@@ -710,7 +1097,8 @@ ApplicationWindow {
         id: opmlDialog
         title: "Import OPML"
         nameFilters: ["OPML files (*.opml *.xml)", "All files (*)"]
-        onAccepted: backend.importOpml(selectedFile)
+        onAccepted: { backend.importOpml(selectedFile); win.focusPage() }
+        onRejected: win.focusPage()
     }
 
     function submitFeed() {

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QHash>
 #include <QList>
+#include <QPair>
 #include <QSqlDatabase>
 #include <QString>
 
@@ -29,6 +31,19 @@ struct EpisodeRow {
     bool played = false;
     int positionMs = 0;
     QString showTitle; // filled by queue() only
+};
+
+// One episode as library search reads it (raw HTML notes, show cover fallback applied).
+struct SearchRow {
+    qint64 id = 0;
+    qint64 showId = 0;
+    QString title;
+    QString description;
+    QString imagePath;
+    qint64 published = 0;
+    int durationSecs = 0;
+    bool played = false;
+    int positionMs = 0;
 };
 
 struct ParsedEpisode {
@@ -145,6 +160,13 @@ public:
     void setAudioCacheUa(const QString &generation);
 
     QStringList feedUrls() const;
+
+    // Library search: every episode in one pass, and a cheap change signature
+    // (count, max id, total text length) so the index is rebuilt only when needed.
+    QList<SearchRow> searchRows() const;
+    QString searchSignature() const;
+    // Played / position by id, for refreshing search results without a rebuild.
+    QHash<qint64, QPair<bool, int>> playState() const;
 
     // Up-next queue (table `queue`, ordered by position).
     QList<EpisodeRow> queue() const;

@@ -12,6 +12,37 @@ Item {
     property int menuRow: -1
     readonly property bool regionOpen: regionPopup.opened
 
+    // ---- Keyboard navigation (driven by Main.qml) ---------------------------
+    property bool kbdRing: false
+    property int kbdIndex: 0
+    readonly property int navCount: grid.count
+    readonly property int navColumns: columns
+    readonly property Item searchFieldItem: searchField
+    function navItems() {
+        return [back, searchField, flagButton, helpButton].filter(function(i) { return i.visible })
+    }
+    function previewItems() {
+        return [previewSubscribe, previewBrowser, previewClose].filter(function(i) { return i.visible && i.enabled })
+    }
+    function syncNavIndex() { kbdIndex = Math.max(0, Math.min(kbdIndex, navCount - 1)) }
+    function setNavIndex(index) {
+        kbdIndex = Math.max(0, Math.min(index, navCount - 1))
+        grid.positionViewAtIndex(kbdIndex, GridView.Contain)
+    }
+    function openNavMenu() {
+        var tile = grid.itemAtIndex(kbdIndex)
+        if (navCount === 0 || !tile) return
+        menuRow = kbdIndex
+        resultMenu.subscribed = tile.model.subscribed
+        resultMenu.popupAt(tile)
+    }
+    function openNavItem() { if (navCount > 0) explore.openPreview(kbdIndex) }
+    function typeIntoSearch(text) {
+        searchField.forceActiveFocus()
+        searchField.insert(searchField.cursorPosition, text)
+        explore.setQuery(searchField.text)
+    }
+
     function closeRegions() {
         if (!regionPopup.opened)
             return false
@@ -26,6 +57,14 @@ Item {
     readonly property real coverSize: Math.max(columnFloor * 0.8, cellWidth - galleryGap)
     readonly property real cellHeight: coverSize + theme.titleSize * 2.4 + theme.caption * 1.4 + 26
 
+    // Run an online search for text (handed over from library search).
+    function searchFor(text) {
+        searchField.text = text
+        explore.setQuery(text)
+        explore.searchNow()
+        focusSearch()
+    }
+
     function focusSearch() {
         searchField.forceActiveFocus()
         searchField.selectAll()
@@ -34,7 +73,10 @@ Item {
     onVisibleChanged: {
         if (visible) {
             explore.activate()
-            focusSearch()
+            if (win.navShown && win.navArea !== "top")
+                Qt.callLater(win.navRestoreFocus)
+            else
+                focusSearch()
         } else {
             explore.closePreview()
             regionPopup.close()
@@ -138,7 +180,30 @@ Item {
                 color: theme.selection
                 opacity: 0.55
             }
-            onTextEdited: explore.setQuery(text)
+            onTextEdited: { explore.setQuery(text); page.kbdIndex = 0 }
+            // Keys the field doesn't need hand over to page navigation: Up/Down,
+            // Tab, and Left/Right at either end of the text.
+            onActiveFocusChanged: if (activeFocus && win.pageKind === "explore") {
+                win.navSwitchPage()
+                if (win.navArea === "top" && win.navIdx.top === page.navItems().indexOf(searchField))
+                    return
+                win.navArea = "top"
+                win.navSetBar("top", page.navItems().indexOf(searchField))
+            }
+            Keys.onPressed: function(event) {
+                if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+                    return
+                var k = event.key
+                var atStart = cursorPosition === 0 && selectedText.length === 0
+                var atEnd = cursorPosition === length && selectedText.length === 0
+                if (k === Qt.Key_Up || k === Qt.Key_Down || k === Qt.Key_Tab || k === Qt.Key_Backtab
+                        || (k === Qt.Key_Left && atStart) || (k === Qt.Key_Right && atEnd)) {
+                    event.accepted = true
+                    win.navSwitchPage()
+                    win.navArea = "top"
+                    win.navFromField(k)
+                }
+            }
             onAccepted: explore.searchNow()
         }
 
@@ -280,7 +345,7 @@ Item {
         anchors.bottom: parent.bottom
         leftMargin: 16
         rightMargin: 16
-        topMargin: 4
+        topMargin: 8
         clip: true
         cellWidth: page.cellWidth
         cellHeight: page.cellHeight
@@ -332,6 +397,15 @@ Item {
                         anchors.fill: parent
                         color: theme.selection
                         opacity: tileMouse.containsMouse ? 0.28 : 0
+                    }
+                    Rectangle {
+                        visible: page.kbdRing && tile.index === page.kbdIndex
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        radius: 4
+                        color: "transparent"
+                        border.width: 2
+                        border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
                     }
                     // Subscribe badge: + / spinner / check.
                     Rectangle {
@@ -401,6 +475,7 @@ Item {
                         resultMenu.subscribed = tile.model.subscribed
                         resultMenu.popup()
                     } else {
+                        page.kbdIndex = tile.index
                         explore.openPreview(tile.index)
                     }
                 }
@@ -551,6 +626,7 @@ Item {
                             Row {
                                 spacing: 10
                                 IconButton {
+                                    id: previewSubscribe
                                     visible: !explore.preview.adding
                                     icon.name: explore.preview.subscribed ? "check-plain-symbolic" : "list-add-symbolic"
                                     caption: explore.preview.subscribed ? "Subscribed" : "Subscribe"
@@ -566,6 +642,7 @@ Item {
                                     Material.accent: theme.accent
                                 }
                                 IconButton {
+                                    id: previewBrowser
                                     visible: (explore.preview.viewUrl || "") !== ""
                                     icon.name: "web-browser-symbolic"
                                     tip: "Open in browser"
@@ -634,6 +711,7 @@ Item {
             }
 
             IconButton {
+                id: previewClose
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.margins: 6
@@ -710,7 +788,9 @@ Item {
         onOpened: filterField.forceActiveFocus()
         onClosed: {
             closedAt = Date.now()
-            if (page.visible)
+            if (page.visible && win.navShown && win.navArea === "top")
+                Qt.callLater(win.navRestoreFocus)   // ring back on the flag
+            else if (page.visible)
                 searchField.forceActiveFocus()
         }
 

@@ -29,6 +29,22 @@ Item {
         artMenu.info = backend.artworkInfo(backend.playerEpisodeId, backend.playerShowId)
         artMenu.popup()
     }
+    // Menu key: the artwork menu, beside the cover.
+    function openNavMenu() {
+        artMenu.info = backend.artworkInfo(backend.playerEpisodeId, backend.playerShowId)
+        artMenu.popupAt(page.compact ? compactArt : coverFrame)
+    }
+
+    // Keyboard navigation areas (driven by Main.qml).
+    function shown(list) {
+        return list.filter(function(i) { return i.visible && i.enabled && i.kbdFocus !== undefined })
+    }
+    function navTop() { return shown([back, helpButton]) }
+    function navTransport() { var list = []
+        for (var i = 0; i < transport.children.length; ++i) list.push(transport.children[i])
+        list.push(rateChip)
+        return shown(list) }
+    function navSeek() { return shown([scrubber]) }
 
     function nudge(seconds) {
         var next = backend.playerPosition + seconds
@@ -340,6 +356,9 @@ Item {
                     // Quiet caption chip: playback speed beside remaining time.
                     Item {
                         id: rateChip
+                        property bool kbdFocus: false
+                        signal clicked()
+                        onClicked: backend.cycleRate()
                         width: rateText.implicitWidth + 10
                         height: Math.max(18 * theme.textScale, rateText.implicitHeight + 4)
                         anchors.verticalCenter: parent.verticalCenter
@@ -347,9 +366,11 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             radius: 4
-                            color: rateArea.containsMouse || rateArea.pressed
+                            color: rateArea.containsMouse || rateArea.pressed || rateChip.kbdFocus
                                    ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
                                    : "transparent"
+                            border.width: rateChip.kbdFocus ? 1 : 0
+                            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
                         }
                         Text {
                             id: rateText

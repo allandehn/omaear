@@ -4,11 +4,16 @@ Planned work and ideas for OmaEar.
 
 ## Open
 
-- [ ] **Keyboard-first** — Make the whole app usable from the keyboard, in line with Omarchy.
-- [ ] **Search: episodes within library** — Search episode titles/notes across subscribed shows.
+Nothing open right now.
+
+## Nice to have
+
+Nothing here right now.
 
 ## Done
 
+- [x] **Keyboard-first** — Arrows, Tab/Shift+Tab and Enter on every page (main page, episodes, details, Queue, search, Explore, Now Playing), with a quiet focus ring and focus restored on Back.
+- [x] **Search: episodes within library** — Magnifier or Ctrl+F searches titles and show notes of every subscribed episode as you type (all words must match; title matches first, then newest; matches in bold). Click opens details, play over the art, right-click for the episode menu, Enter opens the top result. The globe button takes the same words to Explore.
 - [x] **Refresh-all UX** — While refresh is in progress, gray out all shows that are more than “caught-up dim.” After refresh finishes, restore each show’s dim/full-lit state from played status. If refresh fails, recover a functional shelf. Animate the refresh icon while in progress; return it to the base icon on failure.
 - [x] **Episode detail: web links** — Underline obvious web links in episode detail; open them in the system default browser.
 - [x] **Episode detail: timestamps** — Recognize timestamps in episode detail; a click seeks the progress bar to that time and starts playback immediately, staying on the detail page.

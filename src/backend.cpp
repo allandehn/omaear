@@ -250,6 +250,7 @@ void Backend::reloadShows()
         emit openShowChanged();
         refreshOpenEpisode();
     }
+    emit libraryChanged();
 }
 
 void Backend::reloadEpisodes()
@@ -1405,6 +1406,9 @@ void Backend::applyPlayerState(const QVariantMap &state)
         || qAbs(duration - m_playerDuration) > 0.5;
     const bool playedFlipped = played != m_sawPlayed && episodeId != 0;
     const bool episodeSwitched = episodeId != m_playerEpisodeId && episodeId != 0;
+    // Playback started: the player may just have marked it unplayed (see
+    // PlayerService::unmarkForPlayback), even if its played flag looked unchanged here.
+    const bool startedPlaying = status == QStringLiteral("playing") && m_playerStatus != status && episodeId != 0;
     m_sawPlayed = played;
 
     m_playerEpisodeId = episodeId;
@@ -1425,7 +1429,7 @@ void Backend::applyPlayerState(const QVariantMap &state)
     }
     if (structural)
         emit playerStateChanged();
-    if (playedFlipped) {
+    if (playedFlipped || startedPlaying) {
         reloadEpisodes();
         reloadShows();
         reloadQueue();
