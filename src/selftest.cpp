@@ -458,6 +458,30 @@ int runSelfTest(int argc, char **argv)
               "bad release json fails");
     }
 
+    {
+        // OPML export round-trips through the import parser (escaping included).
+        QList<ShowRow> rows;
+        ShowRow a; a.feedUrl = QStringLiteral("https://example.com/a.xml?x=1&y=2"); a.title = QStringLiteral("A & <B> \"C\"");
+        ShowRow b; b.feedUrl = QStringLiteral("https://example.com/b.rss"); b.title = QStringLiteral("Bé");
+        rows << a << b;
+        const QByteArray xml = writeOpml(rows);
+        QString err;
+        check(parseOpml(xml, &err) == QStringList({a.feedUrl, b.feedUrl}), "opml round trip");
+        check(xml.contains("version=\"2.0\"") && xml.contains("title=\"A &amp; &lt;B&gt;"), "opml 2.0 title");
+        // Optional: a copy of a real library (never the live one).
+        const QString libPath = qEnvironmentVariable("OMAEAR_SELFTEST_LIBRARY");
+        if (!libPath.isEmpty()) {
+            Library lib(libPath);
+            const QList<ShowRow> shows = lib.shows();
+            QStringList want;
+            for (const auto &row : shows) want << row.feedUrl;
+            const QStringList got = parseOpml(writeOpml(shows), &err);
+            check(!want.isEmpty() && QSet<QString>(got.begin(), got.end()) == QSet<QString>(want.begin(), want.end()),
+                  "opml round trip (library copy)");
+            fprintf(stderr, "opml library copy: %lld shows, %lld round-tripped\n", (long long)want.size(), (long long)got.size());
+        }
+    }
+
     if (g_fails == 0) {
         printf("ok\n");
         return 0;

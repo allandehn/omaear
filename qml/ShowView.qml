@@ -3,13 +3,8 @@ import QtQuick.Controls
 
 Item {
     id: page
-    signal markAllRequested()
-    signal removeRequested()
     signal queueRequested()
 
-    property var markedEpisode: 0
-    property bool markedPlayed: false
-    property bool markedQueued: false
     // Which show this page is holding. Main keeps one page per visited show.
     property double showId: 0
     property var episodeModel: null
@@ -116,14 +111,13 @@ Item {
         return flat.slice(0, descriptionLimit - 1).replace(/\s+\S*$/, "") + "…"
     }
 
+    // UI self-test hooks (OMAEAR_UI_TEST).
+    readonly property Item backItem: back
+    function rowItemAt(i) { return list.itemAtIndex(i) }
+    readonly property bool episodeMenuOpen: episodeMenu.opened
+
     function openMarkMenu(episodeId, played, anchor) {
-        markedEpisode = episodeId
-        markedPlayed = played
-        markedQueued = backend.isQueued(episodeId)
-        if (anchor)
-            markMenu.popupAt(anchor)
-        else
-            markMenu.popup()
+        episodeMenu.openFor(episodeId, anchor)
     }
     function openNavMenu() {
         var row = list.itemAtIndex(kbdIndex)
@@ -180,17 +174,6 @@ Item {
                 icon.source: "qrc:/icons/queue-symbolic.svg"
                 tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
                 onClicked: page.queueRequested()
-            }
-            IconButton {
-                icon.name: "check-plain-symbolic"
-                tip: "Mark all as played"
-                onClicked: page.markAllRequested()
-            }
-            IconButton {
-                icon.name: "list-remove-symbolic"
-                glyph: theme.dim
-                tip: "Unsubscribe"
-                onClicked: page.removeRequested()
             }
             IconButton {
                 icon.source: "qrc:/icons/info-symbolic.svg"
@@ -318,11 +301,14 @@ Item {
                     icon.width: Math.max(16 * theme.textScale, page.listCover * 0.375)
                     icon.height: icon.width
                     glyph: theme.foreground
-                    tip: model.episodeId === backend.playerEpisodeId
-                         && backend.playerStatus === "playing" ? "Pause" : "Play"
                     // Transparent chrome so episode art shows through under the glyph.
                     background: Item {}
                     onClicked: backend.playEpisode(model.episodeId)
+                }
+                // Right-click on the art: the same episode menu as the row.
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: page.openMarkMenu(model.episodeId, model.played)
                 }
                 QueueBadge {
                     anchors.right: parent.right
@@ -418,41 +404,6 @@ Item {
         anchors.rightMargin: 2
     }
 
-    AppMenu {
-        id: markMenu
-        AppMenuItem {
-            text: "Mark as played"
-            enabled: !page.markedPlayed
-            onChosen: backend.markPlayed(page.markedEpisode, true)
-        }
-        AppMenuItem {
-            text: "Mark as unplayed"
-            enabled: page.markedPlayed
-            onChosen: backend.markPlayed(page.markedEpisode, false)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Play next"
-            onChosen: backend.playNext(page.markedEpisode)
-        }
-        AppMenuItem {
-            text: page.markedQueued ? "Remove from queue" : "Add to queue"
-            onChosen: page.markedQueued ? backend.removeFromQueue(page.markedEpisode)
-                                           : backend.addToQueue(page.markedEpisode)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark older as played"
-            onChosen: backend.markOlderPlayed(page.markedEpisode)
-        }
-        AppMenuItem {
-            text: "Mark newer as played"
-            onChosen: backend.markNewerPlayed(page.markedEpisode)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark all as played"
-            onChosen: page.markAllRequested()
-        }
-    }
+
+    EpisodeMenu { id: episodeMenu }
 }

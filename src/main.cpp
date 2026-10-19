@@ -55,6 +55,17 @@ public:
             || event->type() == QEvent::MouseButtonRelease) {
             const auto *mouse = static_cast<const QMouseEvent *>(event);
             const Qt::MouseButton button = mouse->button();
+            // Click-through for menus and popups: a press outside the open one
+            // closes it here, before the window delivers the press, and is NOT
+            // consumed, so it still reaches Back, another cover, … (Qt's own
+            // CloseOnPressOutside lets the popup overlay swallow it).
+            if (event->type() == QEvent::MouseButtonPress && watched == window
+                && button != Qt::BackButton && button != Qt::ForwardButton) {
+                const QPointF p = mouse->scenePosition();
+                QMetaObject::invokeMethod(window, "closePopupsAt", Qt::DirectConnection,
+                                          Q_ARG(QVariant, p.x()), Q_ARG(QVariant, p.y()),
+                                          Q_ARG(QVariant, button == Qt::RightButton));
+            }
             if (button != Qt::BackButton && button != Qt::ForwardButton)
                 return false;
             // Act once per physical press; swallow the rest so nothing else reacts.
@@ -139,6 +150,7 @@ private:
 };
 
 int runSelfTest(int argc, char **argv);
+void startUiTest(QQmlApplicationEngine &engine);
 
 int main(int argc, char **argv)
 {
@@ -263,6 +275,8 @@ int main(int argc, char **argv)
         if (quitMs > 0)
             QTimer::singleShot(quitMs, &app, &QCoreApplication::quit);
     }
+    if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST") == 1)
+        startUiTest(engine);
     WindowInputFilter inputFilter;
     inputFilter.window = engine.rootObjects().constFirst();
     app.installEventFilter(&inputFilter);

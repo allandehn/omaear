@@ -4,6 +4,7 @@ import QtQuick.Controls.Material
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
+import QtCore
 
 ApplicationWindow {
     id: win
@@ -23,7 +24,7 @@ ApplicationWindow {
     title: pageKind === "episode" ? backend.openEpisodeTitle
          : pageKind === "show" ? backend.openShowTitle
          : pageKind === "queue" ? "Queue"
-         : pageKind === "explore" ? "Explore"
+         : pageKind === "explore" ? "Find new podcasts"
          : pageKind === "search" ? "Search"
          : pageKind === "nowPlaying" ? backend.playerTitle
          : "OmaEar"
@@ -44,11 +45,18 @@ ApplicationWindow {
 
     property bool addOpen: false
     property bool confirmAll: false
-    property bool confirmLibrary: false
+    // Show that "Mark all as played" applies to (set by confirmMarkShow).
+    property double markAllShowId: 0
+    property string markAllTitle: ""
     property bool confirmRemove: false
     property bool confirmQueue: false
+    // Unsubscribe from all: two steps, both must be confirmed.
+    property bool confirmUnsubAll: false
+    property bool confirmUnsubAll2: false
+    property int unsubAllCount: 0
     property bool helpOpen: false
     onHelpOpenChanged: {
+        closeAllPopups()
         if (helpOpen)
             backend.requestUpdateCheck()
         else
@@ -125,7 +133,7 @@ ApplicationWindow {
     readonly property string pageKind: currentPage.kind
     readonly property bool canGoBack: modalOpen || explore.previewOpen || explorePage.regionOpen || historyIndex > 0
     readonly property bool canGoForward: !modalOpen && historyIndex < history.length - 1
-    readonly property bool modalOpen: addOpen || confirmAll || confirmLibrary || confirmRemove || confirmQueue
+    readonly property bool modalOpen: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
     readonly property bool nowPlayingOpen: pageKind === "nowPlaying"
     readonly property bool queueOpen: pageKind === "queue"
     // True while we drive backend.open*/close*, so its change signals are not
@@ -160,10 +168,28 @@ ApplicationWindow {
             return false
         addOpen = false
         confirmAll = false
-        confirmLibrary = false
         confirmRemove = false
         confirmQueue = false
+        confirmUnsubAll = false
+        confirmUnsubAll2 = false
         return true
+    }
+
+    // Confirm, then mark every episode of one show played (menus on the shelf,
+    // Episodes page and player bar).
+    function confirmMarkShow(showId, title) {
+        if (!showId)
+            return
+        markAllShowId = showId
+        markAllTitle = title || ""
+        confirmAll = true
+    }
+
+    onConfirmUnsubAll2Changed: if (confirmUnsubAll2) Qt.callLater(unsubAllKeys.forceActiveFocus)
+    function confirmUnsubscribeAll() {
+        if (backend.showCount === 0)
+            return
+        confirmUnsubAll = true
     }
 
     // Same confirm dialog as the episodes-page Unsubscribe button.
@@ -177,6 +203,42 @@ ApplicationWindow {
 
     // The menu or popup that is open right now (AppMenu, player-bar popups).
     property var openPopup: null
+
+    // One place that closes every menu and popup when the view or layout
+    // changes (page, history step, shelf list/gallery, dialogs, Info, focus loss).
+    function closeAllPopups() {
+        if (openPopup && openPopup.opened)
+            openPopup.close()
+        explorePage.closeRegions()
+    }
+    // Called by the C++ window filter on every mouse press, before delivery.
+    // Closes the open menu/popup when the press lands outside it; the press
+    // itself then carries on to whatever is underneath.
+    function popupContains(p, x, y) {
+        var bg = p.background || p.contentItem
+        if (!bg) return false
+        var q = bg.mapFromItem(null, x, y)
+        return q.x >= 0 && q.y >= 0 && q.x < bg.width && q.y < bg.height
+    }
+    // A right-press outside swaps menus at once (no fade), so the new target's
+    // menu can open on the same click; left/middle presses get the normal fade.
+    function closePopupsAt(x, y, rightButton) {
+        if (openPopup && openPopup.visible && !popupContains(openPopup, x, y)) {
+            if (rightButton && openPopup.closeNow !== undefined)
+                openPopup.closeNow()
+            else
+                openPopup.close()
+        }
+        if (explorePage.regionOpen && !popupContains(explorePage.regionPopupItem, x, y))
+            explorePage.closeRegions()
+    }
+    onCurrentPageChanged: closeAllPopups()
+    onHistoryIndexChanged: closeAllPopups()
+    onActiveChanged: if (!active) closeAllPopups()
+    Connections {
+        target: backend
+        function onShelfLayoutChanged() { win.closeAllPopups() }
+    }
 
     function back() {
         // An open menu takes Esc / Back first and the page stays put.
@@ -608,6 +670,8 @@ ApplicationWindow {
             navRefreshRing()
             if (marea && marea.grid && marea.grid.openNavMenu !== undefined)
                 marea.grid.openNavMenu()
+            else if (pageKind === "shelf" && shelfView.navCount === 0)
+                shelfView.openNavMenu()
             else if (pageKind === "episode")
                 episodePage.openNavMenu()
             else if (pageKind === "nowPlaying")
@@ -710,7 +774,12 @@ ApplicationWindow {
     }
     // Dialogs and Info closing must hand the keys back (Esc out of Add feed
     // used to leave focus on the hidden field, so nothing responded).
-    onModalOpenChanged: if (!modalOpen) Qt.callLater(focusPage)
+    onModalOpenChanged: {
+        if (modalOpen)
+            closeAllPopups()
+        else
+            Qt.callLater(focusPage)
+    }
     Connections {
         target: explore
         function onPreviewOpenChanged() {
@@ -858,7 +927,7 @@ ApplicationWindow {
                     feedField.forceActiveFocus()
                 }
                 onImportRequested: opmlDialog.open()
-                onMarkLibraryRequested: win.confirmLibrary = true
+                onExportRequested: opmlExportDialog.open()
                 onQueueRequested: win.openQueuePage()
                 onExploreRequested: win.openExplorePage()
                 onSearchRequested: win.openSearchPage()
@@ -879,8 +948,6 @@ ApplicationWindow {
                     anchors.fill: parent
                     z: 1
                     visible: win.pageKind === "show" && win.currentPage.showId === showId
-                    onMarkAllRequested: win.confirmAll = true
-                    onRemoveRequested: win.confirmUnsubscribe(showId, backend.openShowTitle)
                     onQueueRequested: win.openQueuePage()
                 }
             }
@@ -890,7 +957,6 @@ ApplicationWindow {
                 anchors.fill: parent
                 z: 2
                 visible: win.pageKind === "episode"
-                onMarkAllRequested: win.confirmAll = true
             }
 
             ExploreView {
@@ -964,7 +1030,6 @@ ApplicationWindow {
             Layout.fillWidth: true
             visible: backend.playerEpisodeId !== 0
             nowPlayingOpen: win.nowPlayingOpen
-            onMarkAllRequested: win.confirmAll = true
             onNowPlayingRequested: win.openNowPlayingPage()
             onNowPlayingCollapseRequested: win.collapseNowPlaying()
         }
@@ -973,7 +1038,7 @@ ApplicationWindow {
     Rectangle {
         anchors.fill: parent
         id: dialogScrim
-        visible: addOpen || confirmAll || confirmLibrary || confirmRemove || confirmQueue
+        visible: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
         color: Qt.rgba(0, 0, 0, 0.45)
         PopupFadeIn { host: dialogScrim }
 
@@ -982,9 +1047,10 @@ ApplicationWindow {
             onClicked: {
                 addOpen = false
                 confirmAll = false
-                confirmLibrary = false
-                confirmRemove = false
+                        confirmRemove = false
                 confirmQueue = false
+                confirmUnsubAll = false
+                confirmUnsubAll2 = false
             }
         }
 
@@ -1052,6 +1118,16 @@ ApplicationWindow {
                 }
             }
 
+            // Holds keyboard focus for the second Unsubscribe-from-all step so
+            // Enter/Space press the default Cancel, never the destructive button.
+            Item {
+                id: unsubAllKeys
+                focus: confirmUnsubAll2
+                Keys.onReturnPressed: confirmCancel.clicked()
+                Keys.onEnterPressed: confirmCancel.clicked()
+                Keys.onSpacePressed: confirmCancel.clicked()
+            }
+
             Column {
                 id: confirmColumn
                 visible: !addOpen
@@ -1067,42 +1143,54 @@ ApplicationWindow {
                     color: theme.foreground
                     font.pixelSize: theme.body
                     font.weight: Font.Normal
-                    text: confirmQueue
+                    text: confirmUnsubAll
+                          ? "Unsubscribe from all podcasts?"
+                          : confirmUnsubAll2
+                          ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "? This can't be undone."
+                          : confirmQueue
                           ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
                           : confirmRemove
                           ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
-                          : confirmLibrary
-                            ? "Mark every episode of every podcast as played?"
-                            : "Mark every episode of " + (backend.playerShowId !== 0 && backend.openShowId === 0
-                                                          ? backend.playerShowTitle : backend.openShowTitle)
-                              + " as played?"
+                          : "Mark every episode of " + markAllTitle + " as played?"
                 }
                 Row {
                     spacing: 8
                     TextButton {
-                        label: confirmQueue ? "Clear queue" : confirmRemove ? "Unsubscribe" : "Mark all as played"
+                        label: confirmUnsubAll ? "Continue" : confirmUnsubAll2 ? "Unsubscribe from all" : confirmQueue ? "Clear queue" : confirmRemove ? "Unsubscribe" : "Mark all as played"
                         onClicked: {
-                            if (confirmQueue)
+                            if (confirmUnsubAll) {
+                                // Step one only leads to step two.
+                                unsubAllCount = backend.showCount
+                                confirmUnsubAll2 = true
+                                confirmUnsubAll = false
+                                return
+                            }
+                            if (confirmUnsubAll2)
+                                backend.removeAllShows()
+                            else if (confirmQueue)
                                 backend.clearQueue()
                             else if (confirmRemove)
                                 backend.removeShow(unsubscribeShowId)
-                            else if (confirmLibrary)
-                                backend.markLibraryPlayed()
                             else
-                                backend.markAllPlayed(backend.openShowId !== 0 ? backend.openShowId : backend.playerShowId)
+                                backend.markAllPlayed(markAllShowId)
                             confirmAll = false
-                            confirmLibrary = false
-                            confirmRemove = false
+                                                confirmRemove = false
                             confirmQueue = false
+                            confirmUnsubAll = false
+                            confirmUnsubAll2 = false
                         }
                     }
                     TextButton {
+                        id: confirmCancel
                         label: "Cancel"
+                        // Step two of Unsubscribe from all: Cancel is the default (Enter).
+                        isDefault: confirmUnsubAll2
                         onClicked: {
                             confirmAll = false
-                            confirmLibrary = false
-                            confirmRemove = false
+                                                confirmRemove = false
                             confirmQueue = false
+                            confirmUnsubAll = false
+                            confirmUnsubAll2 = false
                         }
                     }
                 }
@@ -1164,6 +1252,18 @@ ApplicationWindow {
         onRejected: win.focusPage()
     }
 
+    FileDialog {
+        id: opmlExportDialog
+        title: "Export OPML"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "opml"
+        nameFilters: ["OPML files (*.opml)", "All files (*)"]
+        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        selectedFile: currentFolder + "/omaear-subscriptions.opml"
+        onAccepted: { backend.exportOpml(selectedFile); win.focusPage() }
+        onRejected: win.focusPage()
+    }
+
     function submitFeed() {
         var url = feedField.text.trim()
         if (url.length === 0)
@@ -1175,12 +1275,23 @@ ApplicationWindow {
     component TextButton: Text {
         id: button
         property string label: ""
+        property bool isDefault: false
         signal clicked()
         text: label
         color: theme.accent
         font.pixelSize: theme.body
         font.weight: Font.Normal
         padding: 6
+
+        // Default-button ring, same look as the keyboard focus ring.
+        Rectangle {
+            anchors.fill: parent
+            visible: button.isDefault
+            color: "transparent"
+            radius: 6
+            border.width: 1
+            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
+        }
 
         MouseArea {
             anchors.fill: parent

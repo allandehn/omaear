@@ -11,6 +11,8 @@
         <file alias="ExploreView.qml">qml/ExploreView.qml</file>
         <file alias="QueueView.qml">qml/QueueView.qml</file>
         <file alias="QueueBadge.qml">qml/QueueBadge.qml</file>
+        <file alias="EpisodeMenu.qml">qml/EpisodeMenu.qml</file>
+        <file alias="ArtMenu.qml">qml/ArtMenu.qml</file>
         <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
@@ -19,12 +21,14 @@
         <file alias="WheelSteps.qml">qml/WheelSteps.qml</file>
         <file alias="SelectableText.qml">qml/SelectableText.qml</file>
         <file alias="AppMenu.qml">qml/AppMenu.qml</file>
+        <file alias="AppPopupBackground.qml">qml/AppPopupBackground.qml</file>
         <file alias="AppMenuItem.qml">qml/AppMenuItem.qml</file>
         <file alias="AppMenuSeparator.qml">qml/AppMenuSeparator.qml</file>
         <file alias="AppTip.qml">qml/AppTip.qml</file>
         <file alias="FastWheel.qml">qml/FastWheel.qml</file>
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
+        <file alias="icons/more-symbolic.svg">qml/icons/more-symbolic.svg</file>
         <file alias="icons/autoplay-queue-symbolic.svg">qml/icons/autoplay-queue-symbolic.svg</file>
         <file alias="icons/queued-symbolic.svg">qml/icons/queued-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>

@@ -3,10 +3,7 @@ import QtQuick.Controls.impl
 
 Item {
     id: page
-    signal markAllRequested()
 
-    property var markedEpisode: 0
-    property bool markedPlayed: false
     // Episode art when present; otherwise the parent show's cover.
     readonly property string art: backend.openEpisodeCover !== ""
                                   ? backend.openEpisodeCover
@@ -25,11 +22,9 @@ Item {
         }
         return list
     }
-    // Menu key: the Mark menu, beside the Mark button.
+    // Menu key: the art menu (same as Now Playing's), beside the art.
     function openNavMenu() {
-        markedEpisode = backend.openEpisodeId
-        markedPlayed = backend.openEpisodePlayed
-        markMenu.popupAt(markButton.visible ? markButton : back)
+        artMenu.openFor(backend.openEpisodeId, backend.openShowId, artFrame.visible ? artFrame : back)
     }
     // PgUp / PgDn scroll the show notes.
     function scrollPage(dir) {
@@ -266,16 +261,6 @@ Item {
                                   : backend.addToQueue(backend.openEpisodeId)
             }
             IconButton {
-                id: markButton
-                icon.name: "check-plain-symbolic"
-                tip: "Mark"
-                onClicked: {
-                    page.markedEpisode = backend.openEpisodeId
-                    page.markedPlayed = backend.openEpisodePlayed
-                    markMenu.popup()
-                }
-            }
-            IconButton {
                 icon.source: "qrc:/icons/info-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: "Info"
@@ -342,6 +327,11 @@ Item {
                         source: page.art
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
+                    }
+                    // Right-click: the same art menu as Now Playing.
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: artMenu.openFor(backend.openEpisodeId, backend.openShowId)
                     }
                 }
                 Rectangle {
@@ -447,33 +437,8 @@ Item {
         anchors.rightMargin: 2
     }
 
-    AppMenu {
-        id: markMenu
-        AppMenuItem {
-            text: "Mark as played"
-            enabled: !page.markedPlayed
-            onChosen: backend.markPlayed(page.markedEpisode, true)
-        }
-        AppMenuItem {
-            text: "Mark as unplayed"
-            enabled: page.markedPlayed
-            onChosen: backend.markPlayed(page.markedEpisode, false)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark older as played"
-            onChosen: backend.markOlderPlayed(page.markedEpisode)
-        }
-        AppMenuItem {
-            text: "Mark newer as played"
-            onChosen: backend.markNewerPlayed(page.markedEpisode)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark all as played"
-            onChosen: page.markAllRequested()
-        }
-    }
+
+    ArtMenu { id: artMenu }
 
     TextEdit {
         id: linkClip

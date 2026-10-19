@@ -5,7 +5,6 @@ Rectangle {
     id: bar
     // Refresh busy used to disable transport / menus; leave them usable while
     // refresh runs. Spinner / StatusNote still use backend.busy elsewhere.
-    signal markAllRequested()
     signal nowPlayingRequested()
     signal nowPlayingCollapseRequested()
     color: theme.darkMode ? Qt.darker(theme.background, 1.25) : Qt.lighter(theme.background, 1.08)
@@ -14,7 +13,6 @@ Rectangle {
 
     // True while the Now Playing page is the visible history entry.
     property bool nowPlayingOpen: false
-    property var markedPlayed: false
 
     // Ascending picker order; values match backend kRates.
     readonly property var rateChoices: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
@@ -191,7 +189,14 @@ Rectangle {
                 // enabled: !backend.busy
                 enabled: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: bar.nowPlayingRequested()
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                // Right-click: the episode menu for the playing episode (play items off).
+                onClicked: function(mouse) {
+                    if (mouse.button === Qt.RightButton)
+                        barEpisodeMenu.openFor(backend.playerEpisodeId, null, true)
+                    else
+                        bar.nowPlayingRequested()
+                }
             }
         }
 
@@ -341,18 +346,8 @@ Rectangle {
                         visible: !extras.dropMono
                         icon.source: "qrc:/icons/mono-symbolic.svg"
                         glyph: backend.playerMono ? theme.foreground : theme.muted
-                        tip: backend.playerMono ? "Mono: mix left and right channels (on)" : "Mono: mix left and right channels (off)"
+                        tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
                         onClicked: backend.toggleMono()
-                    }
-                    IconButton {
-                        icon.name: "check-plain-symbolic"
-                        tip: "Mark"
-                        // enabled: !backend.busy
-                        enabled: true
-                        onClicked: {
-                            bar.markedPlayed = backend.playerPlayed
-                            markMenu.popup()
-                        }
                     }
                     IconButton {
                         icon.name: bar.nowPlayingOpen ? "view-restore-symbolic"
@@ -470,19 +465,16 @@ Rectangle {
             NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
         }
         onOpened: win.openPopup = volumePopup
-        onClosed: if (win.openPopup === volumePopup) win.openPopup = null
+        onAboutToHide: if (win.openPopup === volumePopup) win.openPopup = null
         width: 44 * theme.textScale
         height: 148 * theme.textScale
         padding: 10
         modal: false
+        dim: false
         focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
 
-        background: Rectangle {
-            color: theme.background
-            border.color: theme.selection
-            border.width: 1
-            radius: 8
+        background: AppPopupBackground {
 
             HoverHandler {
                 id: volumePopupBgHover
@@ -584,19 +576,16 @@ Rectangle {
             NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
         }
         onOpened: win.openPopup = speedPopup
-        onClosed: if (win.openPopup === speedPopup) win.openPopup = null
+        onAboutToHide: if (win.openPopup === speedPopup) win.openPopup = null
         width: 64 * theme.textScale
         height: speedColumn.implicitHeight + topPadding + bottomPadding
         padding: 6
         modal: false
+        dim: false
         focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
 
-        background: Rectangle {
-            color: theme.background
-            border.color: theme.selection
-            border.width: 1
-            radius: 8
+        background: AppPopupBackground {
 
             HoverHandler {
                 id: speedPopupBgHover
@@ -635,11 +624,8 @@ Rectangle {
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: 6
-                            color: rateRow.current ? theme.selection
-                                 : rateMouse.containsMouse
-                                   ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
-                                   : "transparent"
+                            // Same highlight as AppMenuItem: square, theme.selection.
+                            color: rateRow.current || rateMouse.containsMouse ? theme.selection : "transparent"
                         }
 
                         Text {
@@ -665,39 +651,5 @@ Rectangle {
         }
     }
 
-    AppMenu {
-        id: markMenu
-        AppMenuItem {
-            text: "Mark as played"
-            // enabled: !backend.busy && !bar.markedPlayed
-            enabled: !bar.markedPlayed
-            onChosen: backend.markPlayed(backend.playerEpisodeId, true)
-        }
-        AppMenuItem {
-            text: "Mark as unplayed"
-            // enabled: !backend.busy && bar.markedPlayed
-            enabled: bar.markedPlayed
-            onChosen: backend.markPlayed(backend.playerEpisodeId, false)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark older as played"
-            // enabled: !backend.busy
-            enabled: true
-            onChosen: backend.markOlderPlayed(backend.playerEpisodeId)
-        }
-        AppMenuItem {
-            text: "Mark newer as played"
-            // enabled: !backend.busy
-            enabled: true
-            onChosen: backend.markNewerPlayed(backend.playerEpisodeId)
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            text: "Mark all as played"
-            // enabled: !backend.busy
-            enabled: true
-            onChosen: bar.markAllRequested()
-        }
-    }
+    EpisodeMenu { id: barEpisodeMenu }
 }

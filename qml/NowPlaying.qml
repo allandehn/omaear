@@ -25,14 +25,26 @@ Item {
             backend.setNowPlayingArtScale(Math.round((backend.nowPlayingArtScale + steps * 0.1) * 10) / 10)
     }
 
+    // Notes links: web links open in the browser; timestamps seek here.
+    function openNoteLink(link) {
+        if (link.indexOf("seek:") === 0) {
+            var seconds = Number(link.slice(5))
+            if (!(seconds >= 0))
+                return
+            backend.seekTo(seconds)
+            if (backend.playerStatus !== "playing")
+                backend.togglePlayback()
+            return
+        }
+        Qt.openUrlExternally(link)
+    }
+
     function openArtMenu() {
-        artMenu.info = backend.artworkInfo(backend.playerEpisodeId, backend.playerShowId)
-        artMenu.popup()
+        artMenu.openFor(backend.playerEpisodeId, backend.playerShowId)
     }
     // Menu key: the artwork menu, beside the cover.
     function openNavMenu() {
-        artMenu.info = backend.artworkInfo(backend.playerEpisodeId, backend.playerShowId)
-        artMenu.popupAt(page.compact ? compactArt : coverFrame)
+        artMenu.openFor(backend.playerEpisodeId, backend.playerShowId, page.compact ? compactArt : coverFrame)
     }
 
     // Keyboard navigation areas (driven by Main.qml).
@@ -114,15 +126,14 @@ Item {
             // PlayerBar lives in Main below this page, so page.height already excludes it.
             // Everything below the cover except the notes.
             readonly property real baseChrome: titles.implicitHeight
-                                               + transport.implicitHeight
-                                               + controls.implicitHeight
+                                               + transportBlock.implicitHeight
                                                + scrubberCol.implicitHeight
             // Room the notes may take on a short window, after a small cover:
             // they shrink (and scroll) or step aside rather than run under the bar.
             readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
-                                              - spacing * 5 - 120 * theme.textScale
+                                              - spacing * 4 - 120 * theme.textScale
             readonly property real chromeBelow: {
-                var gaps = 4
+                var gaps = 3
                 var h = baseChrome
                 // The notes box is capped (it scrolls inside), so it can claim its
                 // room without squeezing the cover to a thumbnail; nothing sits
@@ -295,119 +306,127 @@ Item {
                 }
             }
 
-            // Row 1: queue previous, -15, play/pause, +30, queue next (centred).
-            Row {
-                id: transport
+            // Transport and the controls row sit close together (8 px) as one group;
+            // the page spacing separates the group from the titles and progress bar.
+            Column {
+                id: transportBlock
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: page.compact ? 6 : 10
-                // Dimmed and skipped by the keyboard when there is nothing to go to.
-                IconButton {
-                    // Size tier (queue): shared centre line.
-                    anchors.verticalCenter: parent.verticalCenter
-                    icon.width: 17 * theme.textScale
-                    implicitWidth: 34 * theme.textScale
-                    implicitHeight: 34 * theme.textScale
-                    icon.name: "media-skip-backward-symbolic"
-                    enabled: playerBar.prevId !== 0
-                    tip: playerBar.prevTip
-                    onClicked: backend.skipToPreviousQueued()
-                }
-                IconButton {
-                    // Size tier (seek): shared centre line.
-                    anchors.verticalCenter: parent.verticalCenter
-                    icon.width: 26 * theme.textScale
-                    implicitWidth: 48 * theme.textScale
-                    implicitHeight: 48 * theme.textScale
-                    icon.name: "media-seek-backward-symbolic"
-                    tip: "Back 15 seconds"
-                    onClicked: page.nudge(-15)
-                }
-                IconButton {
-                    // Size tier (play): shared centre line.
-                    anchors.verticalCenter: parent.verticalCenter
-                    icon.width: 34 * theme.textScale
-                    implicitWidth: 56 * theme.textScale
-                    implicitHeight: 56 * theme.textScale
-                    icon.name: backend.playerStatus === "playing"
-                               ? "media-playback-pause-symbolic"
-                               : "media-playback-start-symbolic"
-                    tip: backend.playerStatus === "playing" ? "Pause" : "Play"
-                    onClicked: backend.togglePlayback()
-                }
-                IconButton {
-                    // Size tier (seek): shared centre line.
-                    anchors.verticalCenter: parent.verticalCenter
-                    icon.width: 26 * theme.textScale
-                    implicitWidth: 48 * theme.textScale
-                    implicitHeight: 48 * theme.textScale
-                    icon.name: "media-seek-forward-symbolic"
-                    tip: "Forward 30 seconds"
-                    onClicked: page.nudge(30)
-                }
-                IconButton {
-                    // Size tier (queue): shared centre line.
-                    anchors.verticalCenter: parent.verticalCenter
-                    icon.width: 17 * theme.textScale
-                    implicitWidth: 34 * theme.textScale
-                    implicitHeight: 34 * theme.textScale
-                    icon.name: "media-skip-forward-symbolic"
-                    enabled: playerBar.upNextId !== 0
-                    tip: playerBar.upNextTip
-                    onClicked: backend.skipToNextQueued()
-                }
-            }
+                spacing: (page.compact ? 4 : 8) * theme.textScale
 
-            // Row 2: volume, speed, autoplay, mono, in the player bar's order; the same
-            // hover popups and scroll steps as there.
-            Row {
-                id: controls
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: page.compact ? 6 : 10
-                IconButton {
-                    id: volumeButton
-                    icon.name: playerBar.volumeIcon(backend.playerVolume)
-                    onHoveredChanged: {
-                        playerBar.volumeExtHovered = hovered
-                        if (hovered)
-                            playerBar.openVolumePopupAt(volumeButton)
-                        else
-                            playerBar.considerCloseVolume()
+                // Row 1: queue previous, -15, play/pause, +30, queue next (centred).
+                Row {
+                    id: transport
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: page.compact ? 6 : 10
+                    // Dimmed and skipped by the keyboard when there is nothing to go to.
+                    IconButton {
+                        // Size tier (queue): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 17 * theme.textScale
+                        implicitWidth: 34 * theme.textScale
+                        implicitHeight: 34 * theme.textScale
+                        icon.name: "media-skip-backward-symbolic"
+                        enabled: playerBar.prevId !== 0
+                        tip: playerBar.prevTip
+                        onClicked: backend.skipToPreviousQueued()
                     }
-                    onClicked: backend.toggleMute()
-                    WheelSteps { onStep: function(n) { backend.stepVolume(n); playerBar.openVolumePopupAt(volumeButton) } }
-                }
-                IconButton {
-                    id: rateChip
-                    caption: page.rateLabel(backend.playerRate)
-                    font.features: { "tnum": 1 }
-                    // Fixed for the widest value so the row never shifts.
-                    TextMetrics { id: rateWidest; font: rateChip.font; text: "1.75×" }
-                    implicitWidth: Math.ceil(rateWidest.advanceWidth) + leftPadding + rightPadding
-                    onHoveredChanged: {
-                        playerBar.chipHovered = hovered
-                        if (hovered)
-                            playerBar.openSpeedPopupAt(rateChip)
-                        else
-                            playerBar.considerCloseSpeed()
+                    IconButton {
+                        // Size tier (seek): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 26 * theme.textScale
+                        implicitWidth: 48 * theme.textScale
+                        implicitHeight: 48 * theme.textScale
+                        icon.name: "media-seek-backward-symbolic"
+                        tip: "Back 15 seconds"
+                        onClicked: page.nudge(-15)
                     }
-                    onClicked: backend.cycleRate()
-                    WheelSteps { onStep: function(n) { backend.stepRate(-n); playerBar.openSpeedPopupAt(rateChip) } }
+                    IconButton {
+                        // Size tier (play): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 34 * theme.textScale
+                        implicitWidth: 56 * theme.textScale
+                        implicitHeight: 56 * theme.textScale
+                        icon.name: backend.playerStatus === "playing"
+                                   ? "media-playback-pause-symbolic"
+                                   : "media-playback-start-symbolic"
+                        tip: backend.playerStatus === "playing" ? "Pause" : "Play"
+                        onClicked: backend.togglePlayback()
+                    }
+                    IconButton {
+                        // Size tier (seek): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 26 * theme.textScale
+                        implicitWidth: 48 * theme.textScale
+                        implicitHeight: 48 * theme.textScale
+                        icon.name: "media-seek-forward-symbolic"
+                        tip: "Forward 30 seconds"
+                        onClicked: page.nudge(30)
+                    }
+                    IconButton {
+                        // Size tier (queue): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 17 * theme.textScale
+                        implicitWidth: 34 * theme.textScale
+                        implicitHeight: 34 * theme.textScale
+                        icon.name: "media-skip-forward-symbolic"
+                        enabled: playerBar.upNextId !== 0
+                        tip: playerBar.upNextTip
+                        onClicked: backend.skipToNextQueued()
+                    }
                 }
-                // Autoplay queue (same setting as the player bar and Queue page).
-                IconButton {
-                    id: autoplayToggle
-                    icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
-                    glyph: backend.queueAutoplay ? theme.foreground : theme.muted
-                    tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
-                    onClicked: backend.toggleQueueAutoplay()
-                }
-                // Mono downmix: bright when on, dimmed when off (shared with the player bar).
-                IconButton {
-                    id: monoToggle
-                    icon.source: "qrc:/icons/mono-symbolic.svg"
-                    glyph: backend.playerMono ? theme.foreground : theme.muted
-                    tip: backend.playerMono ? "Mono: mix left and right channels (on)" : "Mono: mix left and right channels (off)"
-                    onClicked: backend.toggleMono()
+
+                // Row 2: volume, speed, autoplay, mono, in the player bar's order; the same
+                // hover popups and scroll steps as there.
+                Row {
+                    id: controls
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: page.compact ? 6 : 10
+                    IconButton {
+                        id: volumeButton
+                        icon.name: playerBar.volumeIcon(backend.playerVolume)
+                        onHoveredChanged: {
+                            playerBar.volumeExtHovered = hovered
+                            if (hovered)
+                                playerBar.openVolumePopupAt(volumeButton)
+                            else
+                                playerBar.considerCloseVolume()
+                        }
+                        onClicked: backend.toggleMute()
+                        WheelSteps { onStep: function(n) { backend.stepVolume(n); playerBar.openVolumePopupAt(volumeButton) } }
+                    }
+                    IconButton {
+                        id: rateChip
+                        caption: page.rateLabel(backend.playerRate)
+                        font.features: { "tnum": 1 }
+                        // Fixed for the widest value so the row never shifts.
+                        TextMetrics { id: rateWidest; font: rateChip.font; text: "1.75×" }
+                        implicitWidth: Math.ceil(rateWidest.advanceWidth) + leftPadding + rightPadding
+                        onHoveredChanged: {
+                            playerBar.chipHovered = hovered
+                            if (hovered)
+                                playerBar.openSpeedPopupAt(rateChip)
+                            else
+                                playerBar.considerCloseSpeed()
+                        }
+                        onClicked: backend.cycleRate()
+                        WheelSteps { onStep: function(n) { backend.stepRate(-n); playerBar.openSpeedPopupAt(rateChip) } }
+                    }
+                    // Autoplay queue (same setting as the player bar and Queue page).
+                    IconButton {
+                        id: autoplayToggle
+                        icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
+                        glyph: backend.queueAutoplay ? theme.foreground : theme.muted
+                        tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
+                        onClicked: backend.toggleQueueAutoplay()
+                    }
+                    // Mono downmix: bright when on, dimmed when off (shared with the player bar).
+                    IconButton {
+                        id: monoToggle
+                        icon.source: "qrc:/icons/mono-symbolic.svg"
+                        glyph: backend.playerMono ? theme.foreground : theme.muted
+                        tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
+                        onClicked: backend.toggleMono()
+                    }
                 }
             }
 
@@ -469,7 +488,11 @@ Item {
                     id: synopsis
                     width: synopsisBox.width
                     horizontalAlignment: TextEdit.AlignHCenter
-                    text: backend.playerDescription
+                    // Links and timestamps as on episode details (same linkify).
+                    text: episodePage.linkify(backend.playerDescription, theme.blue)
+                    textFormat: TextEdit.RichText
+                    onLinkActivated: function (link) { page.openNoteLink(link) }
+                    onLinkCopyRequested: function (link) { episodePage.copyWebLink(link) }
                     color: theme.dim
                     font.pixelSize: theme.bodySmall
                     font.family: "monospace"
@@ -481,25 +504,7 @@ Item {
     }
 
 
-    AppMenu {
-        id: artMenu
-        property var info: ({})
-        AppMenuItem {
-            text: "Copy"
-            enabled: artMenu.info.available === true
-            onChosen: backend.copyArtwork(backend.playerEpisodeId, backend.playerShowId)
-        }
-        AppMenuItem {
-            text: "Save artwork…"
-            enabled: artMenu.info.available === true
-            onChosen: win.saveArtworkAs(backend.playerEpisodeId, backend.playerShowId)
-        }
-        AppMenuItem {
-            text: "Copy image URL"
-            enabled: artMenu.info.hasUrl === true
-            onChosen: backend.copyArtworkUrl(backend.playerEpisodeId, backend.playerShowId)
-        }
-    }
+    ArtMenu { id: artMenu }
 
     QuietScroll {
         view: scroller

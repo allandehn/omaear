@@ -294,6 +294,28 @@ void Backend::importOpml(const QString &fileUrl)
     enqueue(urls);
 }
 
+void Backend::exportOpml(const QString &fileUrl)
+{
+    const QList<ShowRow> shows = m_library.shows();
+    if (shows.isEmpty()) {
+        setStatus(QStringLiteral("No subscriptions to export."));
+        return;
+    }
+    const QString local = QUrl(fileUrl).toLocalFile();
+    QString path = local.isEmpty() ? fileUrl : local;
+    if (QFileInfo(path).suffix().isEmpty())
+        path += QStringLiteral(".opml");
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        setStatus(QStringLiteral("Could not write that file."));
+        return;
+    }
+    file.write(writeOpml(shows));
+    file.close();
+    setStatus(shows.size() == 1 ? QStringLiteral("Exported 1 podcast to %1.").arg(QFileInfo(path).fileName())
+                                : QStringLiteral("Exported %1 podcasts to %2.").arg(shows.size()).arg(QFileInfo(path).fileName()));
+}
+
 bool Backend::controlHeld() const
 {
     return QGuiApplication::queryKeyboardModifiers().testFlag(Qt::ControlModifier);
@@ -495,6 +517,20 @@ void Backend::removeShow(qint64 showId)
         closeShow();
     reloadShows();
     setStatus(QStringLiteral("Removed %1.").arg(title));
+}
+
+// Unsubscribe from every show, one at a time through removeShow (same cleanup,
+// stops playback when the playing show goes).
+void Backend::removeAllShows()
+{
+    QList<qint64> ids;
+    for (const auto &row : m_library.shows())
+        ids.append(row.id);
+    for (qint64 id : ids)
+        removeShow(id);
+    if (!ids.isEmpty())
+        setStatus(ids.size() == 1 ? QStringLiteral("Unsubscribed from 1 podcast.")
+                                  : QStringLiteral("Unsubscribed from all %1 podcasts.").arg(ids.size()));
 }
 
 void Backend::removeOpenShow()
@@ -1538,6 +1574,21 @@ QVariantMap Backend::episodeBrief(qint64 episodeId) const
         return out;
     out.insert(QStringLiteral("title"), row.title);
     out.insert(QStringLiteral("show"), m_library.showTitle(row.showId));
+    return out;
+}
+
+QVariantMap Backend::episodeMenuState(qint64 episodeId) const
+{
+    QVariantMap out;
+    const EpisodeRow row = m_library.episode(episodeId);
+    if (row.id == 0)
+        return out;
+    out.insert(QStringLiteral("played"), row.played);
+    out.insert(QStringLiteral("queued"), m_queueSlots.contains(episodeId));
+    out.insert(QStringLiteral("showId"), row.showId);
+    out.insert(QStringLiteral("showTitle"), m_library.showTitle(row.showId));
+    out.insert(QStringLiteral("olderUnplayed"), m_library.adjacent(episodeId, true, true) != 0);
+    out.insert(QStringLiteral("newerUnplayed"), m_library.adjacent(episodeId, false, true) != 0);
     return out;
 }
 

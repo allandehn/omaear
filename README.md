@@ -22,21 +22,21 @@ Prefer to do it by hand? Read [install.sh](install.sh). It's a handful of lines.
 
 ## Getting started
 
-Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your whole library over from another podcast app with **Import OPML**.
+Paste a feed URL with **Add feed**, find shows with **Find new podcasts**, or bring your whole library over from another podcast app with **Import OPML**. All three live in the shelf's **⋯** menu, next to **Export OPML…**, which saves your shows as an OPML file for another app or a backup.
 
 ## Features
 
-**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only.
+**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only; gallery or list is in the ⋯ menu. The top bar keeps just the eye, Refresh and Queue, and the ⋯ menu holds the rest.
 
-**Search.** The magnifier (or Ctrl+F) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. The globe button sends the same words to Explore.
+**Search.** Ctrl+F (or Search episodes in the ⋯ menu) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. The globe button sends the same words to Find new podcasts.
 
-**Explore.** Search the podcast directory or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
+**Find new podcasts.** Search the podcast directory or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
 
 **Episodes.** Play straight from the episode art. Open an episode for its full notes, where links open in your browser and timestamps jump the player to that point.
 
 **Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished or marked played. Queued episodes carry a small queue mark on their art, and their details page shows their place ("In queue, #2 of 5"). Previous and next in the player bar and on Now Playing step through the queue by hand (next names the episode on hover; when the playing episode isn't queued, next goes to queue #1). **Autoplay** only decides what happens when an episode ends: on, the queue plays on; off, playback stops. Toggle it with the autoplay button (a list with a play mark) in the player bar, on Now Playing or on the Queue page.
 
-**Player.** Previous and next in the queue (previous works when the playing episode is queued at #2 or later and leaves it where it was, progress kept), back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds 0.75×, 1×, 1.25×, 1.5×, 1.75× and 2×, volume (click to mute, hover for the slider, scroll to adjust in 5% steps), speed (click to step through, hover for the list, scroll to move through it), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel, the transport buttons, and volume, speed, autoplay and mono below them with the same popups as the player bar.
+**Player.** Previous and next in the queue (previous works when the playing episode is queued at #2 or later and leaves it where it was, progress kept), back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds 0.75×, 1×, 1.25×, 1.5×, 1.75× and 2×, volume (click to mute, hover for the slider, scroll to adjust in 5% steps), speed (click to step through, hover for the list, scroll to move through it), and a **Mono / Stereo** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel, the transport buttons, and volume, speed, autoplay and mono below them with the same popups as the player bar.
 
 **Status.** Refresh progress ("Updating 3 of 16 feeds: …") and short messages such as "Added to queue." show in a small pill just above the player bar, so nothing on the page moves.
 
@@ -46,7 +46,7 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 **Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Text size follows your display scale.
 
-**Info.** The ⓘ button (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available. Click "run omarchy update" and it does just that.
+**Info.** Info in the ⋯ menu (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available (a small dot on ⋯ says so too). Click "run omarchy update" and it does just that.
 
 ## Shortcuts
 
@@ -67,7 +67,9 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 ## Marking played
 
-Right-click an episode, or use **Mark**, to mark it played or unplayed, mark everything older or newer, or mark the whole show. An episode counts as heard in its last few percent, so a closing jingle doesn't keep a show in front. Playing an episode you've already heard marks it unplayed again.
+Right-click an episode (its row or its art) to play it now or next, mark it played or unplayed, mark everything older or newer, queue it, or mark the whole show. The cover in the player bar has the same menu with Pause or Resume at the top, and without play next or older/newer. Right-click a show on the shelf to mark all of it played. Right-click a cover or empty shelf space for **Unsubscribe from all**, which asks twice before it removes every show. On episode details and Now Playing, right-click the art to mark the episode played. An episode counts as heard in its last few percent, so a closing jingle doesn't keep a show in front. Playing an episode you've already heard marks it unplayed again.
+
+Menus and the volume and speed popups close when you click elsewhere, and that click still does its job: Back goes back, and a right-click opens the next menu straight away. They also close when the page or layout changes.
 
 ## Your data
 

@@ -21,7 +21,8 @@ SOURCES += \
     src/selftest.cpp \
     src/explore.cpp \
     src/updates.cpp \
-    src/search.cpp
+    src/search.cpp \
+    src/uitest.cpp
 
 HEADERS += \
     src/library.h \

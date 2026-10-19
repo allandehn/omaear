@@ -179,7 +179,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             icon.source: "qrc:/icons/globe-symbolic.svg"
             tip: searchField.text.trim().length > 0 ? "Search podcasts online for \u201C" + searchField.text.trim() + "\u201D"
-                                                    : "Explore podcasts online"
+                                                    : "Find new podcasts"
             onClicked: page.exploreRequested(searchField.text.trim())
         }
 

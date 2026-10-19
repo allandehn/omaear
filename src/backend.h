@@ -132,6 +132,7 @@ public:
     Q_INVOKABLE QString formatDay(qint64 unixSecs) const;
     Q_INVOKABLE void addFeed(const QString &url);
     Q_INVOKABLE void importOpml(const QString &fileUrl);
+    Q_INVOKABLE void exportOpml(const QString &fileUrl);
     // forceArtwork is Ctrl+left-click: drop cached show and episode covers and fetch them again.
     // A normal refresh leaves this false and must not re-download art that is already on disk.
     Q_INVOKABLE void refreshAll(bool forceArtwork = false);
@@ -147,6 +148,7 @@ public:
     // Same removal as removeOpenShow(), including a show that is not open
     // (shelf cover menu). removeOpenShow() calls this for the open show.
     Q_INVOKABLE void removeShow(qint64 showId);
+    Q_INVOKABLE void removeAllShows();
     Q_INVOKABLE void removeOpenShow();
     // Page history checks (Main.qml navigation).
     Q_INVOKABLE bool hasShow(qint64 showId) const;
@@ -201,6 +203,9 @@ public:
     Q_INVOKABLE int queueSlot(qint64 episodeId) const { return m_queueSlots.value(episodeId, 0); }
     // {title, show} for one episode, for small labels such as "Up next".
     Q_INVOKABLE QVariantMap episodeBrief(qint64 episodeId) const;
+    // What the episode menu needs to enable its items: played, queued, showId,
+    // showTitle, olderUnplayed / newerUnplayed (same show).
+    Q_INVOKABLE QVariantMap episodeMenuState(qint64 episodeId) const;
     // Episode details opened from the Queue page; Back returns to where we were.
     Q_INVOKABLE void openEpisodeFromQueue(qint64 episodeId);
 

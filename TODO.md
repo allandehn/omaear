@@ -12,6 +12,9 @@ Nothing here right now.
 
 ## Done
 
+- [x] **Menus instead of Mark buttons (0.2)** — One episode menu (Play now / next, mark played, newer, older, unplayed, queue, mark all) on Episodes rows and art; the player-bar art gets a trimmed variant with Pause / Resume; art menus with Mark as played on details and Now Playing; Mark all as played on the shelf cover menu. Mark / Unsubscribe / mark-all buttons left the top bars and player bar. Now Playing notes get clickable links and timestamps. Unsubscribe from all (two confirmations) in every shelf menu, including a new empty-space menu.
+- [x] **Menus and popups (0.2)** — Volume and speed popups share the context-menu look (square corners, same border and highlight). Clicking outside any menu or popup closes it and the click goes through (Back, the next right-click); menus also close on page, layout or dialog changes and when the window loses focus. Mono button tip shows the state: Mono / Stereo.
+- [x] **Decluttered shelf top bar (0.2)** — Eye, Refresh and Queue stay; gallery/list, Search, Find new podcasts, Add feed, Import, Export OPML (new, OPML 2.0) and Info move to a ⋯ menu (update dot on ⋯). Empty-space menu gets Add, Import, Export.
 - [x] **Queue visibility** — Queue mark on episode art (lists and search) with "In queue (#n)", "In queue, #2 of 5" on episode details, and Previous / Next in the queue in the player bar and on Now Playing (always shown, dimmed when there is nowhere to go, "Up next / Previous: …" tips).
 - [x] **Autoplay toggle** — Autoplay button with its own icon in the player bar, on Now Playing and on the Queue page; autoplay only decides what happens at the end of an episode.
 - [x] **Mark played stops it** — Marking the playing episode played (any path) moves on in the queue with autoplay on, otherwise stops and hides the player bar (Now Playing steps back); played episodes leave the queue.
@@ -23,16 +26,15 @@ Nothing here right now.
 - [x] **Smoother launch** — No window bounce or cover stretch on start (fixed scale on Wayland), sharper Back icon, refresh progress counter.
 
 - [x] **Keyboard-first** — Arrows, Tab/Shift+Tab and Enter on every page (main page, episodes, details, Queue, search, Explore, Now Playing), with a quiet focus ring and focus restored on Back.
-- [x] **Search: episodes within library** — Magnifier or Ctrl+F searches titles and show notes of every subscribed episode as you type (all words must match; title matches first, then newest; matches in bold). Click opens details, play over the art, right-click for the episode menu, Enter opens the top result. The globe button takes the same words to Explore.
+- [x] **Search: episodes within library** — Magnifier or Ctrl+F searches titles and show notes of every subscribed episode as you type (all words must match; title matches first, then newest; matches in bold). Click opens details, play over the art, right-click for the episode menu, Enter opens the top result. The globe button takes the same words to Find new podcasts.
 - [x] **Refresh-all UX** — While refresh is in progress, gray out all shows that are more than “caught-up dim.” After refresh finishes, restore each show’s dim/full-lit state from played status. If refresh fails, recover a functional shelf. Animate the refresh icon while in progress; return it to the base icon on failure.
 - [x] **Episode detail: web links** — Underline obvious web links in episode detail; open them in the system default browser.
 - [x] **Episode detail: timestamps** — Recognize timestamps in episode detail; a click seeks the progress bar to that time and starts playback immediately, staying on the detail page.
-- [x] **Main Mark button** — After a confirm dialog that matches the existing design language, mark all podcasts and episodes as played.
 - [x] **Main gallery columns** — Enforce min 1 column, max 10 columns.
 - [x] **Artwork force-reload** — Ctrl+Left-click on the refresh button forces artwork reload.
 - [x] **Eye-toggle filter** — Independent Main vs Episodes; open = show all, closed = unplayed only; persist preferred setting.
 - [x] **Playback architecture** — The detached player over D-Bus stays the single play/pause/seek service, with a shared scrubber component.
-- [x] **Header action order** — Empty shelf: Add feed and Import OPML only. Once shows exist: Eye, gallery/list, Refresh, gap, Mark all played, Add, Import. Show page: Eye, Refresh, gap, Mark this show played, Remove.
+- [x] **Header action order** — Empty shelf: Add feed and Import OPML only. Marking and unsubscribing live in right-click menus, not the top bars.
 - [x] **Last-refresh indicator / skip auto-refresh** — Indicate when last update/refresh ran; if within ~30 minutes of last refresh, skip automatic refresh on launch (manual refresh still allowed).
 - [x] **Small windows** — In a small window, keep the player controls and progress, and let the rest step aside.
 - [x] **Scrubber time tooltip** — Show the time while hovering or dragging the scrubber, in the player bar and Now Playing.
@@ -45,4 +47,4 @@ Nothing here right now.
 - [x] **Page navigation** — Browser-style back/forward history; mouse side buttons, Alt+Left/Right.
 - [x] **Now Playing art** — Ctrl+wheel resizes the cover (20–100%, saved, Ctrl+0 resets) without flicker; right-click Copy / Save artwork… / Copy image URL on Now Playing art and shelf covers.
 - [x] **Explore: publisher link** — On an Explore podcast preview, make the publisher subtitle (e.g. "DR", "RADIO IIII") clickable to run a new search showing that publisher's podcasts.
-- [x] **Update dot on ⓘ** — Show a small dot on the Info button when an update is available (after an update OmaEar restarts itself and resumes playback), so people notice without opening the Info page.
+- [x] **Update dot on ⓘ** — Show a small dot on the Info button (now on the shelf ⋯ button) when an update is available (after an update OmaEar restarts itself and resumes playback), so people notice without opening the Info page.

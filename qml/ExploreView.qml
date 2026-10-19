@@ -43,6 +43,7 @@ Item {
         explore.setQuery(searchField.text)
     }
 
+    readonly property var regionPopupItem: regionPopup
     function closeRegions() {
         if (!regionPopup.opened)
             return false
@@ -760,7 +761,9 @@ Item {
         bottomPadding: 4
         focus: true
         // Any press outside the list closes it, including the search field.
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
+        modal: false
+        dim: false
         property double closedAt: 0
         Material.elevation: 0
         // Shared fade-in; closing stays instant (closedAt toggle logic).

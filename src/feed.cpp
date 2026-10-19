@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QRegularExpression>
 #include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 
 namespace {
 bool looksLikeAudio(const QString &type, const QString &url)
@@ -283,4 +284,34 @@ QStringList parseOpml(const QByteArray &xml, QString *error)
     if (urls.isEmpty() && error)
         *error = QStringLiteral("That OPML file has no feeds.");
     return urls;
+}
+
+QByteArray writeOpml(const QList<ShowRow> &shows)
+{
+    QByteArray out;
+    QXmlStreamWriter w(&out);
+    w.setAutoFormatting(true);
+    w.writeStartDocument();
+    w.writeStartElement(QStringLiteral("opml"));
+    w.writeAttribute(QStringLiteral("version"), QStringLiteral("2.0"));
+    w.writeStartElement(QStringLiteral("head"));
+    w.writeTextElement(QStringLiteral("title"), QStringLiteral("OmaEar subscriptions"));
+    w.writeTextElement(QStringLiteral("dateCreated"),
+                       QDateTime::currentDateTimeUtc().toString(Qt::RFC2822Date));
+    w.writeEndElement();
+    w.writeStartElement(QStringLiteral("body"));
+    for (const ShowRow &row : shows) {
+        if (row.feedUrl.isEmpty())
+            continue;
+        const QString title = row.title.isEmpty() ? row.feedUrl : row.title;
+        w.writeEmptyElement(QStringLiteral("outline"));
+        w.writeAttribute(QStringLiteral("type"), QStringLiteral("rss"));
+        w.writeAttribute(QStringLiteral("text"), title);
+        w.writeAttribute(QStringLiteral("title"), title);
+        w.writeAttribute(QStringLiteral("xmlUrl"), row.feedUrl);
+    }
+    w.writeEndElement();
+    w.writeEndElement();
+    w.writeEndDocument();
+    return out;
 }

@@ -5,7 +5,7 @@ Item {
     id: shelf
     signal addRequested()
     signal importRequested()
-    signal markLibraryRequested()
+    signal exportRequested()
     signal queueRequested()
     signal exploreRequested()
     signal searchRequested()
@@ -68,8 +68,12 @@ Item {
         view.positionViewAtIndex(kbdIndex, ListView.Contain)
     }
 
+    // UI self-test hooks (OMAEAR_UI_TEST).
+    function coverItemAt(i) { return (backend.shelfView === "list" ? showList : grid).itemAtIndex(i) }
+    readonly property bool coverMenuOpen: coverMenu.opened
+
     function openNavMenu() {
-        if (navCount === 0) return
+        if (navCount === 0) { openEmptyMenu(); return }
         var view = backend.shelfView === "list" ? showList : grid
         var id = backend.shows.showIdAt(kbdIndex)
         coverMenuShow = id
@@ -223,15 +227,6 @@ Item {
                 onClicked: backend.setShelfShowAll(!backend.shelfShowAll)
             }
             IconButton {
-                visible: actions.hasShows
-                icon.name: backend.shelfView === "list" ? "view-list-symbolic" : "view-grid-symbolic"
-                // tip: backend.busy ? "Refreshing…" : …
-                tip: backend.shelfView === "list" ? "Show as gallery" : "Show as list"
-                // enabled: !backend.busy
-                enabled: true
-                onClicked: backend.setShelfView(backend.shelfView === "list" ? "gallery" : "list")
-            }
-            IconButton {
                 id: refreshButton
                 visible: actions.hasShows
                 icon.name: "view-refresh-symbolic"
@@ -268,46 +263,15 @@ Item {
                 tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
                 onClicked: shelf.queueRequested()
             }
+            // Everything else lives in the ⋯ menu (also the only button on an empty shelf).
             IconButton {
-                visible: actions.hasShows
-                icon.name: "check-plain-symbolic"
-                // enabled: !backend.busy && grid.count > 0
-                enabled: grid.count > 0
-                // tip: backend.busy ? "Refreshing…" : …
-                tip: grid.count > 0 ? "Mark all as played" : "Nothing to mark"
-                onClicked: shelf.markLibraryRequested()
-            }
-            IconButton {
-                // With shows: search your own episodes. Empty shelf: straight to Explore.
-                icon.name: "system-search-symbolic"
-                tip: actions.hasShows ? "Search your episodes (Ctrl+F)" : "Explore podcasts"
-                onClicked: actions.hasShows ? shelf.searchRequested() : shelf.exploreRequested()
-            }
-            IconButton {
-                visible: actions.hasShows
-                icon.source: "qrc:/icons/globe-symbolic.svg"
-                tip: "Explore podcasts online"
-                onClicked: shelf.exploreRequested()
-            }
-            IconButton {
-                icon.name: "list-add-symbolic"
-                tip: "Add feed"
-                // enabled: !backend.busy
-                enabled: true
-                onClicked: shelf.addRequested()
-            }
-            IconButton {
-                icon.name: "document-open-symbolic"
-                tip: "Import OPML"
-                // enabled: !backend.busy
-                enabled: true
-                onClicked: shelf.importRequested()
-            }
-            IconButton {
-                icon.source: "qrc:/icons/info-symbolic.svg"
+                id: moreButton
+                icon.source: "qrc:/icons/more-symbolic.svg"
                 dot: backend.updatePhase === "available"
-                tip: "Info"
-                onClicked: win.helpOpen = true
+                tip: dot ? "More (update available)" : "More"
+                // Pressing ⋯ again closes the menu instead of reopening it.
+                onClicked: moreMenu.toggleAt(moreButton, moreButton.width - moreMenu.implicitWidth,
+                                             moreButton.height, kbdFocus)
             }
         }
     }
@@ -340,8 +304,21 @@ Item {
         }
     }
 
+    // Right-click on shelf space with no covers (empty shelf, below the list).
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.RightButton
+        onClicked: shelf.openEmptyMenu()
+    }
+
     GridView {
         id: grid
+        // Right-click between covers (delegates take clicks on covers first).
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: shelf.openEmptyMenu()
+        }
         visible: backend.shelfView !== "list"
         anchors.top: header.bottom
         anchors.left: parent.left
@@ -486,6 +463,11 @@ Item {
 
     ListView {
         id: showList
+        // Right-click between covers (delegates take clicks on covers first).
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: shelf.openEmptyMenu()
+        }
         visible: backend.shelfView === "list"
         anchors.top: header.bottom
         anchors.left: parent.left
@@ -642,6 +624,13 @@ Item {
         coverMenu.info = backend.artworkInfo(0, showId)
         coverMenu.popup()
     }
+    // Right-click on empty shelf space: same menu, show items greyed out.
+    function openEmptyMenu() {
+        coverMenuShow = 0
+        coverMenuTitle = ""
+        coverMenu.info = ({})
+        coverMenu.popup()
+    }
     AppMenu {
         id: coverMenu
         property var info: ({})
@@ -662,8 +651,83 @@ Item {
         }
         AppMenuSeparator {}
         AppMenuItem {
+            text: "Mark all as played"
+            enabled: shelf.coverMenuShow !== 0
+            onChosen: win.confirmMarkShow(shelf.coverMenuShow, shelf.coverMenuTitle)
+        }
+        AppMenuItem {
             text: "Unsubscribe"
+            enabled: shelf.coverMenuShow !== 0
             onChosen: shelf.unsubscribeRequested(shelf.coverMenuShow, shelf.coverMenuTitle)
+        }
+        // Empty-space menu only: library actions.
+        AppMenuSeparator {
+            visible: shelf.coverMenuShow === 0
+            height: visible ? implicitHeight : 0
+        }
+        AppMenuItem {
+            text: "Add feed…"
+            visible: shelf.coverMenuShow === 0
+            height: visible ? implicitHeight : 0
+            onChosen: shelf.addRequested()
+        }
+        AppMenuItem {
+            text: "Import OPML…"
+            visible: shelf.coverMenuShow === 0
+            height: visible ? implicitHeight : 0
+            onChosen: shelf.importRequested()
+        }
+        AppMenuItem {
+            text: "Export OPML…"
+            visible: shelf.coverMenuShow === 0
+            height: visible ? implicitHeight : 0
+            enabled: backend.showCount > 0
+            onChosen: shelf.exportRequested()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Unsubscribe from all…"
+            enabled: backend.showCount > 0
+            onChosen: win.confirmUnsubscribeAll()
+        }
+    }
+
+    // Shelf top bar overflow.
+    AppMenu {
+        id: moreMenu
+        AppMenuItem {
+            text: backend.shelfView === "list" ? "Show as gallery" : "Show as list"
+            enabled: backend.showCount > 0
+            onChosen: backend.setShelfView(backend.shelfView === "list" ? "gallery" : "list")
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Search episodes…  (Ctrl+F)"
+            enabled: backend.showCount > 0
+            onChosen: shelf.searchRequested()
+        }
+        AppMenuItem {
+            text: "Find new podcasts…"
+            onChosen: shelf.exploreRequested()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Add feed…"
+            onChosen: shelf.addRequested()
+        }
+        AppMenuItem {
+            text: "Import OPML…"
+            onChosen: shelf.importRequested()
+        }
+        AppMenuItem {
+            text: "Export OPML…"
+            enabled: backend.showCount > 0
+            onChosen: shelf.exportRequested()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: backend.updatePhase === "available" ? "Info  ·  update available" : "Info"
+            onChosen: win.helpOpen = true
         }
     }
 

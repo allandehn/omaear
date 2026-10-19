@@ -108,7 +108,7 @@ Item {
                     ShortcutRow { keys: "Menu / Shift+F10"; blurb: "Open the right-click menu for the highlighted item" }
                     ShortcutRow { keys: "Delete in the queue"; blurb: "Remove the highlighted episode from the queue" }
                     ShortcutRow { keys: "PgUp / PgDn on episode details"; blurb: "Scroll the show notes" }
-                    ShortcutRow { keys: "Typing in Explore"; blurb: "Goes to the search field from anywhere on the page" }
+                    ShortcutRow { keys: "Typing in Find new podcasts"; blurb: "Goes to the search field from anywhere on the page" }
                     ShortcutRow { keys: "\u2190 / \u2192 on the Now Playing bar"; blurb: "Seek 10 seconds back or forward" }
                     ShortcutRow { keys: "Ctrl+F"; blurb: "Search your episodes (titles and show notes)" }
                     ShortcutRow { keys: "Enter in search"; blurb: "Open the top result" }
@@ -134,13 +134,15 @@ Item {
                     ShortcutRow { keys: "Previous / next buttons"; blurb: "Step through the queue by hand" }
                     ShortcutRow { keys: "Autoplay button"; blurb: "Play on through the queue when an episode ends" }
                     ShortcutRow { keys: "Scroll on speed"; blurb: "Move through the speed list (wheel up goes up the list)" }
-                    ShortcutRow { keys: "Mono"; blurb: "Mix left and right channels" }
+                    ShortcutRow { keys: "Mono / Stereo"; blurb: "Mix or separate left and right" }
                     ShortcutRow { keys: "Select text"; blurb: "Copies automatically" }
-                    ShortcutRow { keys: "Right-click a cover"; blurb: "Copy or save artwork, copy the image URL. Unsubscribe on the shelf" }
-                    ShortcutRow { keys: "Right-click an episode"; blurb: "Play next, add to queue, mark played\u2026" }
+                    ShortcutRow { keys: "Right-click a cover"; blurb: "Copy or save artwork, copy the image URL, mark played. Mark all played or unsubscribe on the shelf" }
+                    ShortcutRow { keys: "⋯ on the shelf"; blurb: "Gallery or list, Search, Find new podcasts, Add feed, Import or Export OPML, Info" }
+                    ShortcutRow { keys: "Right-click empty shelf space"; blurb: "Add feed, Import or Export OPML; Unsubscribe from all (asks twice; also in every cover menu)" }
+                    ShortcutRow { keys: "Right-click an episode or its art"; blurb: "Play now or next, mark played, queue\u2026 (player-bar art: Pause or Resume)" }
                     ShortcutRow { keys: "Right-click in the queue"; blurb: "Play now, move, or remove" }
                     ShortcutRow { keys: "Right-click a link"; blurb: "Copy the link" }
-                    ShortcutRow { keys: "Right-click in Explore"; blurb: "Subscribe, preview, or copy the feed URL" }
+                    ShortcutRow { keys: "Right-click in Find new podcasts"; blurb: "Subscribe, preview, or copy the feed URL" }
                     ShortcutRow { keys: "Click a timestamp"; blurb: "Jump to it in the episode notes" }
                     ShortcutRow { keys: "Drag in the queue"; blurb: "Reorder" }
                     ShortcutRow { keys: "Click the playing title"; blurb: "Open that episode" }
