@@ -11,7 +11,10 @@ ApplicationWindow {
     height: 740
     minimumWidth: 720
     minimumHeight: 480
-    visible: true
+    // Shown at the end of Component.onCompleted, once the saved size is set, so
+    // the compositor never maps a default-size buffer and then resizes it
+    // (Hyprland stretches the old frame on every resize: the launch "double stretch").
+    visible: false
     title: pageKind === "episode" ? backend.openEpisodeTitle
          : pageKind === "show" ? backend.openShowTitle
          : pageKind === "queue" ? "Queue"
@@ -68,15 +71,24 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        // Tiling compositor: it picks the size in its first configure, before
+        // our first frame. Asking for the saved size or maximize first made it
+        // map at that size and then re-tile, shifting the covers a few px.
+        if (backend.tiledSession()) {
+            show()
+            return
+        }
         var geometry = backend.windowGeometry()
         if (geometry.valid) {
             x = geometry.x
             y = geometry.y
             width = geometry.width
             height = geometry.height
-            if (geometry.maximized)
-                showMaximized()
         }
+        if (geometry.valid && geometry.maximized)
+            showMaximized()
+        else
+            show()
     }
     Component.onDestruction: backend.saveWindowGeometry(
         normalGeometry.x, normalGeometry.y,

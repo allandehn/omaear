@@ -164,12 +164,25 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 22
             anchors.verticalCenter: title.verticalCenter
-            width: Math.round(title.implicitHeight * 1.15)
+            // Sized from font metrics (known on the first frame), not from the
+            // title's implicitHeight, which settles a frame later and used to
+            // resize the logo and re-rasterize it: the launch flash.
+            width: Math.round(logoMetrics.height * 1.15)
             height: width
-            sourceSize.width: width * 2
-            sourceSize.height: height * 2
+            // Fixed raster size: the SVG is decoded once, synchronously, and
+            // only scaled when the logo size changes. Theme changes still
+            // rebuild it (new source string).
+            sourceSize.width: 192
+            sourceSize.height: 192
+            asynchronous: false
             smooth: true
-            cache: false
+            mipmap: true
+            cache: true
+            FontMetrics {
+                id: logoMetrics
+                font.family: "monospace"
+                font.pixelSize: theme.display
+            }
             source: "data:image/svg+xml;utf8," + encodeURIComponent(
                 "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'>"
                 + "<rect x='1' y='1' width='46' height='46' rx='11' fill='" + hex(tile) + "' stroke='" + hex(frame) + "'/>"

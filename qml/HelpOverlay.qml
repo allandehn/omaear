@@ -127,8 +127,10 @@ Item {
                     title: "Mouse tricks"
                     ShortcutRow { keys: "Click volume"; blurb: "Mute or unmute" }
                     ShortcutRow { keys: "Hover volume"; blurb: "Volume slider" }
+                    ShortcutRow { keys: "Scroll on volume"; blurb: "Louder or quieter in 5% steps" }
                     ShortcutRow { keys: "Click speed"; blurb: "Step through speeds" }
                     ShortcutRow { keys: "Hover speed"; blurb: "Speed picker in the player bar" }
+                    ShortcutRow { keys: "Scroll on speed"; blurb: "Faster or slower through the speeds" }
                     ShortcutRow { keys: "Mono"; blurb: "Mix left and right channels" }
                     ShortcutRow { keys: "Select text"; blurb: "Copies automatically" }
                     ShortcutRow { keys: "Right-click a cover"; blurb: "Copy or save artwork, copy the image URL. Unsubscribe on the shelf" }

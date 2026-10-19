@@ -155,6 +155,21 @@ int main(int argc, char **argv)
     if (args.contains(QStringLiteral("--self-test")))
         return runSelfTest(argc, argv);
 
+    // Launch "jump": with wp_fractional_scale Qt renders the first frame at the
+    // output's integer scale (2), drops to 1 when the surface enters the output,
+    // then re-renders at the fractional scale (1.6) ~0.5 s later. Each switch
+    // re-lays out text and art, so the whole interior visibly shifts. Without the
+    // protocol Qt stays at the integer scale from the first frame and the
+    // compositor scales it down (as GTK3 apps do). OMAEAR_FRACTIONAL_SCALE=1 opts out.
+    if (qEnvironmentVariable("OMAEAR_FRACTIONAL_SCALE") != QLatin1String("1")) {
+        QByteArray disabled = qgetenv("QT_WAYLAND_DISABLED_INTERFACES");
+        if (!disabled.contains("wp_fractional_scale_manager_v1")) {
+            if (!disabled.isEmpty())
+                disabled.append(',');
+            disabled.append("wp_fractional_scale_manager_v1");
+            qputenv("QT_WAYLAND_DISABLED_INTERFACES", disabled);
+        }
+    }
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omaear"));
     app.setApplicationDisplayName(QStringLiteral("OmaEar"));

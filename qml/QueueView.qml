@@ -104,7 +104,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.name: "go-previous-symbolic"
+            icon.source: "qrc:/icons/back-symbolic.svg"
             tip: "Back"
             onClicked: page.dismissRequested()
         }

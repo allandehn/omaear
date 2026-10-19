@@ -212,6 +212,7 @@ Rectangle {
                         }
                         // Click toggles mute; hover still opens the slider.
                         onClicked: backend.toggleMute()
+                        WheelSteps { onStep: function(n) { backend.stepVolume(n); bar.openVolumePopup() } }
                     }
                     // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
                     IconButton {
@@ -234,6 +235,7 @@ Rectangle {
                                 bar.considerCloseSpeed()
                         }
                         onClicked: backend.cycleRate()
+                        WheelSteps { onStep: function(n) { backend.stepRate(n); bar.openSpeedPopup() } }
                     }
                     IconButton {
                         icon.name: bar.nowPlayingOpen ? "view-restore-symbolic"
@@ -371,6 +373,13 @@ Rectangle {
                 id: volumePopupBgHover
                 onHoveredChanged: bar.considerCloseVolume()
             }
+            WheelSteps { onStep: function(n) { backend.stepVolume(n) } }
+            AppTip {
+                visible: volumePopupBgHover.hovered
+                text: "Scroll to change volume"
+                x: -width - 8
+                y: Math.round((parent.height - height) / 2)
+            }
         }
 
         contentItem: Item {
@@ -378,6 +387,7 @@ Rectangle {
                 id: volumePopupContentHover
                 onHoveredChanged: bar.considerCloseVolume()
             }
+            WheelSteps { onStep: function(n) { backend.stepVolume(n) } }
 
             Column {
                 anchors.fill: parent
@@ -469,6 +479,13 @@ Rectangle {
                 id: speedPopupBgHover
                 onHoveredChanged: bar.considerCloseSpeed()
             }
+            WheelSteps { onStep: function(n) { backend.stepRate(n) } }
+            AppTip {
+                visible: speedPopupBgHover.hovered
+                text: "Scroll to change speed"
+                x: -width - 8
+                y: Math.round((parent.height - height) / 2)
+            }
         }
 
         contentItem: Item {
@@ -476,6 +493,7 @@ Rectangle {
                 id: speedPopupContentHover
                 onHoveredChanged: bar.considerCloseSpeed()
             }
+            WheelSteps { onStep: function(n) { backend.stepRate(n) } }
 
             Column {
                 id: speedColumn

@@ -516,6 +516,7 @@ void Backend::fetchNext()
     if (m_active)
         return;
     if (m_queue.isEmpty()) {
+        m_fetchDone = 0;
         // Single completion point: runs whether the last feed succeeded or failed.
         if (m_shelfRefresh)
             finishShelfRefresh();
@@ -524,9 +525,19 @@ void Backend::fetchNext()
     }
     const Job job = m_queue.takeFirst();
     setBusy(true);
-    const int left = m_queue.size() + 1;
-    setStatus(left > 1 ? QStringLiteral("Updating feeds, %1 left…").arg(left)
-                       : QStringLiteral("Updating %1…").arg(job.url));
+    // Feeds fetch one at a time: "Updating 3 of 40 feeds: Show name".
+    const int total = m_fetchDone + m_queue.size() + 1;
+    QString name;
+    for (const auto &row : m_library.shows()) {
+        if (row.feedUrl == job.url) {
+            name = row.title;
+            break;
+        }
+    }
+    if (name.isEmpty())
+        name = QUrl(job.url).host();
+    setStatus(total > 1 ? QStringLiteral("Updating %1 of %2 feeds: %3").arg(m_fetchDone + 1).arg(total).arg(name)
+                        : QStringLiteral("Updating %1…").arg(name));
 
     QNetworkRequest request{QUrl(job.url)};
     request.setHeader(QNetworkRequest::UserAgentHeader,
@@ -548,11 +559,13 @@ void Backend::fetchNext()
                 fetchNext();
                 return;
             }
+            ++m_fetchDone;
             noteShelfFeedResult(job.url, false, reply->errorString());
             setStatus(reply->errorString());
             fetchNext();
             return;
         }
+        ++m_fetchDone;
         QString error;
         const auto parsed = parseFeed(reply->readAll(), reply->url(), &error);
         if (!parsed) {
@@ -1052,6 +1065,27 @@ void Backend::setVolume(double volume)
     emit playerStateChanged();
     if (QDBusConnection::sessionBus().interface()->isServiceRegistered(kPlayerService))
         callPlayer(QStringLiteral("SetVolume"), {clamped});
+}
+
+void Backend::stepVolume(int notches)
+{
+    // Snap to the 5% grid so mixed wheel/slider use still lands on round values.
+    const double steps = std::round(m_playerVolume * 20.0) + notches;
+    setVolume(qBound(0.0, steps / 20.0, 1.0));
+}
+
+void Backend::stepRate(int notches)
+{
+    QList<double> rates = kRates;
+    std::sort(rates.begin(), rates.end());
+    int at = 0;
+    for (int i = 0; i < rates.size(); ++i) {
+        if (qAbs(rates.at(i) - m_playerRate) < qAbs(rates.at(at) - m_playerRate))
+            at = i;
+    }
+    const int next = qBound(0, at + notches, int(rates.size()) - 1);
+    if (next != at || qAbs(rates.at(at) - m_playerRate) > 0.01)
+        setRate(rates.at(next));
 }
 
 void Backend::toggleMute()
@@ -1627,6 +1661,13 @@ QString Backend::lastRefreshLabel() const
     if (days == 1)
         return QStringLiteral("1 day ago");
     return QStringLiteral("%1 days ago").arg(days);
+}
+
+bool Backend::tiledSession() const
+{
+    return qEnvironmentVariableIsSet("HYPRLAND_INSTANCE_SIGNATURE")
+        || qEnvironmentVariableIsSet("SWAYSOCK")
+        || qEnvironmentVariableIsSet("NIRI_SOCKET");
 }
 
 QVariantMap Backend::windowGeometry() const

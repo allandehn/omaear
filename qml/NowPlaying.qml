@@ -67,7 +67,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
-        icon.name: "go-previous-symbolic"
+        icon.source: "qrc:/icons/back-symbolic.svg"
         tip: "Back"
         onClicked: page.dismissRequested()
     }
@@ -389,6 +389,11 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: backend.cycleRate()
+                        }
+                        WheelSteps { onStep: function(n) { backend.stepRate(n) } }
+                        AppTip {
+                            visible: rateArea.containsMouse
+                            text: "Click or scroll to change speed"
                         }
                     }
                 }

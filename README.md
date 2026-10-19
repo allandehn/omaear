@@ -36,7 +36,7 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 **Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished. With **autoplay** on, the queue decides what plays next. With it off, the queue is simply a pinned list.
 
-**Player.** Back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds from 0.5× to 2×, volume (click to mute), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel.
+**Player.** Back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds from 0.5× to 2×, volume (click to mute, scroll to adjust; scroll on the speed to change it too), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel.
 
 **Keyboard.** Every page works from the keyboard: arrows and Tab move a quiet focus ring through the buttons, podcasts, episodes and player bar, Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from.
 

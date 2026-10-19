@@ -160,6 +160,9 @@ public:
     Q_INVOKABLE void cycleRate();
     Q_INVOKABLE void setRate(double rate);
     Q_INVOKABLE void setVolume(double volume);
+    // Scroll wheel: n notches up (+) / down (-). Volume in 5% steps, speed through the presets.
+    Q_INVOKABLE void stepVolume(int notches);
+    Q_INVOKABLE void stepRate(int notches);
     // Volume icon click: mute, or restore the level from before muting (persisted).
     Q_INVOKABLE void toggleMute();
     // Downmix playback to mono; persisted (playback.mono), applied live.
@@ -210,6 +213,8 @@ public:
     Q_INVOKABLE void copyArtworkUrl(qint64 episodeId, qint64 showId);
 
     Q_INVOKABLE QVariantMap windowGeometry() const;
+    // Tiling compositor (Hyprland, Sway, niri): it sizes the window, so don't restore one.
+    Q_INVOKABLE bool tiledSession() const;
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
     void raiseWindow();
 
@@ -316,6 +321,7 @@ private:
     QList<Job> m_queue;
     QPointer<QNetworkReply> m_active;
     bool m_shelfRefresh = false;
+    int m_fetchDone = 0; // feeds finished in the current run of the fetch queue
     QSet<QString> m_shelfRefreshUrls; // feeds belonging to the running shelf refresh
     int m_shelfRefreshOk = 0;
     int m_shelfRefreshFailed = 0;
