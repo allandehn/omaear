@@ -36,7 +36,9 @@ const QString kPlayerService = QStringLiteral("com.github.allanjorch.omaear.Play
 const QString kPlayerPath = QStringLiteral("/com/github/allanjorch/omaear");
 const QString kPlayerIface = QStringLiteral("com.github.allanjorch.omaear.Player");
 
-const QList<double> kRates = {1.0, 1.2, 1.5, 1.8, 2.0, 0.5, 0.8};
+// Click-cycle order: up from 1× to 2×, then the one slow preset. Values are
+// Library::ratePresets(); stepRate sorts them.
+const QList<double> kRates = {1.0, 1.25, 1.5, 1.75, 2.0, 0.75};
 const QString kLastRefreshKey = QStringLiteral("refresh/lastSuccessMs");
 constexpr qint64 kAutoRefreshSkipMs = 30 * 60 * 1000; // skip launch refresh if last success within this window
 constexpr int kMaxEpisodeCoverDownloads = 6;
@@ -95,7 +97,10 @@ Backend::Backend(Library &library, QObject *parent)
     : QObject(parent)
     , m_library(library)
 {
-    m_playerRate = m_library.rate();
+    m_playerRate = m_library.rate(); // already snapped to a preset
+    // Migrate a speed saved before the quarter presets (0.5, 0.8, 1.2, 1.8…).
+    if (qAbs(m_library.storedRate() - m_playerRate) > 0.001)
+        m_library.setRate(m_playerRate);
     m_playerVolume = m_library.volume();
     m_playerMono = m_library.mono();
     reloadShows();
@@ -127,7 +132,9 @@ Backend::Backend(Library &library, QObject *parent)
 
 void Backend::setStatus(const QString &status)
 {
-    if (m_status == status)
+    // Repeating a message (second "Added to queue.") must still re-show the
+    // pill and restart its hold, so only an unchanged *empty* status is quiet.
+    if (m_status == status && status.isEmpty())
         return;
     m_status = status;
     emit statusChanged();
@@ -1195,7 +1202,7 @@ void Backend::toggleMono()
 
 void Backend::setRate(double rate)
 {
-    const double clamped = qBound(0.5, rate, 3.0);
+    const double clamped = Library::snapRate(rate);
     if (qAbs(clamped - m_playerRate) < 0.001)
         return;
     m_library.setRate(clamped);
@@ -1306,6 +1313,7 @@ void Backend::setEpisodeShowAll(bool showAll)
 
 void Backend::markPlayed(qint64 episodeId, bool played)
 {
+    struct Settle { Backend *b; ~Settle() { b->settleMarkedPlayer(); } } settle{this};
     const int count = m_library.markPlayed(episodeId, played);
     reloadEpisodes();
     reloadShows();
@@ -1317,6 +1325,7 @@ void Backend::markPlayed(qint64 episodeId, bool played)
 
 void Backend::markAllPlayed(qint64 showId)
 {
+    struct Settle { Backend *b; ~Settle() { b->settleMarkedPlayer(); } } settle{this};
     if (showId == 0)
         showId = m_openShowId;
     const int count = m_library.markAllPlayed(showId);
@@ -1327,6 +1336,7 @@ void Backend::markAllPlayed(qint64 showId)
 
 void Backend::markLibraryPlayed()
 {
+    struct Settle { Backend *b; ~Settle() { b->settleMarkedPlayer(); } } settle{this};
     const int count = m_library.markLibraryPlayed();
     const auto showIds = m_episodeModels.keys();
     for (qint64 showId : showIds)
@@ -1338,6 +1348,7 @@ void Backend::markLibraryPlayed()
 
 void Backend::markOlderPlayed(qint64 episodeId)
 {
+    struct Settle { Backend *b; ~Settle() { b->settleMarkedPlayer(); } } settle{this};
     const int count = m_library.markOlderPlayed(episodeId);
     reloadEpisodes();
     reloadShows();
@@ -1348,12 +1359,44 @@ void Backend::markOlderPlayed(qint64 episodeId)
 
 void Backend::markNewerPlayed(qint64 episodeId)
 {
+    struct Settle { Backend *b; ~Settle() { b->settleMarkedPlayer(); } } settle{this};
     const int count = m_library.markNewerPlayed(episodeId);
     reloadEpisodes();
     reloadShows();
     setStatus(count == 0 ? QStringLiteral("Nothing newer than this episode.")
                          : count == 1 ? QStringLiteral("Marked 1 newer episode as played.")
                                       : QStringLiteral("Marked %1 newer episodes as played.").arg(count));
+}
+
+void Backend::settleMarkedPlayer()
+{
+    // Marked played from anywhere (list, details, menus, mark-all, search,
+    // queue): the loaded episode is done. With queue autoplay on and something
+    // next, play that; otherwise stop and unload (the bar hides, Now Playing
+    // drops out of history, and launch no longer resumes it).
+    // Played episodes leave the queue (as a natural finish already does). Pick
+    // the follower first, by queue position and skipping anything just marked.
+    qint64 next = 0;
+    const bool loadedPlayed = m_playerEpisodeId > 0
+        && m_library.episode(m_playerEpisodeId).played;
+    if (loadedPlayed && queueAutoplay()) {
+        const QList<qint64> ids = m_queueModel.ids();
+        for (int i = ids.indexOf(m_playerEpisodeId) + 1; i < ids.size(); ++i) {
+            if (!m_library.episode(ids.at(i)).played) {
+                next = ids.at(i);
+                break;
+            }
+        }
+    }
+    if (m_library.dequeuePlayed() > 0) {
+        reloadQueue();
+    }
+    if (!loadedPlayed)
+        return;
+    if (next != 0)
+        playEpisode(next);
+    else
+        stopPlayback();
 }
 
 QString Backend::countMessage(int count, const QString &what) const
@@ -1479,8 +1522,23 @@ void Backend::reloadQueue()
     const int before = m_queueModel.rowCount();
     const QList<qint64> oldIds = m_queueModel.ids();
     m_queueModel.setRows(m_library.queue());
+    m_queueSlots.clear();
+    const QList<qint64> ids = m_queueModel.ids();
+    for (int i = 0; i < ids.size(); ++i)
+        m_queueSlots.insert(ids.at(i), i + 1);
     if (before != m_queueModel.rowCount() || oldIds != m_queueModel.ids())
         emit queueChanged();
+}
+
+QVariantMap Backend::episodeBrief(qint64 episodeId) const
+{
+    QVariantMap out;
+    const EpisodeRow row = m_library.episode(episodeId);
+    if (row.id == 0)
+        return out;
+    out.insert(QStringLiteral("title"), row.title);
+    out.insert(QStringLiteral("show"), m_library.showTitle(row.showId));
+    return out;
 }
 
 void Backend::addToQueue(qint64 episodeId)
@@ -1514,6 +1572,10 @@ void Backend::moveInQueue(int from, int to)
     if (!m_queueModel.moveRow(from, to))
         return;
     m_library.setQueueOrder(m_queueModel.ids());
+    m_queueSlots.clear();
+    const QList<qint64> ids = m_queueModel.ids();
+    for (int i = 0; i < ids.size(); ++i)
+        m_queueSlots.insert(ids.at(i), i + 1);
     emit queueChanged();
 }
 
@@ -1537,6 +1599,20 @@ void Backend::playFromQueue(qint64 episodeId)
     if (m_playerEpisodeId == episodeId && m_playerStatus == QStringLiteral("playing"))
         return;
     playEpisode(episodeId);
+}
+
+qint64 Backend::previousQueuedId() const
+{
+    const QList<qint64> ids = m_queueModel.ids();
+    const int at = m_playerEpisodeId ? ids.indexOf(m_playerEpisodeId) : -1;
+    return at >= 1 ? ids.at(at - 1) : 0;
+}
+
+void Backend::skipToPreviousQueued()
+{
+    const qint64 prev = previousQueuedId();
+    if (prev != 0)
+        playEpisode(prev);
 }
 
 qint64 Backend::nextQueuedId() const

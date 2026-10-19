@@ -142,8 +142,8 @@ public:
     QString loopStatus() const { return QStringLiteral("None"); }
     double rate() const;
     void setRate(double value);
-    double minimumRate() const { return 0.5; }
-    double maximumRate() const { return 3.0; }
+    double minimumRate() const { return 0.75; }
+    double maximumRate() const { return 2.0; }
     double volume() const;
     void setVolume(double value);
     qlonglong position() const;
@@ -952,8 +952,9 @@ void PlayerService::SeekTo(double seconds)
 
 void PlayerService::SetRate(double value)
 {
-    if (value < 0.5 || value > 3.0)
+    if (value <= 0 || value > 3.0)
         return;
+    value = Library::snapRate(value); // MPRIS clients too land on a preset
     m_rate = value;
     m_library.setRate(value);
     m_player->setPlaybackRate(value);

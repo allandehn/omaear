@@ -191,6 +191,16 @@ public:
     Q_INVOKABLE void skipToNextQueued();
     // Item after the playing one if it is queued, else the queue top; 0 if none.
     Q_INVOKABLE qint64 nextQueuedId() const;
+    // Queue item before the playing one; 0 unless it is queued at #2 or later.
+    Q_INVOKABLE qint64 previousQueuedId() const;
+    // Plays that item. The current one keeps its saved position and its queue
+    // place, so autoplay comes back to it right after the previous one ends.
+    Q_INVOKABLE void skipToPreviousQueued();
+    // 1-based queue position, 0 when not queued. O(1); bind with queueCount
+    // alongside so it re-evaluates on queueChanged (adds, removes, reorders).
+    Q_INVOKABLE int queueSlot(qint64 episodeId) const { return m_queueSlots.value(episodeId, 0); }
+    // {title, show} for one episode, for small labels such as "Up next".
+    Q_INVOKABLE QVariantMap episodeBrief(qint64 episodeId) const;
     // Episode details opened from the Queue page; Back returns to where we were.
     Q_INVOKABLE void openEpisodeFromQueue(qint64 episodeId);
 
@@ -300,6 +310,8 @@ private:
     // Local bytes now, or download the remote original, then call done(bytes, contentType).
     void fetchArtwork(const ArtSource &src, std::function<void(const QByteArray &, const QString &)> done);
     QString countMessage(int count, const QString &what) const;
+    // After a user mark: if the loaded episode is now played, move on or unload it.
+    void settleMarkedPlayer();
     void loadUpdateCache();
     void maybeDailyUpdateCheck();
     void startUpdateCheck();
@@ -316,6 +328,7 @@ private:
     ShowModel m_shows;
     EpisodeModel m_episodes;
     EpisodeModel m_queueModel;
+    QHash<qint64, int> m_queueSlots;
     QHash<qint64, EpisodeModel *> m_episodeModels;
     AppNetworkAccessManager m_network; // HTTP/1.1 only, see netaccess.h
     QList<Job> m_queue;

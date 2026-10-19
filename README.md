@@ -34,9 +34,11 @@ Paste a feed URL with **Add feed**, find shows in **Explore**, or bring your who
 
 **Episodes.** Play straight from the episode art. Open an episode for its full notes, where links open in your browser and timestamps jump the player to that point.
 
-**Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished. With **autoplay** on, the queue decides what plays next. With it off, the queue is simply a pinned list.
+**Queue.** Add episodes, play next, drag to reorder. An episode stays in the queue while it plays and leaves once it's finished or marked played. Queued episodes carry a small queue mark on their art, and their details page shows their place ("In queue, #2 of 5"). Previous and next in the player bar and on Now Playing step through the queue by hand (next names the episode on hover; when the playing episode isn't queued, next goes to queue #1). **Autoplay** only decides what happens when an episode ends: on, the queue plays on; off, playback stops. Toggle it with the autoplay button (a list with a play mark) in the player bar, on Now Playing or on the Queue page.
 
-**Player.** Back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds from 0.5× to 2×, volume (click to mute, scroll to adjust; scroll on the speed to change it too), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel.
+**Player.** Previous and next in the queue (previous works when the playing episode is queued at #2 or later and leaves it where it was, progress kept), back 15 s, forward 30 s, a scrubber that shows the time on hover, speeds 0.75×, 1×, 1.25×, 1.5×, 1.75× and 2×, volume (click to mute, hover for the slider, scroll to adjust in 5% steps), speed (click to step through, hover for the list, scroll to move through it), and a **mono** toggle for recordings with lopsided channels. Now Playing gives you a large cover you can resize with Ctrl+wheel, the transport buttons, and volume, speed, autoplay and mono below them with the same popups as the player bar.
+
+**Status.** Refresh progress ("Updating 3 of 16 feeds: …") and short messages such as "Added to queue." show in a small pill just above the player bar, so nothing on the page moves.
 
 **Keyboard.** Every page works from the keyboard: arrows and Tab move a quiet focus ring through the buttons, podcasts, episodes and player bar, Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from.
 

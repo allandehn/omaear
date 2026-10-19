@@ -17,7 +17,7 @@ Rectangle {
     property var markedPlayed: false
 
     // Ascending picker order; values match backend kRates.
-    readonly property var rateChoices: [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0]
+    readonly property var rateChoices: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
     // Keyboard navigation: the bar's buttons, left to right, that are showing now.
     function navItems() {
@@ -35,10 +35,42 @@ Rectangle {
         return list
     }
 
-    function rateLabel(value) {
-        var rounded = Math.round(value * 10) / 10
-        return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)) + "×"
+    // "1×", "1.25×", "1.5×": trailing zeros trimmed.
+    // Next in queue (manual; autoplay only governs the automatic advance at
+    // the end): the item after the current one, or queue #1 when the current
+    // episode isn't queued. Shared with Now Playing. queueCount /
+    // playerEpisodeId re-run the lookup on any queue or track change.
+    readonly property double upNextId: backend.queueCount > 0
+                                       && backend.playerEpisodeId !== 0
+                                       ? backend.nextQueuedId() : 0
+    readonly property string upNextTip: {
+        if (!upNextId)
+            return "Next in queue"
+        var b = backend.episodeBrief(upNextId)
+        if (b.title === undefined)
+            return "Next in queue"
+        function cut(s, n) { return s.length > n ? s.slice(0, n - 1).trim() + "\u2026" : s }
+        return "Up next: " + cut(b.title, 70) + " (" + cut(b.show, 40) + ")"
     }
+
+    // Previous in queue: the item before the current one when it is queued at #2+.
+    readonly property double prevId: backend.queueCount > 0 && backend.playerEpisodeId !== 0
+                                     ? backend.previousQueuedId() : 0
+    readonly property string prevTip: {
+        if (!prevId)
+            return "Previous in queue"
+        var b = backend.episodeBrief(prevId)
+        if (b.title === undefined)
+            return "Previous in queue"
+        function cut(s, n) { return s.length > n ? s.slice(0, n - 1).trim() + "\u2026" : s }
+        return "Previous: " + cut(b.title, 70) + " (" + cut(b.show, 40) + ")"
+    }
+
+    function rateLabel(value) {
+        return Number((Math.round(value * 100) / 100).toFixed(2)).toString() + "×"
+    }
+    // Speed text never changes width: tabular figures, box sized for "1.75×".
+    TextMetrics { id: rateWidest; font.family: "monospace"; font.pixelSize: theme.body; text: "1.75×" }
 
     function volumeIcon(value) {
         if (value <= 0.001)
@@ -79,14 +111,38 @@ Rectangle {
         speedPopup.open()
     }
 
+    // Now Playing's volume button opens this same popup above itself.
+    property bool volumeExtHovered: false
+    function openVolumePopupAt(item) {
+        speedCloseTimer.stop()
+        speedPopup.close()
+        volumeCloseTimer.stop()
+        var p = item.mapToItem(bar, 0, 0)
+        volumePopup.x = p.x + item.width / 2 - volumePopup.width / 2
+        volumePopup.y = p.y - volumePopup.height - 8
+        volumePopup.open()
+    }
+
     function volumePointerInside() {
-        return volumeButton.hovered
+        return volumeButton.hovered || volumeExtHovered
                || volumePopupBgHover.hovered || volumePopupContentHover.hovered
                || (volumeSlider && volumeSlider.pressed)
     }
 
+    // Now Playing's speed chip opens this same popup above itself.
+    property bool chipHovered: false
+    function openSpeedPopupAt(item) {
+        volumeCloseTimer.stop()
+        volumePopup.close()
+        speedCloseTimer.stop()
+        var p = item.mapToItem(bar, 0, 0)
+        speedPopup.x = p.x + item.width / 2 - speedPopup.width / 2
+        speedPopup.y = p.y - speedPopup.height - 8
+        speedPopup.open()
+    }
+
     function speedPointerInside() {
-        return speedButton.hovered
+        return speedButton.hovered || chipHovered
                || speedPopupBgHover.hovered || speedPopupContentHover.hovered
     }
 
@@ -153,7 +209,24 @@ Rectangle {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
+                    // Always shown; dimmed and skipped by the keyboard when unavailable.
                     IconButton {
+                        // Size tier (queue): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 15 * theme.textScale
+                        implicitWidth: 30 * theme.textScale
+                        implicitHeight: 30 * theme.textScale
+                        icon.name: "media-skip-backward-symbolic"
+                        enabled: bar.prevId !== 0
+                        tip: bar.prevTip
+                        onClicked: backend.skipToPreviousQueued()
+                    }
+                    IconButton {
+                        // Size tier (seek): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 22 * theme.textScale
+                        implicitWidth: 40 * theme.textScale
+                        implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-backward-symbolic"
                         tip: "Back 15 seconds"
                         // enabled: !backend.busy
@@ -161,6 +234,11 @@ Rectangle {
                         onClicked: bar.nudge(-15)
                     }
                     IconButton {
+                        // Size tier (play): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 27 * theme.textScale
+                        implicitWidth: 44 * theme.textScale
+                        implicitHeight: 44 * theme.textScale
                         icon.name: backend.playerStatus === "playing"
                                    ? "media-playback-pause-symbolic"
                                    : "media-playback-start-symbolic"
@@ -170,6 +248,11 @@ Rectangle {
                         onClicked: backend.togglePlayback()
                     }
                     IconButton {
+                        // Size tier (seek): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 22 * theme.textScale
+                        implicitWidth: 40 * theme.textScale
+                        implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-forward-symbolic"
                         tip: "Forward 30 seconds"
                         // enabled: !backend.busy
@@ -177,11 +260,14 @@ Rectangle {
                         onClicked: bar.nudge(30)
                     }
                     IconButton {
-                        // queueCount / playerEpisodeId re-run the lookup on any queue or track change.
-                        visible: backend.queueAutoplay && backend.queueCount > 0 && backend.playerEpisodeId >= 0
-                                 && backend.nextQueuedId() !== 0
+                        // Size tier (queue): shared centre line.
+                        anchors.verticalCenter: parent.verticalCenter
+                        icon.width: 15 * theme.textScale
+                        implicitWidth: 30 * theme.textScale
+                        implicitHeight: 30 * theme.textScale
+                        enabled: bar.upNextId !== 0
                         icon.name: "media-skip-forward-symbolic"
-                        tip: "Next in queue"
+                        tip: bar.upNextTip
                         onClicked: backend.skipToNextQueued()
                     }
                 }
@@ -190,10 +276,19 @@ Rectangle {
                     // Too narrow for both rows: transport wins, extras step aside.
                     // Width as last measured while shown, so hiding can't feed back
                     // into the check (no binding loop), and hidden means no hover popups.
-                    property real fullWidth: 0
-                    onImplicitWidthChanged: if (visible && implicitWidth > 0) fullWidth = implicitWidth
-                    Component.onCompleted: fullWidth = implicitWidth
-                    readonly property bool fits: transport.width + fullWidth + 8 <= parent.width
+                    // Sum of every button's width (widths don't depend on visibility, so
+                    // no binding loop). Drop mono first, then autoplay, then the rest.
+                    readonly property real fullWidth: {
+                        var w = 0
+                        for (var i = 0; i < children.length; ++i)
+                            w += children[i].width
+                        return w + spacing * Math.max(0, children.length - 1)
+                    }
+                    readonly property real room: parent.width - transport.width - 8
+                    readonly property bool dropMono: fullWidth > room
+                    readonly property bool dropAutoplay: fullWidth - monoButton.width - spacing > room
+                    readonly property bool fits: fullWidth - monoButton.width - autoplayButton.width
+                                                 - spacing * 2 <= room
                     visible: fits
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
@@ -214,17 +309,11 @@ Rectangle {
                         onClicked: backend.toggleMute()
                         WheelSteps { onStep: function(n) { backend.stepVolume(n); bar.openVolumePopup() } }
                     }
-                    // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
-                    IconButton {
-                        id: monoButton
-                        icon.source: "qrc:/icons/mono-symbolic.svg"
-                        glyph: backend.playerMono ? theme.foreground : theme.muted
-                        tip: backend.playerMono ? "Mono: mix left and right channels (on)" : "Mono: mix left and right channels (off)"
-                        onClicked: backend.toggleMono()
-                    }
                     IconButton {
                         id: speedButton
                         caption: rateLabel(backend.playerRate)
+                        font.features: { "tnum": 1 }
+                        implicitWidth: Math.ceil(rateWidest.advanceWidth) + leftPadding + rightPadding
                         tip: ""
                         // enabled: !backend.busy
                         enabled: true
@@ -235,7 +324,35 @@ Rectangle {
                                 bar.considerCloseSpeed()
                         }
                         onClicked: backend.cycleRate()
-                        WheelSteps { onStep: function(n) { backend.stepRate(n); bar.openSpeedPopup() } }
+                        WheelSteps { onStep: function(n) { backend.stepRate(-n); bar.openSpeedPopup() } }
+                    }
+                    // Autoplay queue: what happens when an episode ends (same setting as the Queue page).
+                    IconButton {
+                        id: autoplayButton
+                        visible: !extras.dropAutoplay
+                        icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
+                        glyph: backend.queueAutoplay ? theme.foreground : theme.muted
+                        tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
+                        onClicked: backend.toggleQueueAutoplay()
+                    }
+                    // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
+                    IconButton {
+                        id: monoButton
+                        visible: !extras.dropMono
+                        icon.source: "qrc:/icons/mono-symbolic.svg"
+                        glyph: backend.playerMono ? theme.foreground : theme.muted
+                        tip: backend.playerMono ? "Mono: mix left and right channels (on)" : "Mono: mix left and right channels (off)"
+                        onClicked: backend.toggleMono()
+                    }
+                    IconButton {
+                        icon.name: "check-plain-symbolic"
+                        tip: "Mark"
+                        // enabled: !backend.busy
+                        enabled: true
+                        onClicked: {
+                            bar.markedPlayed = backend.playerPlayed
+                            markMenu.popup()
+                        }
                     }
                     IconButton {
                         icon.name: bar.nowPlayingOpen ? "view-restore-symbolic"
@@ -248,16 +365,6 @@ Rectangle {
                                 bar.nowPlayingCollapseRequested()
                             else
                                 bar.nowPlayingRequested()
-                        }
-                    }
-                    IconButton {
-                        icon.name: "check-plain-symbolic"
-                        tip: "Mark"
-                        // enabled: !backend.busy
-                        enabled: true
-                        onClicked: {
-                            bar.markedPlayed = backend.playerPlayed
-                            markMenu.popup()
                         }
                     }
                 }
@@ -354,6 +461,14 @@ Rectangle {
     Popup {
         id: volumePopup
         parent: bar
+        enter: Transition {
+            NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        }
+        exit: Transition {
+            NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
+        }
         onOpened: win.openPopup = volumePopup
         onClosed: if (win.openPopup === volumePopup) win.openPopup = null
         width: 44 * theme.textScale
@@ -460,6 +575,14 @@ Rectangle {
     Popup {
         id: speedPopup
         parent: bar
+        enter: Transition {
+            NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        }
+        exit: Transition {
+            NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
+        }
         onOpened: win.openPopup = speedPopup
         onClosed: if (win.openPopup === speedPopup) win.openPopup = null
         width: 64 * theme.textScale
@@ -479,7 +602,7 @@ Rectangle {
                 id: speedPopupBgHover
                 onHoveredChanged: bar.considerCloseSpeed()
             }
-            WheelSteps { onStep: function(n) { backend.stepRate(n) } }
+            WheelSteps { onStep: function(n) { backend.stepRate(-n) } }
             AppTip {
                 visible: speedPopupBgHover.hovered
                 text: "Scroll to change speed"
@@ -493,7 +616,7 @@ Rectangle {
                 id: speedPopupContentHover
                 onHoveredChanged: bar.considerCloseSpeed()
             }
-            WheelSteps { onStep: function(n) { backend.stepRate(n) } }
+            WheelSteps { onStep: function(n) { backend.stepRate(-n) } }
 
             Column {
                 id: speedColumn
@@ -523,6 +646,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: bar.rateLabel(rateRow.rateValue)
                             color: rateRow.current ? theme.accent : theme.foreground
+                            font.features: { "tnum": 1 }
                             font.pixelSize: theme.body
                             font.weight: Font.Normal
                             font.family: "monospace"
@@ -547,33 +671,33 @@ Rectangle {
             text: "Mark as played"
             // enabled: !backend.busy && !bar.markedPlayed
             enabled: !bar.markedPlayed
-            onTriggered: backend.markPlayed(backend.playerEpisodeId, true)
+            onChosen: backend.markPlayed(backend.playerEpisodeId, true)
         }
         AppMenuItem {
             text: "Mark as unplayed"
             // enabled: !backend.busy && bar.markedPlayed
             enabled: bar.markedPlayed
-            onTriggered: backend.markPlayed(backend.playerEpisodeId, false)
+            onChosen: backend.markPlayed(backend.playerEpisodeId, false)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark older as played"
             // enabled: !backend.busy
             enabled: true
-            onTriggered: backend.markOlderPlayed(backend.playerEpisodeId)
+            onChosen: backend.markOlderPlayed(backend.playerEpisodeId)
         }
         AppMenuItem {
             text: "Mark newer as played"
             // enabled: !backend.busy
             enabled: true
-            onTriggered: backend.markNewerPlayed(backend.playerEpisodeId)
+            onChosen: backend.markNewerPlayed(backend.playerEpisodeId)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark all as played"
             // enabled: !backend.busy
             enabled: true
-            onTriggered: bar.markAllRequested()
+            onChosen: bar.markAllRequested()
         }
     }
 }

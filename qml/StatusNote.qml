@@ -3,15 +3,25 @@ import QtQuick
 SelectableText {
     id: note
     property int holdMs: 3500
-    // While feeds update, the line breathes softly instead of sitting still.
-    readonly property bool pulsing: backend.busy && backend.status.startsWith("Updating")
+    // While feeds update, the line fades in once and holds steady until done.
+    readonly property bool updating: backend.busy && backend.status.startsWith("Updating")
 
     // Fixed box, elided text: a long show name never pushes anything around.
     text: elider.elidedText
     color: theme.dim
     wrapMode: TextEdit.NoWrap
     clip: true
-    opacity: 0
+    // Animated visibility; a host may show it on a container instead.
+    property real fade: 0
+    opacity: fade
+
+    // Unelided width, so a floating pill can hug short messages.
+    readonly property real naturalWidth: full.advanceWidth
+    TextMetrics {
+        id: full
+        font: note.font
+        text: backend.status
+    }
 
     TextMetrics {
         id: elider
@@ -21,22 +31,14 @@ SelectableText {
         elideWidth: Math.max(0, note.width)
     }
 
-    Behavior on opacity {
-        enabled: !note.pulsing
+    Behavior on fade {
         NumberAnimation { duration: 500 }
     }
 
-    SequentialAnimation {
-        id: pulse
-        running: note.pulsing && note.visible
-        loops: Animation.Infinite
-        NumberAnimation { target: note; property: "opacity"; to: 0.45; duration: 900; easing.type: Easing.InOutSine }
-        NumberAnimation { target: note; property: "opacity"; to: 1.0; duration: 900; easing.type: Easing.InOutSine }
-    }
-    onPulsingChanged: {
-        if (pulsing) {
+    onUpdatingChanged: {
+        if (updating) {
             hold.stop()
-            opacity = 1
+            fade = 1
         } else {
             reveal()
         }
@@ -44,21 +46,21 @@ SelectableText {
 
     function reveal() {
         if (backend.status.length === 0) {
-            opacity = 0
+            fade = 0
             return
         }
-        if (pulsing) {
+        if (updating) {
             hold.stop()
             return
         }
-        opacity = 1
+        fade = 1
         hold.restart()
     }
 
     Timer {
         id: hold
         interval: note.holdMs
-        onTriggered: note.opacity = 0
+        onTriggered: note.fade = 0
     }
 
     Connections {

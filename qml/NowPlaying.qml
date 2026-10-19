@@ -9,9 +9,9 @@ Item {
     readonly property real compactThreshold: 320 * theme.textScale
     readonly property bool compact: height < compactThreshold
 
+    // "1×", "1.25×", "1.5×": trailing zeros trimmed.
     function rateLabel(value) {
-        var rounded = Math.round(value * 10) / 10
-        return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)) + "×"
+        return Number((Math.round(value * 100) / 100).toFixed(2)).toString() + "×"
     }
 
     // Ctrl+wheel art size: fraction of the largest square that fits (0.2 .. 1.0).
@@ -42,7 +42,9 @@ Item {
     function navTop() { return shown([back, helpButton]) }
     function navTransport() { var list = []
         for (var i = 0; i < transport.children.length; ++i) list.push(transport.children[i])
-        list.push(rateChip)
+        return shown(list) }
+    function navControls() { var list = []
+        for (var i = 0; i < controls.children.length; ++i) list.push(controls.children[i])
         return shown(list) }
     function navSeek() { return shown([scrubber]) }
 
@@ -110,11 +112,25 @@ Item {
             // description is left out on purpose: it scrolls below, so a long
             // blurb no longer squeezes the cover down to a thumbnail.
             // PlayerBar lives in Main below this page, so page.height already excludes it.
+            // Everything below the cover except the notes.
+            readonly property real baseChrome: titles.implicitHeight
+                                               + transport.implicitHeight
+                                               + controls.implicitHeight
+                                               + scrubberCol.implicitHeight
+            // Room the notes may take on a short window, after a small cover:
+            // they shrink (and scroll) or step aside rather than run under the bar.
+            readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
+                                              - spacing * 5 - 120 * theme.textScale
             readonly property real chromeBelow: {
-                var gaps = 3
-                var h = titles.implicitHeight
-                        + transport.implicitHeight
-                        + scrubberCol.implicitHeight
+                var gaps = 4
+                var h = baseChrome
+                // The notes box is capped (it scrolls inside), so it can claim its
+                // room without squeezing the cover to a thumbnail; nothing sits
+                // hidden below the fold above the player bar any more.
+                if (synopsisBox.visible) {
+                    h += synopsisBox.height
+                    gaps += 1
+                }
                 return h + spacing * gaps + bottomPad
             }
             // Square cover: the largest square that fits beside the window edges
@@ -279,21 +295,39 @@ Item {
                 }
             }
 
+            // Row 1: queue previous, -15, play/pause, +30, queue next (centred).
             Row {
                 id: transport
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: page.compact ? 6 : 10
-                // Balances the mono toggle so play/pause stays centred.
-                Item {
-                    width: monoToggle.width
-                    height: monoToggle.height
+                // Dimmed and skipped by the keyboard when there is nothing to go to.
+                IconButton {
+                    // Size tier (queue): shared centre line.
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.width: 17 * theme.textScale
+                    implicitWidth: 34 * theme.textScale
+                    implicitHeight: 34 * theme.textScale
+                    icon.name: "media-skip-backward-symbolic"
+                    enabled: playerBar.prevId !== 0
+                    tip: playerBar.prevTip
+                    onClicked: backend.skipToPreviousQueued()
                 }
                 IconButton {
+                    // Size tier (seek): shared centre line.
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.width: 26 * theme.textScale
+                    implicitWidth: 48 * theme.textScale
+                    implicitHeight: 48 * theme.textScale
                     icon.name: "media-seek-backward-symbolic"
                     tip: "Back 15 seconds"
                     onClicked: page.nudge(-15)
                 }
                 IconButton {
+                    // Size tier (play): shared centre line.
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.width: 34 * theme.textScale
+                    implicitWidth: 56 * theme.textScale
+                    implicitHeight: 56 * theme.textScale
                     icon.name: backend.playerStatus === "playing"
                                ? "media-playback-pause-symbolic"
                                : "media-playback-start-symbolic"
@@ -301,9 +335,71 @@ Item {
                     onClicked: backend.togglePlayback()
                 }
                 IconButton {
+                    // Size tier (seek): shared centre line.
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.width: 26 * theme.textScale
+                    implicitWidth: 48 * theme.textScale
+                    implicitHeight: 48 * theme.textScale
                     icon.name: "media-seek-forward-symbolic"
                     tip: "Forward 30 seconds"
                     onClicked: page.nudge(30)
+                }
+                IconButton {
+                    // Size tier (queue): shared centre line.
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon.width: 17 * theme.textScale
+                    implicitWidth: 34 * theme.textScale
+                    implicitHeight: 34 * theme.textScale
+                    icon.name: "media-skip-forward-symbolic"
+                    enabled: playerBar.upNextId !== 0
+                    tip: playerBar.upNextTip
+                    onClicked: backend.skipToNextQueued()
+                }
+            }
+
+            // Row 2: volume, speed, autoplay, mono, in the player bar's order; the same
+            // hover popups and scroll steps as there.
+            Row {
+                id: controls
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: page.compact ? 6 : 10
+                IconButton {
+                    id: volumeButton
+                    icon.name: playerBar.volumeIcon(backend.playerVolume)
+                    onHoveredChanged: {
+                        playerBar.volumeExtHovered = hovered
+                        if (hovered)
+                            playerBar.openVolumePopupAt(volumeButton)
+                        else
+                            playerBar.considerCloseVolume()
+                    }
+                    onClicked: backend.toggleMute()
+                    WheelSteps { onStep: function(n) { backend.stepVolume(n); playerBar.openVolumePopupAt(volumeButton) } }
+                }
+                IconButton {
+                    id: rateChip
+                    caption: page.rateLabel(backend.playerRate)
+                    font.features: { "tnum": 1 }
+                    // Fixed for the widest value so the row never shifts.
+                    TextMetrics { id: rateWidest; font: rateChip.font; text: "1.75×" }
+                    implicitWidth: Math.ceil(rateWidest.advanceWidth) + leftPadding + rightPadding
+                    onHoveredChanged: {
+                        playerBar.chipHovered = hovered
+                        if (hovered)
+                            playerBar.openSpeedPopupAt(rateChip)
+                        else
+                            playerBar.considerCloseSpeed()
+                    }
+                    onClicked: backend.cycleRate()
+                    WheelSteps { onStep: function(n) { backend.stepRate(-n); playerBar.openSpeedPopupAt(rateChip) } }
+                }
+                // Autoplay queue (same setting as the player bar and Queue page).
+                IconButton {
+                    id: autoplayToggle
+                    icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
+                    glyph: backend.queueAutoplay ? theme.foreground : theme.muted
+                    tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
+                    onClicked: backend.toggleQueueAutoplay()
                 }
                 // Mono downmix: bright when on, dimmed when off (shared with the player bar).
                 IconButton {
@@ -340,8 +436,7 @@ Item {
                         width: parent.width
                                - elapsedLabel.width
                                - remainLabel.implicitWidth
-                               - rateChip.width
-                               - parent.spacing * 3
+                               - parent.spacing * 2
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Text {
@@ -353,81 +448,38 @@ Item {
                         font.family: "monospace"
                         anchors.verticalCenter: parent.verticalCenter
                     }
-                    // Quiet caption chip: playback speed beside remaining time.
-                    Item {
-                        id: rateChip
-                        property bool kbdFocus: false
-                        signal clicked()
-                        onClicked: backend.cycleRate()
-                        width: rateText.implicitWidth + 10
-                        height: Math.max(18 * theme.textScale, rateText.implicitHeight + 4)
-                        anchors.verticalCenter: parent.verticalCenter
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 4
-                            color: rateArea.containsMouse || rateArea.pressed || rateChip.kbdFocus
-                                   ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
-                                   : "transparent"
-                            border.width: rateChip.kbdFocus ? 1 : 0
-                            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
-                        }
-                        Text {
-                            id: rateText
-                            anchors.centerIn: parent
-                            text: page.rateLabel(backend.playerRate)
-                            color: theme.dim
-                            font.pixelSize: theme.caption
-                            font.weight: Font.Normal
-                            font.family: "monospace"
-                            opacity: 0.85
-                        }
-                        MouseArea {
-                            id: rateArea
-                            anchors.fill: parent
-                            anchors.margins: -2
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: backend.cycleRate()
-                        }
-                        WheelSteps { onStep: function(n) { backend.stepRate(n) } }
-                        AppTip {
-                            visible: rateArea.containsMouse
-                            text: "Click or scroll to change speed"
-                        }
-                    }
                 }
             }
 
-            SelectableText {
-                id: synopsis
+            // Notes: up to about five lines on show; longer notes scroll in place.
+            Flickable {
+                id: synopsisBox
                 width: Math.min(parent.width, 560 * theme.textScale)
                 anchors.horizontalCenter: parent.horizontalCenter
-                // Compact panes hide the long description; full layout keeps a short blurb.
                 visible: !page.compact && backend.playerDescription.length > 0
-                horizontalAlignment: TextEdit.AlignHCenter
-                text: backend.playerDescription
-                color: theme.dim
-                font.pixelSize: theme.bodySmall
-                font.family: "monospace"
-                wrapMode: TextEdit.Wrap
-                // Cap height roughly to four lines (TextEdit has no maximumLineCount).
-                height: Math.min(implicitHeight, font.pixelSize * 1.35 * 4)
+                         && body.notesRoom >= theme.bodySmall * 1.4 * 2
+                height: Math.max(0, Math.min(synopsis.implicitHeight, theme.bodySmall * 1.4 * 5, body.notesRoom))
+                contentWidth: width
+                contentHeight: synopsis.implicitHeight
+                interactive: contentHeight > height
                 clip: true
-                opacity: 0.9
+                boundsBehavior: Flickable.StopAtBounds
+                FastWheel { }
+                SelectableText {
+                    id: synopsis
+                    width: synopsisBox.width
+                    horizontalAlignment: TextEdit.AlignHCenter
+                    text: backend.playerDescription
+                    color: theme.dim
+                    font.pixelSize: theme.bodySmall
+                    font.family: "monospace"
+                    wrapMode: TextEdit.Wrap
+                    opacity: 0.9
+                }
             }
         }
     }
 
-    StatusNote {
-        anchors.left: back.right
-        anchors.leftMargin: 12
-        anchors.right: helpButton.left
-        anchors.rightMargin: 12
-        anchors.verticalCenter: back.verticalCenter
-        z: 2
-        font.pixelSize: theme.bodySmall
-    }
 
     AppMenu {
         id: artMenu
@@ -435,17 +487,17 @@ Item {
         AppMenuItem {
             text: "Copy"
             enabled: artMenu.info.available === true
-            onTriggered: backend.copyArtwork(backend.playerEpisodeId, backend.playerShowId)
+            onChosen: backend.copyArtwork(backend.playerEpisodeId, backend.playerShowId)
         }
         AppMenuItem {
             text: "Save artwork…"
             enabled: artMenu.info.available === true
-            onTriggered: win.saveArtworkAs(backend.playerEpisodeId, backend.playerShowId)
+            onChosen: win.saveArtworkAs(backend.playerEpisodeId, backend.playerShowId)
         }
         AppMenuItem {
             text: "Copy image URL"
             enabled: artMenu.info.hasUrl === true
-            onTriggered: backend.copyArtworkUrl(backend.playerEpisodeId, backend.playerShowId)
+            onChosen: backend.copyArtworkUrl(backend.playerEpisodeId, backend.playerShowId)
         }
     }
 

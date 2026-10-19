@@ -12,6 +12,12 @@ MenuItem {
     bottomPadding: 6
     spacing: 0
 
+    // Choosing (left click, right-drag release, Enter) dismisses the menu at
+    // once; the action runs on the next event-loop turn, so a slow handler
+    // never holds the menu open or delays its fade-out. Callers use onChosen.
+    signal chosen()
+    onTriggered: Qt.callLater(item.chosen)
+
     contentItem: Text {
         text: item.text
         font: item.font

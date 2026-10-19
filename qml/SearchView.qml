@@ -203,7 +203,7 @@ Item {
         anchors.right: parent.right
         anchors.leftMargin: 24
         anchors.rightMargin: 24
-        height: Math.max(fieldChips.implicitHeight, countText.implicitHeight, statusNote.implicitHeight) + 10
+        height: Math.max(fieldChips.implicitHeight, countText.implicitHeight) + 10
         // Which fields are searched. Bright = on, dimmed = off; the last one on stays on.
         Row {
             id: fieldChips
@@ -218,7 +218,7 @@ Item {
             id: countText
             anchors.left: fieldChips.right
             anchors.leftMargin: 14
-            anchors.right: statusNote.left
+            anchors.right: parent.right
             anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             visible: librarySearch.query.length > 0
@@ -231,14 +231,6 @@ Item {
             font.pixelSize: theme.bodySmall
             font.weight: Font.Normal
             elide: Text.ElideRight
-        }
-        StatusNote {
-            id: statusNote
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width * 0.45
-            horizontalAlignment: TextEdit.AlignRight
-            font.pixelSize: theme.bodySmall
         }
     }
 
@@ -399,6 +391,14 @@ Item {
                     background: Item {}
                     onClicked: backend.playEpisode(row.model.episodeId)
                 }
+                QueueBadge {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 3
+                    z: 3
+                    // queueCount ties the lookup to queueChanged (add/remove/reorder).
+                    slot: backend.queueCount >= 0 ? backend.queueSlot(row.model.episodeId) : 0
+                }
             }
 
             Column {
@@ -483,31 +483,31 @@ Item {
         AppMenuItem {
             text: "Mark as played"
             enabled: !page.menuPlayed
-            onTriggered: backend.markPlayed(page.menuEpisode, true)
+            onChosen: backend.markPlayed(page.menuEpisode, true)
         }
         AppMenuItem {
             text: "Mark as unplayed"
             enabled: page.menuPlayed
-            onTriggered: backend.markPlayed(page.menuEpisode, false)
+            onChosen: backend.markPlayed(page.menuEpisode, false)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Play next"
-            onTriggered: backend.playNext(page.menuEpisode)
+            onChosen: backend.playNext(page.menuEpisode)
         }
         AppMenuItem {
             text: page.menuQueued ? "Remove from queue" : "Add to queue"
-            onTriggered: page.menuQueued ? backend.removeFromQueue(page.menuEpisode)
+            onChosen: page.menuQueued ? backend.removeFromQueue(page.menuEpisode)
                                          : backend.addToQueue(page.menuEpisode)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Episode details"
-            onTriggered: win.openEpisodePage(page.menuEpisode)
+            onChosen: win.openEpisodePage(page.menuEpisode)
         }
         AppMenuItem {
             text: "Go to show"
-            onTriggered: win.openShowPage(backend.episodeShowId(page.menuEpisode))
+            onChosen: win.openShowPage(backend.episodeShowId(page.menuEpisode))
         }
     }
 

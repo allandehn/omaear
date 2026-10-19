@@ -119,8 +119,7 @@ Item {
             IconButton {
                 // Bright when on, dimmed when off, like the other toggles.
                 icon.width: 24 * theme.textScale
-                icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-on-symbolic.svg"
-                                                   : "qrc:/icons/autoplay-off-symbolic.svg"
+                icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
                 glyph: backend.queueAutoplay ? theme.foreground : theme.muted
                 tip: backend.queueAutoplay ? "Autoplay on: the queue plays next"
                                            : "Autoplay off: the queue is just a pinned list"
@@ -163,16 +162,6 @@ Item {
         }
     }
 
-    StatusNote {
-        id: statusLine
-        anchors.top: header.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: 24
-        anchors.rightMargin: 24
-        height: implicitHeight * opacity
-        font.pixelSize: theme.bodySmall
-    }
 
     Column {
         anchors.centerIn: parent
@@ -196,7 +185,7 @@ Item {
 
     ListView {
         id: list
-        anchors.top: statusLine.bottom
+        anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -409,32 +398,32 @@ Item {
         id: rowMenu
         AppMenuItem {
             text: "Play now"
-            onTriggered: backend.playFromQueue(page.menuEpisode)
+            onChosen: backend.playFromQueue(page.menuEpisode)
         }
         AppMenuItem {
             text: "Episode details"
-            onTriggered: win.openEpisodePage(page.menuEpisode)
+            onChosen: win.openEpisodePage(page.menuEpisode)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Move to top"
             enabled: page.menuIndex > 0
-            onTriggered: backend.moveInQueue(page.menuIndex, 0)
+            onChosen: backend.moveInQueue(page.menuIndex, 0)
         }
         AppMenuItem {
             text: "Move up"
             enabled: page.menuIndex > 0
-            onTriggered: backend.moveInQueue(page.menuIndex, page.menuIndex - 1)
+            onChosen: backend.moveInQueue(page.menuIndex, page.menuIndex - 1)
         }
         AppMenuItem {
             text: "Move down"
             enabled: page.menuIndex >= 0 && page.menuIndex < backend.queueCount - 1
-            onTriggered: backend.moveInQueue(page.menuIndex, page.menuIndex + 1)
+            onChosen: backend.moveInQueue(page.menuIndex, page.menuIndex + 1)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Remove from queue"
-            onTriggered: backend.removeFromQueue(page.menuEpisode)
+            onChosen: backend.removeFromQueue(page.menuEpisode)
         }
     }
 }

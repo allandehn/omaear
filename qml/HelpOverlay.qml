@@ -30,6 +30,7 @@ Item {
     }
 
     visible: open
+    PopupFadeIn { host: root }
 
     MouseArea {
         anchors.fill: parent
@@ -129,8 +130,10 @@ Item {
                     ShortcutRow { keys: "Hover volume"; blurb: "Volume slider" }
                     ShortcutRow { keys: "Scroll on volume"; blurb: "Louder or quieter in 5% steps" }
                     ShortcutRow { keys: "Click speed"; blurb: "Step through speeds" }
-                    ShortcutRow { keys: "Hover speed"; blurb: "Speed picker in the player bar" }
-                    ShortcutRow { keys: "Scroll on speed"; blurb: "Faster or slower through the speeds" }
+                    ShortcutRow { keys: "Hover speed"; blurb: "Speed picker (player bar and Now Playing)" }
+                    ShortcutRow { keys: "Previous / next buttons"; blurb: "Step through the queue by hand" }
+                    ShortcutRow { keys: "Autoplay button"; blurb: "Play on through the queue when an episode ends" }
+                    ShortcutRow { keys: "Scroll on speed"; blurb: "Move through the speed list (wheel up goes up the list)" }
                     ShortcutRow { keys: "Mono"; blurb: "Mix left and right channels" }
                     ShortcutRow { keys: "Select text"; blurb: "Copies automatically" }
                     ShortcutRow { keys: "Right-click a cover"; blurb: "Copy or save artwork, copy the image URL. Unsubscribe on the shelf" }

@@ -7,6 +7,11 @@ import QtQuick.Window
 
 ApplicationWindow {
     id: win
+    // One timing for every popup, menu and overlay: the Material popup fade
+    // the volume/speed popups always used (opacity OutCubic, slight grow).
+    readonly property int popupFadeInMs: 150
+    readonly property int popupFadeOutMs: 150
+    readonly property int popupScaleMs: 220
     width: 1100
     height: 740
     minimumWidth: 720
@@ -442,7 +447,7 @@ ApplicationWindow {
     function navDefaults(kind) {
         if (kind === "explore") return { area: "top", idx: { top: 1, player: 1, preview: 0 } }
         if (kind === "episode") return { area: "top", idx: { top: 1, player: 1 } }   // Play
-        if (kind === "nowPlaying") return { area: "transport", idx: { top: 0, transport: 1, seek: 0, player: 1 } }
+        if (kind === "nowPlaying") return { area: "transport", idx: { top: 0, transport: playerBar.prevId !== 0 ? 2 : 1, controls: 0, seek: 0, player: 1 } }
         return { area: "grid", idx: { top: 0, player: 1 } }
     }
     function navSwitchPage() {
@@ -480,6 +485,7 @@ ApplicationWindow {
         } else if (kind === "nowPlaying") {
             list.push({ name: "top", items: nowPlayingPage.navTop() })
             list.push({ name: "transport", items: nowPlayingPage.navTransport() })
+            list.push({ name: "controls", items: nowPlayingPage.navControls() })
             list.push({ name: "seek", items: nowPlayingPage.navSeek() })
             player = playerBar.visible ? playerBar.navItems() : []
         }
@@ -721,6 +727,18 @@ ApplicationWindow {
         target: backend.shows
         function onModelReset() { if (win.navShown) Qt.callLater(function() { shelfView.syncNavIndex() }) }
     }
+    // Queue rows can vanish under the ring (marked played elsewhere): keep it
+    // on the same episode, or the nearest row, and visible.
+    Connections {
+        target: backend
+        function onQueueChanged() {
+            if (win.pageKind !== "queue") return
+            Qt.callLater(function() {
+                queuePage.syncNavIndex()
+                win.navRefreshRing()
+            })
+        }
+    }
 
     function rememberShow(showId) {
         if (!showId)
@@ -908,6 +926,37 @@ ApplicationWindow {
                 visible: win.pageKind === "nowPlaying" && backend.playerEpisodeId !== 0
                 onDismissRequested: win.back()
             }
+
+            // Status messages (refresh progress, results, errors) float over every
+            // page, bottom centre just above the player bar (this stack ends there),
+            // so they never move content. Not interactive and never focusable.
+            Rectangle {
+                id: statusPill
+                z: 10
+                enabled: false
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 12
+                readonly property real padX: 14
+                width: Math.min(globalStatus.naturalWidth + 2 + padX * 2, parent.width * 0.8)
+                height: globalStatus.implicitHeight + 10
+                radius: height / 2
+                color: theme.darkMode ? Qt.darker(theme.background, 1.35) : Qt.lighter(theme.background, 1.12)
+                border.width: 1
+                border.color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.25)
+                opacity: globalStatus.fade
+                visible: opacity > 0.01
+                StatusNote {
+                    id: globalStatus
+                    opacity: 1 // the pill carries the fade
+                    anchors.centerIn: parent
+                    width: parent.width - parent.padX * 2
+                    horizontalAlignment: TextEdit.AlignHCenter
+                    font.pixelSize: theme.bodySmall
+                    activeFocusOnPress: false
+                    selectByMouse: false
+                }
+            }
         }
 
         PlayerBar {
@@ -923,8 +972,10 @@ ApplicationWindow {
 
     Rectangle {
         anchors.fill: parent
+        id: dialogScrim
         visible: addOpen || confirmAll || confirmLibrary || confirmRemove || confirmQueue
         color: Qt.rgba(0, 0, 0, 0.45)
+        PopupFadeIn { host: dialogScrim }
 
         MouseArea {
             anchors.fill: parent

@@ -689,13 +689,35 @@ void Library::setSetting(const QString &key, const QString &value)
     q.exec();
 }
 
-double Library::rate() const
+const QList<double> &Library::ratePresets()
+{
+    static const QList<double> presets = {0.75, 1.0, 1.25, 1.5, 1.75, 2.0};
+    return presets;
+}
+
+double Library::snapRate(double rate)
+{
+    double best = 1.0;
+    for (double p : ratePresets()) {
+        if (qAbs(p - rate) < qAbs(best - rate) - 1e-9)
+            best = p;
+    }
+    return best;
+}
+
+double Library::storedRate() const
 {
     bool ok = false;
     const double value = setting(QStringLiteral("rate"), QStringLiteral("1")).toDouble(&ok);
-    if (!ok || value < 0.5 || value > 3.0)
+    return ok ? value : 1.0;
+}
+
+double Library::rate() const
+{
+    const double value = storedRate();
+    if (value <= 0 || value > 3.0)
         return 1.0;
-    return value;
+    return snapRate(value);
 }
 
 void Library::setRate(double rate)
@@ -921,6 +943,15 @@ void Library::addToQueue(qint64 episodeId, bool atTop)
     else
         ids.append(episodeId);
     setQueueOrder(ids);
+}
+
+int Library::dequeuePlayed()
+{
+    QSqlQuery q(dbOf(m_connection));
+    if (!q.exec(QStringLiteral(
+            "DELETE FROM queue WHERE episode_id IN (SELECT id FROM episodes WHERE played = 1)")))
+        return 0;
+    return q.numRowsAffected();
 }
 
 bool Library::removeFromQueue(qint64 episodeId)

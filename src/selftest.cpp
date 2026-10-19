@@ -362,7 +362,7 @@ int runSelfTest(int argc, char **argv)
                 check(!qlib.removeFromQueue(c), "queue remove twice is a no-op");
                 // Lifetime: queue is now {a, b}.
                 qlib.markPlayed(a, true);
-                check(qlib.isQueued(a), "manual mark played keeps it queued");
+                check(qlib.isQueued(a), "library mark alone keeps it queued");
                 check(qlib.queueAfter(a) == b, "next after a queued item is the one after it");
                 check(qlib.queueAfter(b) == 0, "nothing after the last queued item");
                 check(qlib.queueAfter(c) == a, "unqueued current goes to the queue top");

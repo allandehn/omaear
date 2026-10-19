@@ -10,6 +10,8 @@
         <file alias="Scrubber.qml">qml/Scrubber.qml</file>
         <file alias="ExploreView.qml">qml/ExploreView.qml</file>
         <file alias="QueueView.qml">qml/QueueView.qml</file>
+        <file alias="QueueBadge.qml">qml/QueueBadge.qml</file>
+        <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>
@@ -23,6 +25,8 @@
         <file alias="FastWheel.qml">qml/FastWheel.qml</file>
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
+        <file alias="icons/autoplay-queue-symbolic.svg">qml/icons/autoplay-queue-symbolic.svg</file>
+        <file alias="icons/queued-symbolic.svg">qml/icons/queued-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
         <file alias="icons/back-symbolic.svg">qml/icons/back-symbolic.svg</file>
         <file alias="icons/info-symbolic.svg">qml/icons/info-symbolic.svg</file>

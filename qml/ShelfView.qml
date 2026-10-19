@@ -310,14 +310,6 @@ Item {
                 onClicked: win.helpOpen = true
             }
         }
-        StatusNote {
-            anchors.left: title.right
-            anchors.right: actions.left
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 18
-            anchors.rightMargin: 18
-            font.pixelSize: theme.bodySmall
-        }
     }
 
     Column {
@@ -656,22 +648,22 @@ Item {
         AppMenuItem {
             text: "Copy"
             enabled: coverMenu.info.available === true
-            onTriggered: backend.copyArtwork(0, shelf.coverMenuShow)
+            onChosen: backend.copyArtwork(0, shelf.coverMenuShow)
         }
         AppMenuItem {
             text: "Save artwork…"
             enabled: coverMenu.info.available === true
-            onTriggered: win.saveArtworkAs(0, shelf.coverMenuShow)
+            onChosen: win.saveArtworkAs(0, shelf.coverMenuShow)
         }
         AppMenuItem {
             text: "Copy image URL"
             enabled: coverMenu.info.hasUrl === true
-            onTriggered: backend.copyArtworkUrl(0, shelf.coverMenuShow)
+            onChosen: backend.copyArtworkUrl(0, shelf.coverMenuShow)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Unsubscribe"
-            onTriggered: shelf.unsubscribeRequested(shelf.coverMenuShow, shelf.coverMenuTitle)
+            onChosen: shelf.unsubscribeRequested(shelf.coverMenuShow, shelf.coverMenuTitle)
         }
     }
 

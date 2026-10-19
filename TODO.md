@@ -12,6 +12,16 @@ Nothing here right now.
 
 ## Done
 
+- [x] **Queue visibility** — Queue mark on episode art (lists and search) with "In queue (#n)", "In queue, #2 of 5" on episode details, and Previous / Next in the queue in the player bar and on Now Playing (always shown, dimmed when there is nowhere to go, "Up next / Previous: …" tips).
+- [x] **Autoplay toggle** — Autoplay button with its own icon in the player bar, on Now Playing and on the Queue page; autoplay only decides what happens at the end of an episode.
+- [x] **Mark played stops it** — Marking the playing episode played (any path) moves on in the queue with autoplay on, otherwise stops and hides the player bar (Now Playing steps back); played episodes leave the queue.
+- [x] **Now Playing layout** — Size-tiered transport row (Play largest, seek, then Previous / Next) with volume, speed, autoplay and mono below; notes scroll in their own box and never run under the player bar.
+- [x] **Speed presets** — 0.75×, 1×, 1.25×, 1.5×, 1.75×, 2× (older speeds snap to the nearest), fixed-width tabular labels; the Now Playing speed opens the same picker as the player bar.
+- [x] **Scroll-wheel volume and speed** — Wheel on the buttons and popups, moving the slider or list highlight in the wheel's direction.
+- [x] **Status pill** — Refresh progress and messages float above the player bar instead of shifting page content; repeated messages show every time.
+- [x] **Popup timing** — One shared fade for menus, popups and dialogs; choosing a menu item closes the menu at once.
+- [x] **Smoother launch** — No window bounce or cover stretch on start (fixed scale on Wayland), sharper Back icon, refresh progress counter.
+
 - [x] **Keyboard-first** — Arrows, Tab/Shift+Tab and Enter on every page (main page, episodes, details, Queue, search, Explore, Now Playing), with a quiet focus ring and focus restored on Back.
 - [x] **Search: episodes within library** — Magnifier or Ctrl+F searches titles and show notes of every subscribed episode as you type (all words must match; title matches first, then newest; matches in bold). Click opens details, play over the art, right-click for the episode menu, Enter opens the top result. The globe button takes the same words to Explore.
 - [x] **Refresh-all UX** — While refresh is in progress, gray out all shows that are more than “caught-up dim.” After refresh finishes, restore each show’s dim/full-lit state from played status. If refresh fails, recover a functional shelf. Animate the refresh icon while in progress; return it to the base icon on failure.

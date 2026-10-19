@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.impl
 
 Item {
     id: page
@@ -387,6 +388,28 @@ Item {
                             color: theme.accent
                         }
                     }
+                    // Queue membership, live: "In queue, #2 of 5".
+                    Row {
+                        readonly property int slot: backend.queueCount >= 0
+                                                    ? backend.queueSlot(backend.openEpisodeId) : 0
+                        visible: slot > 0
+                        spacing: 6
+                        IconImage {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.round(theme.bodySmall * 1.1)
+                            height: width
+                            sourceSize: Qt.size(width, height)
+                            source: "qrc:/icons/queued-symbolic.svg"
+                            color: theme.dim
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "In queue, #" + parent.slot + " of " + backend.queueCount
+                            color: theme.dim
+                            font.pixelSize: theme.bodySmall
+                            font.family: "monospace"
+                        }
+                    }
                 }
             }
 
@@ -429,26 +452,26 @@ Item {
         AppMenuItem {
             text: "Mark as played"
             enabled: !page.markedPlayed
-            onTriggered: backend.markPlayed(page.markedEpisode, true)
+            onChosen: backend.markPlayed(page.markedEpisode, true)
         }
         AppMenuItem {
             text: "Mark as unplayed"
             enabled: page.markedPlayed
-            onTriggered: backend.markPlayed(page.markedEpisode, false)
+            onChosen: backend.markPlayed(page.markedEpisode, false)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark older as played"
-            onTriggered: backend.markOlderPlayed(page.markedEpisode)
+            onChosen: backend.markOlderPlayed(page.markedEpisode)
         }
         AppMenuItem {
             text: "Mark newer as played"
-            onTriggered: backend.markNewerPlayed(page.markedEpisode)
+            onChosen: backend.markNewerPlayed(page.markedEpisode)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark all as played"
-            onTriggered: page.markAllRequested()
+            onChosen: page.markAllRequested()
         }
     }
 

@@ -110,7 +110,12 @@ public:
     void setPosition(qint64 episodeId, int positionMs);
     qint64 adjacent(qint64 episodeId, bool older, bool unplayedOnly) const;
 
+    // Playback speed presets (quarters). rate() always returns one of them,
+    // snapping any older saved value to the nearest; storedRate() is the raw value.
+    static const QList<double> &ratePresets();
+    static double snapRate(double rate);
     double rate() const;
+    double storedRate() const;
     void setRate(double rate);
     double volume() const;
     void setVolume(double volume);
@@ -181,6 +186,8 @@ public:
     qint64 finishQueued(qint64 finished);
     void addToQueue(qint64 episodeId, bool atTop);
     bool removeFromQueue(qint64 episodeId);
+    // Drop every played episode from the queue; returns how many left.
+    int dequeuePlayed();
     void setQueueOrder(const QList<qint64> &ids);
     void clearQueue();
 

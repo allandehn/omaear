@@ -224,20 +224,10 @@ Item {
         }
     }
 
-    StatusNote {
-        id: statusLine
-        anchors.top: header.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: 24
-        anchors.rightMargin: 24
-        height: implicitHeight * opacity
-        font.pixelSize: theme.bodySmall
-    }
 
     ListView {
         id: list
-        anchors.top: statusLine.bottom
+        anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -334,6 +324,14 @@ Item {
                     background: Item {}
                     onClicked: backend.playEpisode(model.episodeId)
                 }
+                QueueBadge {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 3
+                    z: 3
+                    // queueCount ties the lookup to queueChanged (add/remove/reorder).
+                    slot: backend.queueCount >= 0 ? backend.queueSlot(model.episodeId) : 0
+                }
             }
 
             Column {
@@ -425,36 +423,36 @@ Item {
         AppMenuItem {
             text: "Mark as played"
             enabled: !page.markedPlayed
-            onTriggered: backend.markPlayed(page.markedEpisode, true)
+            onChosen: backend.markPlayed(page.markedEpisode, true)
         }
         AppMenuItem {
             text: "Mark as unplayed"
             enabled: page.markedPlayed
-            onTriggered: backend.markPlayed(page.markedEpisode, false)
+            onChosen: backend.markPlayed(page.markedEpisode, false)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Play next"
-            onTriggered: backend.playNext(page.markedEpisode)
+            onChosen: backend.playNext(page.markedEpisode)
         }
         AppMenuItem {
             text: page.markedQueued ? "Remove from queue" : "Add to queue"
-            onTriggered: page.markedQueued ? backend.removeFromQueue(page.markedEpisode)
+            onChosen: page.markedQueued ? backend.removeFromQueue(page.markedEpisode)
                                            : backend.addToQueue(page.markedEpisode)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark older as played"
-            onTriggered: backend.markOlderPlayed(page.markedEpisode)
+            onChosen: backend.markOlderPlayed(page.markedEpisode)
         }
         AppMenuItem {
             text: "Mark newer as played"
-            onTriggered: backend.markNewerPlayed(page.markedEpisode)
+            onChosen: backend.markNewerPlayed(page.markedEpisode)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Mark all as played"
-            onTriggered: page.markAllRequested()
+            onChosen: page.markAllRequested()
         }
     }
 }

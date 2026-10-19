@@ -48,11 +48,14 @@ Menu {
         return Math.ceil(widest + leftPadding + rightPadding)
     }
 
+    // Shared popup timing (Main: popupFadeInMs / popupFadeOutMs).
     enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 90; easing.type: Easing.OutQuad }
+        NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+        NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
     }
     exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 70; easing.type: Easing.InQuad }
+        NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
+        NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
     }
 
     background: Rectangle {

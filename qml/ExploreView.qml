@@ -278,7 +278,7 @@ Item {
         anchors.right: parent.right
         anchors.leftMargin: 24
         anchors.rightMargin: 24
-        height: Math.max(headingText.implicitHeight, statusNote.implicitHeight) + 6
+        height: headingText.implicitHeight + 6
 
         Text {
             id: headingText
@@ -305,15 +305,6 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: explore.retry()
             }
-        }
-        // Backend messages (subscribe results, feed errors).
-        StatusNote {
-            id: statusNote
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width * 0.45
-            horizontalAlignment: TextEdit.AlignRight
-            font.pixelSize: theme.bodySmall
         }
     }
 
@@ -498,27 +489,29 @@ Item {
         AppMenuItem {
             text: resultMenu.subscribed ? "Subscribed" : "Subscribe"
             enabled: !resultMenu.subscribed
-            onTriggered: explore.subscribe(page.menuRow)
+            onChosen: explore.subscribe(page.menuRow)
         }
         AppMenuItem {
             text: "Preview"
-            onTriggered: explore.openPreview(page.menuRow)
+            onChosen: explore.openPreview(page.menuRow)
         }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Copy feed URL"
-            onTriggered: explore.copyFeedUrl(page.menuRow)
+            onChosen: explore.copyFeedUrl(page.menuRow)
         }
         AppMenuItem {
             text: "Open in browser"
-            onTriggered: explore.openInBrowser(page.menuRow)
+            onChosen: explore.openInBrowser(page.menuRow)
         }
     }
 
     // ---- Preview (no subscription needed). Back / Esc / side button closes it.
     Rectangle {
+        id: previewScrim
         anchors.fill: parent
         visible: explore.previewOpen
+        PopupFadeIn { host: previewScrim }
         z: 5
         color: Qt.rgba(0, 0, 0, 0.45)
 
@@ -770,7 +763,10 @@ Item {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         property double closedAt: 0
         Material.elevation: 0
-        enter: null
+        // Shared fade-in; closing stays instant (closedAt toggle logic).
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        }
         exit: null
 
         background: Rectangle {

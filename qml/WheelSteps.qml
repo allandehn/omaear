@@ -5,12 +5,15 @@ import QtQuick
 // so the page underneath never scrolls while adjusting.
 WheelHandler {
     id: steps
-    signal step(int notches)
+    signal step(int notches) // > 0: wheel up
     property real pending: 0
     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
     onWheel: function(event) {
         var delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.pixelDelta.y * 2
-        pending += delta
+        // Physical wheel direction: notches > 0 mean wheel up (away from you),
+        // undoing natural scrolling. Callers map that to whatever moves their
+        // visible highlight or thumb upward on screen.
+        pending += event.inverted ? -delta : delta
         var n = 0
         while (pending >= 120) { pending -= 120; n += 1 }
         while (pending <= -120) { pending += 120; n -= 1 }
