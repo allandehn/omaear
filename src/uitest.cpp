@@ -3,6 +3,7 @@
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
 #include <QCursor>
 #include <QGuiApplication>
+#include <QImage>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QQmlApplicationEngine>
@@ -123,6 +124,15 @@ void startUiTest(QQmlApplicationEngine &engine)
     t->win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     t->win->resize(1400, 900);
     QPointF row;
+    const QString shot = qEnvironmentVariable("OMAEAR_UI_TEST_SHOT");
+    if (!shot.isEmpty()) {
+        t->steps = {
+            {1500, [t]() { t->eval("helpOpen = true"); }},
+            {800, [t, shot]() { t->expect(t->win->grabWindow().save(shot), "saved screenshot"); }},
+        };
+        t->run(0);
+        return;
+    }
     t->steps = {
         {1500, [t]() {
             t->expect(t->eval("pageKind").toString() == "shelf", "starts on shelf");

@@ -46,7 +46,7 @@ Paste a feed URL with **Add feed**, find shows with **Find new podcasts**, or br
 
 **Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Text size follows your display scale.
 
-**Info.** Info in the ⋯ menu (or `?`) lists every shortcut and mouse trick, shows the version, and tells you when an update is available (a small dot on ⋯ says so too). Click "run omarchy update" and it does just that.
+**Info.** Info in the ⋯ menu (or `?`) is a short page of the shortcuts and hidden tricks the tooltips don't cover (keys, search, artwork sizing), shows the version, and tells you when an update is available (a small dot on ⋯ says so too). Click "run omarchy update" and it does just that.
 
 ## Shortcuts
 

@@ -80,73 +80,43 @@ Item {
             Column {
                 id: column
                 width: scroller.width
-                spacing: 26
-
-                Text {
-                    text: "Info"
-                    color: theme.foreground
-                    font.pixelSize: theme.heading
-                    font.family: "monospace"
-                    font.weight: Font.Normal
-                }
+                spacing: 20
 
                 ShortcutGroup {
-                    title: "Playback"
+                    title: "Keys"
                     ShortcutRow { keys: "Space"; blurb: "Play or pause" }
+                    ShortcutRow { keys: "?"; blurb: "This page" }
+                    ShortcutRow { keys: "Ctrl+F"; blurb: "Search your episodes (titles and show notes)" }
+                    ShortcutRow { keys: "Esc / Backspace"; blurb: "Go back (closes popups first)" }
+                    ShortcutRow { keys: "Alt+\u2190 / Alt+\u2192"; blurb: "Previous or next page (also mouse back/forward)" }
+                    ShortcutRow { keys: "Arrows / Tab"; blurb: "Move around; Tab jumps between areas, Enter opens" }
+                    ShortcutRow { keys: "Menu / Shift+F10"; blurb: "Right-click menu for the highlighted item" }
+                    ShortcutRow { keys: "\u2190 / \u2192 on Now Playing"; blurb: "Seek 10 seconds" }
+                    ShortcutRow { keys: "Delete in the queue"; blurb: "Remove the episode" }
+                    ShortcutRow { keys: "Ctrl+Q"; blurb: "Close the window; audio keeps playing" }
                 }
                 ShortcutGroup {
-                    title: "Navigation"
-                    ShortcutRow { keys: "?"; blurb: "Show or hide this Info page" }
-                    ShortcutRow { keys: "Mouse back / forward"; blurb: "Previous or next page" }
-                    ShortcutRow { keys: "Alt+Left / Alt+Right"; blurb: "Previous or next page" }
-                    ShortcutRow { keys: "Back / Forward keys"; blurb: "Previous or next page" }
-                    ShortcutRow { keys: "Esc"; blurb: "Go back. Closes this panel, dialogs, and page overlays first; hides the keyboard ring on the main page" }
-                    ShortcutRow { keys: "Backspace"; blurb: "Go back, outside a text field" }
-                    ShortcutRow { keys: "Enter on episode details"; blurb: "Play or resume it (pauses if it is playing); with the ring on a button, presses that" }
-                    ShortcutRow { keys: "Arrows"; blurb: "Move through buttons, podcasts, episodes and the player bar; Enter opens or presses" }
-                    ShortcutRow { keys: "Tab / Shift+Tab"; blurb: "Jump between areas (top bar, list, player bar)" }
-                    ShortcutRow { keys: "Menu / Shift+F10"; blurb: "Open the right-click menu for the highlighted item" }
-                    ShortcutRow { keys: "Delete in the queue"; blurb: "Remove the highlighted episode from the queue" }
-                    ShortcutRow { keys: "PgUp / PgDn on episode details"; blurb: "Scroll the show notes" }
-                    ShortcutRow { keys: "Typing in Find new podcasts"; blurb: "Goes to the search field from anywhere on the page" }
-                    ShortcutRow { keys: "\u2190 / \u2192 on the Now Playing bar"; blurb: "Seek 10 seconds back or forward" }
-                    ShortcutRow { keys: "Ctrl+F"; blurb: "Search your episodes (titles and show notes)" }
-                    ShortcutRow { keys: "Enter in search"; blurb: "Open the top result" }
-                    ShortcutRow { keys: "\u2193 / \u2191 / Tab in search"; blurb: "Move through results; Enter opens one; typing returns to the field" }
-                    ShortcutRow { keys: "Alt+1 / 2 / 3 in search"; blurb: "Search show names, titles, notes on or off" }
-                    ShortcutRow { keys: "PgUp / PgDn / Home / End"; blurb: "Jump through search results" }
-                    ShortcutRow { keys: "Ctrl+Q"; blurb: "Close the window. Audio keeps playing" }
+                    title: "Search"
+                    ShortcutRow { keys: "Alt+1 / 2 / 3"; blurb: "Toggle show names, titles, notes" }
+                    ShortcutRow { keys: "Enter"; blurb: "Open the top result" }
+                    ShortcutRow { keys: "Just type"; blurb: "Jumps back to the search field" }
                 }
                 ShortcutGroup {
                     title: "Artwork"
-                    ShortcutRow { keys: "Ctrl+mouse wheel"; blurb: "Resize Now Playing art, shelf covers, and episode art" }
-                    ShortcutRow { keys: "Ctrl+= / Ctrl+\u2212"; blurb: "Resize shelf covers and episode art" }
-                    ShortcutRow { keys: "Ctrl+0"; blurb: "Reset art to its default size on this page" }
-                    ShortcutRow { keys: "Ctrl+click Refresh"; blurb: "Refresh and reload artwork" }
+                    ShortcutRow { keys: "Ctrl+wheel / = / \u2212"; blurb: "Resize art" }
+                    ShortcutRow { keys: "Ctrl+0"; blurb: "Reset art size" }
+                    ShortcutRow { keys: "Ctrl+click Refresh"; blurb: "Refresh and reload all artwork" }
                 }
                 ShortcutGroup {
-                    title: "Mouse tricks"
-                    ShortcutRow { keys: "Click volume"; blurb: "Mute or unmute" }
-                    ShortcutRow { keys: "Hover volume"; blurb: "Volume slider" }
-                    ShortcutRow { keys: "Scroll on volume"; blurb: "Louder or quieter in 5% steps" }
-                    ShortcutRow { keys: "Click speed"; blurb: "Step through speeds" }
-                    ShortcutRow { keys: "Hover speed"; blurb: "Speed picker (player bar and Now Playing)" }
-                    ShortcutRow { keys: "Previous / next buttons"; blurb: "Step through the queue by hand" }
-                    ShortcutRow { keys: "Autoplay button"; blurb: "Play on through the queue when an episode ends" }
-                    ShortcutRow { keys: "Scroll on speed"; blurb: "Move through the speed list (wheel up goes up the list)" }
-                    ShortcutRow { keys: "Mono / Stereo"; blurb: "Mix or separate left and right" }
-                    ShortcutRow { keys: "Select text"; blurb: "Copies automatically" }
-                    ShortcutRow { keys: "Right-click a cover"; blurb: "Copy or save artwork, copy the image URL, mark played. Mark all played or unsubscribe on the shelf" }
-                    ShortcutRow { keys: "⋯ on the shelf"; blurb: "Gallery or list, Search, Find new podcasts, Add feed, Import or Export OPML, Info" }
-                    ShortcutRow { keys: "Right-click empty shelf space"; blurb: "Add feed, Import or Export OPML; Unsubscribe from all (asks twice; also in every cover menu)" }
-                    ShortcutRow { keys: "Right-click an episode or its art"; blurb: "Play now or next, mark played, queue\u2026 (player-bar art: Pause or Resume)" }
-                    ShortcutRow { keys: "Right-click in the queue"; blurb: "Play now, move, or remove" }
-                    ShortcutRow { keys: "Right-click a link"; blurb: "Copy the link" }
-                    ShortcutRow { keys: "Right-click in Find new podcasts"; blurb: "Subscribe, preview, or copy the feed URL" }
-                    ShortcutRow { keys: "Click a timestamp"; blurb: "Jump to it in the episode notes" }
-                    ShortcutRow { keys: "Drag in the queue"; blurb: "Reorder" }
-                    ShortcutRow { keys: "Click the playing title"; blurb: "Open that episode" }
+                    title: "Hidden tricks"
+                    ShortcutRow { keys: "Right-click"; blurb: "Covers, episodes, art, queue, links, empty shelf and search results all have menus" }
+                    ShortcutRow { keys: "Wheel on volume / speed"; blurb: "Adjust without opening" }
+                    ShortcutRow { keys: "Click volume / speed"; blurb: "Mute, or step to the next speed" }
                     ShortcutRow { keys: "Click Now Playing art"; blurb: "Play or pause" }
+                    ShortcutRow { keys: "Click the playing title"; blurb: "Open that episode" }
+                    ShortcutRow { keys: "Click a timestamp"; blurb: "Jump to it" }
+                    ShortcutRow { keys: "Drag in the queue"; blurb: "Reorder" }
+                    ShortcutRow { keys: "Select text"; blurb: "Copies automatically" }
                 }
             }
         }
@@ -214,13 +184,21 @@ Item {
         width: parent.width
         spacing: 9
 
-        Text {
-            bottomPadding: 3
-            text: group.title
-            color: theme.dim
-            font.pixelSize: theme.caption
-            font.family: "monospace"
-            font.weight: Font.Normal
+        Column {
+            width: parent.width
+            spacing: 3
+            Text {
+                text: group.title
+                color: theme.foreground
+                font.pixelSize: Math.round(theme.body * 1.3)
+                font.family: "monospace"
+                font.weight: Font.DemiBold
+            }
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: theme.selection
+            }
         }
     }
 
