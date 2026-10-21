@@ -104,6 +104,8 @@ make install    # installs to ~/.local, no root needed
 
 To build the Arch package yourself, use `packaging/PKGBUILD`, or run `packaging/build-local.sh` to build one from this checkout.
 
+Releases are made with `scripts/release.sh X.Y.Z` (try `--dry-run` first); see `AGENTS.md`.
+
 ## License
 
 [MIT](LICENSE)
