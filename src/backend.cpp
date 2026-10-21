@@ -584,7 +584,7 @@ void Backend::fetchNext()
 
     QNetworkRequest request{QUrl(job.url)};
     request.setHeader(QNetworkRequest::UserAgentHeader,
-                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allanjorch/omaear)"));
+                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allandehn/omaear)"));
     request.setTransferTimeout(20000);
     if (job.plainEncoding)
         request.setRawHeader("Accept-Encoding", "identity");
@@ -2091,10 +2091,10 @@ void Backend::startUpdateCheck()
     publishUpdate(QStringLiteral("checking"), {}, {});
 
     QNetworkRequest request{
-        QUrl(QStringLiteral("https://api.github.com/repos/allanjorch/omaear/releases/latest"))};
+        QUrl(QStringLiteral("https://api.github.com/repos/allandehn/omaear/releases/latest"))};
     // Same identity as feed fetches. HTTP/1.1 (and its IPv4 race) comes from m_network.
     request.setHeader(QNetworkRequest::UserAgentHeader,
-                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allanjorch/omaear)"));
+                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allandehn/omaear)"));
     request.setRawHeader("Accept", "application/vnd.github+json");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(20000);

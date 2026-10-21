@@ -3,7 +3,7 @@
 # pacman repo, and installs the app. Updates then arrive with `omarchy update`.
 set -euo pipefail
 KEY=AC6FF13C76D8916CCCF2DA05C3225162B5257DB4
-REPO=https://github.com/allanjorch/omaear/releases/download/repo
+REPO=https://github.com/allandehn/omaear/releases/download/repo
 curl -fsSL "$REPO/omaear.asc" | sudo pacman-key --add -
 sudo pacman-key --lsign-key "$KEY"
 if ! grep -q '^\[omaear\]' /etc/pacman.conf; then

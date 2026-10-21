@@ -2,7 +2,7 @@
 
 OmaEar is a podcast player for [Omarchy](https://omarchy.org). It keeps a shelf of your shows and keeps playing after you close the window.
 
-Designed together by [Allan Kristensen](https://github.com/allanjorch) and [Grok](https://x.ai).
+Designed together by [Allan Kristensen](https://github.com/allandehn) and [Grok](https://x.ai).
 
 ![OmaEar shelf with a few shows and an episode playing](assets/screenshots/shelf.png)
 
@@ -13,7 +13,7 @@ Designed together by [Allan Kristensen](https://github.com/allanjorch) and [Grok
 On Omarchy, run:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/allanjorch/omaear/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/allandehn/omaear/main/install.sh | bash
 ```
 
 It adds the OmaEar package repository, with packages signed by Allan Kristensen (key `AC6F F13C 76D8 916C CCF2  DA05 C322 5162 B525 7DB4`), and installs the app. Updates then arrive with `omarchy update`. Open **OmaEar** from the app launcher, or run `omaear`.

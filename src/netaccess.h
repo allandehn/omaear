@@ -12,7 +12,7 @@
 // artwork and Explore keep the app's own identity.
 inline constexpr const char kAudioGenericUserAgent[] = "Lavf/61.1.100";
 inline constexpr const char kAudioAppUserAgent[] =
-    "omaear/" OMAEAR_VERSION " (+https://github.com/allanjorch/omaear)";
+    "omaear/" OMAEAR_VERSION " (+https://github.com/allandehn/omaear)";
 
 // Every network request in both processes goes through this manager.
 //

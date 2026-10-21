@@ -3,7 +3,7 @@
 #include <QString>
 #include <QByteArray>
 
-// Result of GET /repos/allanjorch/omaear/releases/latest.
+// Result of GET /repos/allandehn/omaear/releases/latest.
 // Failed covers offline, 404 (no releases yet), rate limits, and bad JSON.
 enum class UpdateKind { Current, Available, Failed };
 

@@ -1,0 +1,20 @@
+# OmaEar moved from github.com/allanjorch to github.com/allandehn.
+# Point the [omaear] pacman repo at the new address. Only the exact old URL is
+# replaced; files without it are left untouched, so this is safe to run again.
+_omaear_move_repo() {
+  old='https://github.com/allanjorch/omaear/releases/download/repo'
+  new='https://github.com/allandehn/omaear/releases/download/repo'
+  for f in /etc/pacman.conf /etc/pacman.d/*.conf; do
+    [ -f "$f" ] || continue
+    grep -qF "$old" "$f" || continue
+    sed -i "s#^\([[:space:]]*Server[[:space:]]*=[[:space:]]*\)$old[[:space:]]*\$#\1$new#" "$f"
+  done
+}
+
+post_install() {
+  _omaear_move_repo
+}
+
+post_upgrade() {
+  _omaear_move_repo
+}

@@ -12,6 +12,7 @@ Nothing here right now.
 
 ## Done
 
+- [x] **New GitHub home (0.1.10)** — OmaEar moved to github.com/allandehn/omaear. Links, the installer, the update check and the package point there, and upgrading rewrites the [omaear] Server line in pacman.conf to the new address (old links still redirect).
 - [x] **Menus instead of Mark buttons (0.2)** — One episode menu (Play now / next, mark played, newer, older, unplayed, queue, mark all) on Episodes rows and art; the player-bar art gets a trimmed variant with Pause / Resume; art menus with Mark as played on details and Now Playing; Mark all as played on the shelf cover menu. Mark / Unsubscribe / mark-all buttons left the top bars and player bar. Now Playing notes get clickable links and timestamps. Unsubscribe from all (two confirmations) in every shelf menu, including a new empty-space menu.
 - [x] **Menus and popups (0.2)** — Volume and speed popups share the context-menu look (square corners, same border and highlight). Clicking outside any menu or popup closes it and the click goes through (Back, the next right-click); menus also close on page, layout or dialog changes and when the window loses focus. Mono button tip shows the state: Mono / Stereo.
 - [x] **Decluttered shelf top bar (0.2)** — Eye, Refresh and Queue stay; gallery/list, Search, Find new podcasts, Add feed, Import, Export OPML (new, OPML 2.0) and Info move to a ⋯ menu (update dot on ⋯). Empty-space menu gets Add, Import, Export.

@@ -255,7 +255,7 @@ int runSelfTest(int argc, char **argv)
             check(library.updateCheckedAt() == 10, "update check time cached");
             check(library.updateLatest().isEmpty() && library.updateUrl().isEmpty(), "failed check clears version");
             library.setUpdateCache(QStringLiteral("available"), QStringLiteral("0.2.0"),
-                                   QStringLiteral("https://github.com/allanjorch/omaear/releases/tag/v0.2.0"), 20);
+                                   QStringLiteral("https://github.com/allandehn/omaear/releases/tag/v0.2.0"), 20);
             check(library.updateLatest() == QStringLiteral("0.2.0"), "update version cached");
             check(library.updateUrl().endsWith(QStringLiteral("v0.2.0")), "update url cached");
             check(library.updateCheckedAt() == 20, "update check time replaced");
@@ -438,7 +438,7 @@ int runSelfTest(int argc, char **argv)
     check(!versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0.0")), "trailing zero is the same version");
     check(!versionIsNewer(QString(), QStringLiteral("0.1.0")), "empty tag is not newer");
     {
-        const QByteArray newer = R"({"tag_name":"v0.2.0","html_url":"https://github.com/allanjorch/omaear/releases/tag/v0.2.0"})";
+        const QByteArray newer = R"({"tag_name":"v0.2.0","html_url":"https://github.com/allandehn/omaear/releases/tag/v0.2.0"})";
         const UpdateOffer offer = parseLatestRelease(newer, 200, QStringLiteral("0.1.0"));
         check(offer.kind == UpdateKind::Available && offer.latest == QStringLiteral("0.2.0"), "release json strips v");
         check(offer.url.endsWith(QStringLiteral("v0.2.0")), "release json keeps html_url");
