@@ -117,12 +117,11 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
             IconButton {
-                // Bright when on, dimmed when off, like the other toggles.
+                // Autoplay icon B: accent when on, foreground at 45% when off.
                 icon.width: 24 * theme.textScale
-                icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
-                glyph: backend.queueAutoplay ? theme.foreground : theme.muted
-                tip: backend.queueAutoplay ? "Autoplay on: the queue plays next"
-                                           : "Autoplay off: the queue is just a pinned list"
+                icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                 onClicked: backend.toggleQueueAutoplay()
             }
             IconButton {
