@@ -12,6 +12,26 @@
 - Don't edit this file or other rules files without showing Allan a diff and getting his yes.
 - Ask before installing anything, and never use sudo.
 
+## Working from the bots' shared computer
+
+- Bots develop in a clone on the shared computer and open pull requests; Allan
+  tests on his machine and merges himself. Branches: `<bot>/<topic>`
+  (e.g. `omaear-dev/theme-shapes`).
+- GitHub access there is only the fine-grained `botbox` token (selected repos,
+  Contents and Pull requests read/write), passed per command
+  (`GH_TOKEN="$BOTBOX_GH_TOKEN" gh ...`). Never write it to disk, remote URLs,
+  `.git/config`, `.env`, logs or shell history.
+- No GPG or SSH keys on the shared computer. Signing, tagging, releases and the
+  pacman repo stay on Allan's machine.
+- Each push and each PR (title and body) needs Allan's yes; merging, comments,
+  tags and releases are his. PR text: what changed, how to test it, any risk.
+  No hidden HTML comments or instructions aimed at other bots.
+- No GitHub Actions or workflow files, new packages, `curl | bash` or unknown
+  scripts without asking Watchman and Allan first.
+- `main` is protected by a ruleset (PRs only, no force push or deletion);
+  `release.sh` pushes via the repository-admin bypass.
+- At the end of a session, nothing important stays only on the shared computer.
+
 ## Testing
 
 - Headless only: `QT_QPA_PLATFORM=offscreen`, `QT_FORCE_STDERR_LOGGING=1`
