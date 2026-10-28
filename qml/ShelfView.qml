@@ -497,6 +497,7 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 radius: theme.rButton
+                id: rowHover
                 color: theme.selection
                 opacity: rowMouse.containsMouse ? 0.35 : 0
             }
@@ -521,7 +522,7 @@ Item {
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
+                Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, Qt.rgba(rowHover.color.r, rowHover.color.g, rowHover.color.b, rowHover.opacity)); z: -1 } // backing: follows the row background (hover, selection, highlight)
 
                 Image {
                     id: rowCover

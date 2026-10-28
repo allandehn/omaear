@@ -41,6 +41,13 @@ struct UiTest {
         }
         return item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
     }
+    // Hover only: a mouse move to p, no buttons.
+    void hover(QPointF p)
+    {
+        QCursor::setPos(win->mapToGlobal(p).toPoint());
+        QMouseEvent move(QEvent::MouseMove, p, win->mapToGlobal(p), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(win, &move);
+    }
     // Realistic: move there (hover), press, hold ~90 ms (mid-fade), release.
     void click(QPointF p, Qt::MouseButton b, std::function<void()> after = {})
     {
@@ -143,7 +150,9 @@ void startUiTest(QQmlApplicationEngine &engine)
             {900, [grab]() { grab("shelf-gallery"); }},
             {200, [t]() { t->eval("backend.setShelfView('list')"); }},
             {1200, [grab]() { grab("shelf-list"); }},
-            {200, [t]() { t->eval("backend.setShelfView('grid')"); }},
+            {200, [t]() { t->hover(t->centerOf("shelfView.coverItemAt(1)")); }},
+            {700, [grab]() { grab("row-highlight-shelf-list"); }},
+            {200, [t]() { t->hover(QPointF(2, 2)); t->eval("backend.setShelfView('grid')"); }},
             {200, [t]() { t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), backend.shows.titleAt ? backend.shows.titleAt(0) : 'this podcast')"); }},
             {700, [grab]() { grab("unsubscribe"); }},
             {200, [t]() { t->eval("win.closeModals(); win.confirmUnsubscribeAll()"); }},
@@ -167,6 +176,9 @@ void startUiTest(QQmlApplicationEngine &engine)
             {1200, [grab]() { grab("episode"); }},
             {200, [t]() { t->eval("win.openQueuePage()"); }},
             {1200, [t, grab]() { t->expect(t->eval("pageKind").toString() == "queue", "queue page opened"); grab("queue"); }},
+            {200, [t]() { t->hover(t->centerOf("queuePage.rowItemAt(1)")); }},
+            {700, [grab]() { grab("row-highlight-queue"); }},
+            {200, [t]() { t->hover(QPointF(2, 2)); }},
             {200, [t]() { t->eval("win.openShowPage(backend.shows.showIdAt(0))"); }},
             {1500, [grab]() { grab("show"); }},
             {200, [t]() { t->eval("win.openExplorePage()"); }},

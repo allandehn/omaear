@@ -182,6 +182,8 @@ Item {
         }
     }
 
+    function rowItemAt(i) { return list.itemAtIndex(i) } // for the UI test
+
     ListView {
         id: list
         anchors.top: header.bottom
@@ -282,7 +284,7 @@ Item {
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: artImage; radius: art.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
+                Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, row.color); z: -1 } // backing: follows the row background (hover, selection, highlight)
                 Image {
                     id: artImage
                     anchors.fill: parent
