@@ -171,8 +171,14 @@ Rectangle {
             width: 52 * theme.textScale
             height: width
             anchors.verticalCenter: parent.verticalCenter
+            readonly property real coverRadius: theme.rCard
+            layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+            layer.smooth: true
+            layer.effect: CoverClip { art: barImage; radius: barArt.coverRadius }
+            Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
 
             Image {
+                id: barImage
                 anchors.fill: parent
                 source: backend.playerArt
                 fillMode: Image.PreserveAspectCrop

@@ -278,6 +278,11 @@ Item {
                 width: page.cover
                 height: page.cover
                 z: 2
+                readonly property real coverRadius: theme.rInner(8)
+                layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                layer.smooth: true
+                layer.effect: CoverClip { art: artImage; radius: art.coverRadius }
+                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
                 Image {
                     id: artImage
                     anchors.fill: parent
