@@ -8,6 +8,8 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTextStream>
 #include <QVariant>
 #include <QtMath>
@@ -54,6 +56,41 @@ Theme::Theme(QObject *parent)
         this,
         SLOT(handlePortalSettingChanged(QString,QString,QDBusVariant)));
     requestTextScale();
+
+    // Corner radius R follows Hyprland's decoration:rounding (see the shared
+    // theme-shapes rule). Poll every second; keep the last good value on failure.
+    bool okOverride = false;
+    const int forced = qEnvironmentVariableIntValue("OMAEAR_ROUNDING", &okOverride);
+    if (okOverride && forced >= 0) {
+        m_rounding = forced;
+        m_roundingFixed = true;
+    } else {
+        connect(&m_roundingProc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus st) {
+            if (st != QProcess::NormalExit || code != 0)
+                return;
+            const QJsonObject o = QJsonDocument::fromJson(m_roundingProc.readAllStandardOutput()).object();
+            if (!o.contains(QStringLiteral("int")))
+                return;
+            const int n = o.value(QStringLiteral("int")).toInt(-1);
+            if (n >= 0 && n != m_rounding) {
+                m_rounding = n;
+                emit roundingChanged();
+            }
+        });
+        connect(&m_roundingProc, &QProcess::errorOccurred, this, [](QProcess::ProcessError) {});
+        m_roundingPoll.setInterval(1000);
+        connect(&m_roundingPoll, &QTimer::timeout, this, &Theme::refreshRounding);
+        m_roundingPoll.start();
+        refreshRounding();
+    }
+}
+
+void Theme::refreshRounding()
+{
+    if (m_roundingFixed || m_roundingProc.state() != QProcess::NotRunning)
+        return;
+    m_roundingProc.start(QStringLiteral("hyprctl"),
+                         {QStringLiteral("-j"), QStringLiteral("getoption"), QStringLiteral("decoration:rounding")});
 }
 
 void Theme::loadColors()
@@ -63,6 +100,9 @@ void Theme::loadColors()
     QColor foreground(QStringLiteral("#eeeeee"));
     QColor accent(QStringLiteral("#5584aa"));
     QColor selection(QStringLiteral("#186a9a"));
+    QColor urgent;
+    QColor red;
+    QColor color1;
     QColor blue;
     bool haveBlue = false;
     QColor muted;
@@ -96,6 +136,12 @@ void Theme::loadColors()
                 foreground = QColor(value);
             else if (key == QStringLiteral("accent"))
                 accent = QColor(value);
+            else if (key == QStringLiteral("urgent"))
+                urgent = QColor(value);
+            else if (key == QStringLiteral("red"))
+                red = QColor(value);
+            else if (key == QStringLiteral("color1"))
+                color1 = QColor(value);
             else if (key == QStringLiteral("selection"))
                 selection = QColor(value);
             else if (key == QStringLiteral("blue")) {
@@ -126,10 +172,18 @@ void Theme::loadColors()
     if (!haveBlue)
         blue = accent;
 
+    // Fallback: the theme's red, then terminal color1, then a plain red for either mode.
+    if (!urgent.isValid())
+        urgent = red;
+    if (!urgent.isValid())
+        urgent = color1;
+    if (!urgent.isValid())
+        urgent = QColor(dark ? QStringLiteral("#e06c75") : QStringLiteral("#c0392b"));
     const QColor dim = foreground.darker(155);
     const bool changedColors = background != m_background || foreground != m_foreground
         || accent != m_accent || blue != m_blue || selection != m_selection || muted != m_muted
-        || dim != m_dim || dark != m_darkMode;
+        || dim != m_dim || dark != m_darkMode || urgent != m_urgent;
+    m_urgent = urgent;
     m_background = background;
     m_foreground = foreground;
     m_accent = accent;

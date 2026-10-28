@@ -234,7 +234,12 @@ ApplicationWindow {
     }
     onCurrentPageChanged: closeAllPopups()
     onHistoryIndexChanged: closeAllPopups()
-    onActiveChanged: if (!active) closeAllPopups()
+    onActiveChanged: {
+        if (active)
+            theme.refreshRounding()
+        else
+            closeAllPopups()
+    }
     Connections {
         target: backend
         function onShelfLayoutChanged() { win.closeAllPopups() }
