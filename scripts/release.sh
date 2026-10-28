@@ -18,6 +18,7 @@ set -euo pipefail
 
 REPO=allandehn/omaear
 KEY=AC6FF13C76D8916CCCF2DA05C3225162B5257DB4
+export PACKAGER="${PACKAGER:-Allan Dehn <allandehn@proton.me>}"
 DRY=0
 [[ ${1:-} == --dry-run ]] && { DRY=1; shift; }
 VER=${1:-}; NOTES_FILE=${2:-}
