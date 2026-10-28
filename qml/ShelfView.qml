@@ -387,7 +387,7 @@ Item {
                         anchors.top: parent.top
                         anchors.right: parent.right
                         anchors.margins: 8
-                        radius: 3
+                        radius: theme.rButton
                         color: theme.accent
                         height: 22 * theme.textScale
                         width: Math.max(height, countLabel.implicitWidth + 12)
@@ -453,7 +453,7 @@ Item {
                 y: -4
                 width: shelf.coverSize + 8
                 height: shelf.coverSize + 8
-                radius: 4
+                radius: theme.rButton
                 color: "transparent"
                 border.width: 2
                 border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
@@ -490,14 +490,14 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                radius: 4
+                radius: theme.rButton
                 color: theme.selection
                 opacity: rowMouse.containsMouse ? 0.35 : 0
             }
             Rectangle {
                 anchors.fill: parent
                 visible: shelf.kbdRing && index === shelf.kbdIndex
-                radius: 4
+                radius: theme.rButton
                 color: "transparent"
                 border.width: 1
                 border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
@@ -548,7 +548,7 @@ Item {
                     anchors.top: parent.top
                     anchors.right: parent.right
                     anchors.margins: parent.width >= 96 ? 8 : 4
-                    radius: 3
+                    radius: theme.rButton
                     color: theme.accent
                     height: Math.min(22 * theme.textScale, parent.height * 0.5)
                     width: Math.max(height, rowBadgeText.implicitWidth + 12)

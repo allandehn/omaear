@@ -61,24 +61,24 @@ Item {
         visible: scrubber.kbdFocus
         anchors.fill: parent
         anchors.margins: -5
-        radius: 6
+        radius: theme.rButton
         color: "transparent"
         border.width: 1
         border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
     }
     Rectangle {
         anchors.fill: parent
-        radius: 3
+        radius: theme.rButton
         color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.18)
         Rectangle {
             width: scrubber.width * scrubber.shownFraction
             height: parent.height
-            radius: 3
+            radius: theme.rButton
             color: theme.accent
         }
     }
 
-    // Same quiet metrics as the Now Playing speed chip: radius 4, monospace caption.
+    // Same quiet metrics as the Now Playing speed chip: radius min(R, 4), monospace caption.
     // No delay and no position animation — the chip tracks the pointer on this frame.
     Item {
         id: tip
@@ -98,7 +98,7 @@ Item {
 
         Rectangle {
             anchors.fill: parent
-            radius: 4
+            radius: theme.rButton
             color: theme.background
             border.width: 1
             border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.18)

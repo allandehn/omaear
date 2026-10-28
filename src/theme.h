@@ -4,6 +4,8 @@
 #include <QColor>
 #include <QFileSystemWatcher>
 #include <QObject>
+#include <QProcess>
+#include <QTimer>
 #include <QVariant>
 #include <functional>
 
@@ -16,6 +18,12 @@ class Theme : public QObject {
     Q_PROPERTY(QColor selection READ selection NOTIFY changed)
     Q_PROPERTY(QColor muted READ muted NOTIFY changed)
     Q_PROPERTY(QColor dim READ dim NOTIFY changed)
+    Q_PROPERTY(QColor urgent READ urgent NOTIFY changed)
+    // Live Hyprland decoration:rounding (R) and the radius scale derived from it.
+    Q_PROPERTY(int rounding READ rounding NOTIFY roundingChanged)
+    Q_PROPERTY(int rCard READ rounding NOTIFY roundingChanged)
+    Q_PROPERTY(int rButton READ rButton NOTIFY roundingChanged)
+    Q_PROPERTY(int rIcon READ rIcon NOTIFY roundingChanged)
     Q_PROPERTY(bool darkMode READ darkMode NOTIFY changed)
     Q_PROPERTY(qreal textScale READ textScale NOTIFY changed)
     Q_PROPERTY(int caption READ caption NOTIFY changed)
@@ -36,6 +44,14 @@ public:
     QColor selection() const { return m_selection; }
     QColor muted() const { return m_muted; }
     QColor dim() const { return m_dim; }
+    QColor urgent() const { return m_urgent; }
+    int rounding() const { return m_rounding; }
+    int rButton() const { return qMin(m_rounding, 4); }
+    int rIcon() const { return qMin(qRound(m_rounding / 4.0), 2); }
+    // Radius for an element inset by p inside a card: max(R - p, 0).
+    Q_INVOKABLE int rInner(qreal p) const { return qMax(qRound(m_rounding - p), 0); }
+    // Re-read rounding now (called on window focus; also polled every second).
+    Q_INVOKABLE void refreshRounding();
     bool darkMode() const { return m_darkMode; }
     qreal textScale() const { return m_textScale; }
     int caption() const { return m_caption; }
@@ -48,6 +64,7 @@ public:
 
 signals:
     void changed();
+    void roundingChanged();
 
 private slots:
     void handlePortalSettingChanged(const QString &nameSpace, const QString &key,
@@ -79,4 +96,9 @@ private:
     int m_heading = 16;
     int m_display = 24;
     QFileSystemWatcher m_watcher;
+    QColor m_urgent = QColor("#e06c75");
+    int m_rounding = 0;          // last good value; Omarchy default is square
+    bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
+    QProcess m_roundingProc;
+    QTimer m_roundingPoll;
 };

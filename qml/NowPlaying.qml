@@ -164,7 +164,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: body.coverSide
                     height: width
-                    radius: 12
+                    radius: theme.rCard
                     color: theme.selection
                     clip: true
 
@@ -217,7 +217,7 @@ Item {
                     id: compactArt
                     width: 56 * theme.textScale
                     height: width
-                    radius: 8
+                    radius: theme.rCard
                     color: theme.selection
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
@@ -414,9 +414,9 @@ Item {
                     // Autoplay queue (same setting as the player bar and Queue page).
                     IconButton {
                         id: autoplayToggle
-                        icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
-                        glyph: backend.queueAutoplay ? theme.foreground : theme.muted
-                        tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
+                        icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                        glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                        tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }
                     // Mono downmix: bright when on, dimmed when off (shared with the player bar).

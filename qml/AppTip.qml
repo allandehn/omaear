@@ -35,5 +35,6 @@ ToolTip {
         color: theme.background
         border.color: theme.foreground
         border.width: 1
+        radius: theme.rButton
     }
 }

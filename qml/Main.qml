@@ -185,7 +185,6 @@ ApplicationWindow {
         confirmAll = true
     }
 
-    onConfirmUnsubAll2Changed: if (confirmUnsubAll2) Qt.callLater(unsubAllKeys.forceActiveFocus)
     function confirmUnsubscribeAll() {
         if (backend.showCount === 0)
             return
@@ -234,7 +233,12 @@ ApplicationWindow {
     }
     onCurrentPageChanged: closeAllPopups()
     onHistoryIndexChanged: closeAllPopups()
-    onActiveChanged: if (!active) closeAllPopups()
+    onActiveChanged: {
+        if (active)
+            theme.refreshRounding()
+        else
+            closeAllPopups()
+    }
     Connections {
         target: backend
         function onShelfLayoutChanged() { win.closeAllPopups() }
@@ -924,7 +928,6 @@ ApplicationWindow {
                 onAddRequested: {
                     feedField.text = ""
                     win.addOpen = true
-                    feedField.forceActiveFocus()
                 }
                 onImportRequested: opmlDialog.open()
                 onExportRequested: opmlExportDialog.open()
@@ -1006,7 +1009,7 @@ ApplicationWindow {
                 readonly property real padX: 14
                 width: Math.min(globalStatus.naturalWidth + 2 + padX * 2, parent.width * 0.8)
                 height: globalStatus.implicitHeight + 10
-                radius: height / 2
+                radius: theme.rButton
                 color: theme.darkMode ? Qt.darker(theme.background, 1.35) : Qt.lighter(theme.background, 1.12)
                 border.width: 1
                 border.color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.25)
@@ -1044,155 +1047,87 @@ ApplicationWindow {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: {
-                addOpen = false
-                confirmAll = false
-                        confirmRemove = false
-                confirmQueue = false
-                confirmUnsubAll = false
-                confirmUnsubAll2 = false
-            }
+            onClicked: closeModals()
         }
 
-        Rectangle {
+        ConfirmDialog {
+            id: dialog
             anchors.centerIn: parent
-            width: Math.min(parent.width - 48, 460)
-            height: addOpen ? column.implicitHeight + 36 : confirmColumn.implicitHeight + 36
-            color: theme.background
-            border.color: theme.selection
-            border.width: 1
+            visible: dialogScrim.visible
+            title: addOpen ? "Add a feed" : ""
+            destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
+            startOnCancel: confirmUnsubAll2
+            initialFocusItem: addOpen ? feedField : null
+            message: addOpen ? ""
+                     : confirmUnsubAll
+                     ? "Unsubscribe from all podcasts?"
+                     : confirmUnsubAll2
+                     ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "? This can't be undone."
+                     : confirmQueue
+                     ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
+                     : confirmRemove
+                     ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
+                     : "Mark every episode of " + markAllTitle + " as played?"
+            // Step 1 of Unsubscribe from all only leads to step 2, which shows the
+            // podcast count and the final, destructive button.
+            actionLabel: addOpen ? "Add"
+                         : confirmUnsubAll ? "Unsubscribe from all\u2026"
+                         : confirmUnsubAll2 ? "Unsubscribe from all"
+                         : confirmQueue ? "Clear queue"
+                         : confirmRemove ? "Unsubscribe" : "Mark all as played"
+            onCanceled: closeModals()
+            onAccepted: {
+                if (addOpen) {
+                    submitFeed()
+                    return
+                }
+                if (confirmUnsubAll) {
+                    unsubAllCount = backend.showCount
+                    confirmUnsubAll2 = true
+                    confirmUnsubAll = false
+                    return
+                }
+                if (confirmUnsubAll2)
+                    backend.removeAllShows()
+                else if (confirmQueue)
+                    backend.clearQueue()
+                else if (confirmRemove)
+                    backend.removeShow(unsubscribeShowId)
+                else
+                    backend.markAllPlayed(markAllShowId)
+                closeModals()
+            }
 
-            Column {
-                id: column
+            TextField {
+                id: feedField
                 visible: addOpen
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: 18
-                spacing: 12
-
+                width: parent.width
+                // Plain in-box hint instead of Material's floating label:
+                // shown only while the field is empty, no animation.
+                color: theme.foreground
+                font.pixelSize: theme.body
+                font.weight: Font.Normal
+                topPadding: 10
+                bottomPadding: 10
+                leftPadding: 10
+                rightPadding: 10
+                verticalAlignment: TextInput.AlignVCenter
                 Text {
-                    text: "Add a feed"
-                    color: theme.foreground
-                    font.pixelSize: theme.heading
-                    font.weight: Font.Normal
+                    x: feedField.leftPadding
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: feedField.length === 0 && feedField.preeditText.length === 0
+                    text: "https://example.com/feed.xml"
+                    color: theme.dim
+                    font: feedField.font
                 }
-                TextField {
-                    id: feedField
-                    width: parent.width
-                    // Plain in-box hint instead of Material's floating label:
-                    // shown only while the field is empty, no animation.
-                    color: theme.foreground
-                    font.pixelSize: theme.body
-                    font.weight: Font.Normal
-                    topPadding: 10
-                    bottomPadding: 10
-                    leftPadding: 10
-                    rightPadding: 10
-                    verticalAlignment: TextInput.AlignVCenter
-                    Text {
-                        x: feedField.leftPadding
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: feedField.length === 0 && feedField.preeditText.length === 0
-                        text: "https://example.com/feed.xml"
-                        color: theme.dim
-                        font: feedField.font
-                    }
-                    Material.accent: theme.accent
-                    onAccepted: submitFeed()
-                    background: Rectangle {
-                        color: theme.selection
-                        opacity: 0.55
-                    }
-                }
-                Row {
-                    spacing: 8
-                    TextButton {
-                        label: "Add"
-                        onClicked: submitFeed()
-                    }
-                    TextButton {
-                        label: "Cancel"
-                        onClicked: addOpen = false
-                    }
-                }
-            }
-
-            // Holds keyboard focus for the second Unsubscribe-from-all step so
-            // Enter/Space press the default Cancel, never the destructive button.
-            Item {
-                id: unsubAllKeys
-                focus: confirmUnsubAll2
-                Keys.onReturnPressed: confirmCancel.clicked()
-                Keys.onEnterPressed: confirmCancel.clicked()
-                Keys.onSpacePressed: confirmCancel.clicked()
-            }
-
-            Column {
-                id: confirmColumn
-                visible: !addOpen
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: 18
-                spacing: 14
-
-                Text {
-                    width: parent.width
-                    wrapMode: Text.Wrap
-                    color: theme.foreground
-                    font.pixelSize: theme.body
-                    font.weight: Font.Normal
-                    text: confirmUnsubAll
-                          ? "Unsubscribe from all podcasts?"
-                          : confirmUnsubAll2
-                          ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "? This can't be undone."
-                          : confirmQueue
-                          ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
-                          : confirmRemove
-                          ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
-                          : "Mark every episode of " + markAllTitle + " as played?"
-                }
-                Row {
-                    spacing: 8
-                    TextButton {
-                        label: confirmUnsubAll ? "Continue" : confirmUnsubAll2 ? "Unsubscribe from all" : confirmQueue ? "Clear queue" : confirmRemove ? "Unsubscribe" : "Mark all as played"
-                        onClicked: {
-                            if (confirmUnsubAll) {
-                                // Step one only leads to step two.
-                                unsubAllCount = backend.showCount
-                                confirmUnsubAll2 = true
-                                confirmUnsubAll = false
-                                return
-                            }
-                            if (confirmUnsubAll2)
-                                backend.removeAllShows()
-                            else if (confirmQueue)
-                                backend.clearQueue()
-                            else if (confirmRemove)
-                                backend.removeShow(unsubscribeShowId)
-                            else
-                                backend.markAllPlayed(markAllShowId)
-                            confirmAll = false
-                                                confirmRemove = false
-                            confirmQueue = false
-                            confirmUnsubAll = false
-                            confirmUnsubAll2 = false
-                        }
-                    }
-                    TextButton {
-                        id: confirmCancel
-                        label: "Cancel"
-                        // Step two of Unsubscribe from all: Cancel is the default (Enter).
-                        isDefault: confirmUnsubAll2
-                        onClicked: {
-                            confirmAll = false
-                                                confirmRemove = false
-                            confirmQueue = false
-                            confirmUnsubAll = false
-                            confirmUnsubAll2 = false
-                        }
-                    }
+                Material.accent: theme.accent
+                onAccepted: submitFeed()
+                Keys.onTabPressed: dialog.focusButtons(1)
+                Keys.onBacktabPressed: dialog.focusButtons(0)
+                background: Rectangle {
+                    color: theme.selection
+                    opacity: 0.55
+                    radius: theme.rButton
                 }
             }
         }
@@ -1270,33 +1205,5 @@ ApplicationWindow {
             return
         backend.addFeed(url)
         addOpen = false
-    }
-
-    component TextButton: Text {
-        id: button
-        property string label: ""
-        property bool isDefault: false
-        signal clicked()
-        text: label
-        color: theme.accent
-        font.pixelSize: theme.body
-        font.weight: Font.Normal
-        padding: 6
-
-        // Default-button ring, same look as the keyboard focus ring.
-        Rectangle {
-            anchors.fill: parent
-            visible: button.isDefault
-            color: "transparent"
-            radius: 6
-            border.width: 1
-            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: button.clicked()
-            cursorShape: Qt.PointingHandCursor
-        }
     }
 }
