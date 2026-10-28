@@ -15,6 +15,7 @@ SOURCES += \
     src/theme.cpp \
     src/models.cpp \
     src/covercache.cpp \
+    src/iconprovider.cpp \
     src/backend.cpp \
     src/player.cpp \
     src/growingmediadevice.cpp \
@@ -30,6 +31,7 @@ HEADERS += \
     src/theme.h \
     src/models.h \
     src/covercache.h \
+    src/iconprovider.h \
     src/backend.h \
     src/player.h \
     src/growingmediadevice.h \

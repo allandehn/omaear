@@ -19,7 +19,7 @@ Rectangle {
         width: Math.round(parent.width * 0.7)
         height: width
         sourceSize: Qt.size(width, height)
-        source: "qrc:/icons/queued-symbolic.svg"
+        source: theme.iconBase + "queued-symbolic.svg"
         color: "#f2f2f2"
     }
     HoverHandler { id: hh }
