@@ -30,7 +30,6 @@
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
         <file alias="icons/more-symbolic.svg">qml/icons/more-symbolic.svg</file>
-        <file alias="icons/autoplay-queue-symbolic.svg">qml/icons/autoplay-queue-symbolic.svg</file>
         <file alias="icons/queued-symbolic.svg">qml/icons/queued-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
         <file alias="icons/back-symbolic.svg">qml/icons/back-symbolic.svg</file>
