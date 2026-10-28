@@ -14,6 +14,7 @@
         <file alias="EpisodeMenu.qml">qml/EpisodeMenu.qml</file>
         <file alias="ArtMenu.qml">qml/ArtMenu.qml</file>
         <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
+        <file alias="ConfirmDialog.qml">qml/ConfirmDialog.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>
