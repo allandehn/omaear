@@ -220,7 +220,7 @@ Item {
         model: page.episodeModel !== null ? page.episodeModel : backend.episodes
         spacing: 2
         // Keep a screenful of delegates so scrolling back up does not rebuild art.
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
 
         delegate: Rectangle {
             id: row
@@ -305,7 +305,7 @@ Item {
                                : "media-playback-start-symbolic"
                     // Scale the glyph with the cover so art stays readable under it.
                     icon.width: Math.max(16 * theme.textScale, page.listCover * 0.375)
-                    icon.height: icon.width
+                    icon.height: Math.max(16 * theme.textScale, page.listCover * 0.375)
                     glyph: theme.foreground
                     // Transparent chrome so episode art shows through under the glyph.
                     background: Item {}

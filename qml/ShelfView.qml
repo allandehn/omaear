@@ -333,7 +333,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: backend.shows
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
 
         delegate: Item {
             readonly property string navTitle: model.title
@@ -446,7 +446,7 @@ Item {
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
                 Rectangle {
-                    anchors.fill: cover
+                    x: cover.x; y: cover.y; width: cover.width; height: cover.height
                     z: -1
                     color: theme.selection
                     opacity: parent.containsMouse ? 0.28 : 0
@@ -486,7 +486,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: backend.shows
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
         spacing: 2
 
         delegate: Item {

@@ -348,7 +348,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: explore.results
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
 
         delegate: Item {
             id: tile
@@ -369,7 +369,8 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: art; radius: cover.coverRadius }
+                    readonly property Image artRef: art // "art" inside CoverClip is its own property
+                    layer.effect: CoverClip { art: cover.artRef; radius: cover.coverRadius }
                     Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                     Rectangle {

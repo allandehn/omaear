@@ -49,7 +49,7 @@ struct UiTest {
         QCoreApplication::sendEvent(win, &move);
     }
     // Realistic: move there (hover), press, hold ~90 ms (mid-fade), release.
-    void click(QPointF p, Qt::MouseButton b, std::function<void()> after = {})
+    void click(QPointF p, Qt::MouseButton b)
     {
         const QPointF g = win->mapToGlobal(p);
         QCursor::setPos(g.toPoint()); // menus open at the cursor
@@ -79,8 +79,8 @@ struct UiTest {
                 continue;
             if (o->property("visible").toBool())
             {
-                QObject *first = nullptr;
-                QMetaObject::invokeMethod(o, "itemAt", Q_RETURN_ARG(QQuickItem *, *reinterpret_cast<QQuickItem **>(&first)), Q_ARG(int, 0));
+                QQuickItem *first = nullptr;
+                QMetaObject::invokeMethod(o, "itemAt", Q_RETURN_ARG(QQuickItem *, first), Q_ARG(int, 0));
                 fprintf(stderr, "[uitest]   visible popup: %s modal=%d opened=%d x=%.0f y=%.0f w=%.0f h=%.0f first=%s\n", o->metaObject()->className(),
                         o->property("modal").toBool(), o->property("opened").toBool(),
                         o->property("x").toDouble(), o->property("y").toDouble(), o->property("width").toDouble(), o->property("height").toDouble(),
