@@ -171,8 +171,14 @@ Rectangle {
             width: 52 * theme.textScale
             height: width
             anchors.verticalCenter: parent.verticalCenter
+            readonly property real coverRadius: theme.rCard
+            layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+            layer.smooth: true
+            layer.effect: CoverClip { art: barImage; radius: barArt.coverRadius }
+            Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
 
             Image {
+                id: barImage
                 anchors.fill: parent
                 source: backend.playerArt
                 fillMode: Image.PreserveAspectCrop
@@ -336,7 +342,7 @@ Rectangle {
                         id: autoplayButton
                         visible: !extras.dropAutoplay
                         icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
-                        glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                        glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }

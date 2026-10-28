@@ -167,9 +167,14 @@ Item {
                     radius: theme.rCard
                     color: theme.selection
                     clip: true
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: fullImage; radius: coverFrame.coverRadius }
 
                     // backend.playerArt already prefers episode art over the show cover.
                     Image {
+                        id: fullImage
                         anchors.fill: parent
                         source: backend.playerArt
                         fillMode: Image.PreserveAspectCrop
@@ -221,8 +226,13 @@ Item {
                     color: theme.selection
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: compactImage; radius: compactArt.coverRadius }
 
                     Image {
+                        id: compactImage
                         anchors.fill: parent
                         source: backend.playerArt
                         fillMode: Image.PreserveAspectCrop
@@ -415,7 +425,7 @@ Item {
                     IconButton {
                         id: autoplayToggle
                         icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
-                        glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                        glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }

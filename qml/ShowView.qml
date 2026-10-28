@@ -261,7 +261,13 @@ Item {
                 readonly property string art: model.cover && model.cover !== ""
                                              ? model.cover
                                              : backend.openShowCover
+                readonly property real coverRadius: theme.rInner(18)
+                layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                layer.smooth: true
+                layer.effect: CoverClip { art: wellImage; radius: playWell.coverRadius }
+                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
                 Image {
+                    id: wellImage
                     anchors.fill: parent
                     source: playWell.art
                     fillMode: Image.PreserveAspectCrop

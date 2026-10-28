@@ -1,3 +1,8 @@
+#include <QElapsedTimer>
+#include <QDir>
+#include "covercache.h"
+#include <QPainter>
+#include <QLinearGradient>
 #include "covercache.h"
 #include "explore.h"
 #include "feed.h"
@@ -479,6 +484,45 @@ int runSelfTest(int argc, char **argv)
             check(!want.isEmpty() && QSet<QString>(got.begin(), got.end()) == QSet<QString>(want.begin(), want.end()),
                   "opml round trip (library copy)");
             fprintf(stderr, "opml library copy: %lld shows, %lld round-tripped\n", (long long)want.size(), (long long)got.size());
+        }
+    }
+
+    {
+        // Pre-rounded artwork detection.
+        auto art = [](bool rounded, QColor bg, bool border) {
+            QImage img(200, 200, QImage::Format_ARGB32_Premultiplied);
+            img.fill(bg);
+            QPainter p(&img);
+            p.setRenderHint(QPainter::Antialiasing);
+            QLinearGradient grad(0, 0, 200, 200);
+            grad.setColorAt(0, QColor(30, 90, 200)); grad.setColorAt(1, QColor(200, 40, 90));
+            const QRectF r = border ? QRectF(30, 30, 140, 140) : QRectF(0, 0, 200, 200);
+            if (rounded) p.setBrush(grad), p.setPen(Qt::NoPen), p.drawRoundedRect(r, 20, 20);
+            else p.fillRect(r, grad);
+            return img;
+        };
+        check(hasFlatRoundedCorners(art(true, Qt::white, false)), "corners: rounded on white");
+        check(hasFlatRoundedCorners(art(true, Qt::black, false)), "corners: rounded on black");
+        check(hasFlatRoundedCorners(art(true, Qt::transparent, false)), "corners: rounded on transparent");
+        check(!hasFlatRoundedCorners(art(false, Qt::white, false)), "corners: square art");
+        check(!hasFlatRoundedCorners(art(false, Qt::white, true)), "corners: white border");
+        check(!hasFlatRoundedCorners(art(true, Qt::white, true)), "corners: small rounded inset");
+        QImage flat(200, 200, QImage::Format_ARGB32_Premultiplied); flat.fill(Qt::gray);
+        check(!hasFlatRoundedCorners(flat), "corners: flat colour");
+        check(!hasFlatRoundedCorners(QImage()), "corners: null image");
+        // Optional: report which covers in a directory are flagged (a copy, never live).
+        const QString coverDir = qEnvironmentVariable("OMAEAR_SELFTEST_COVERS");
+        if (!coverDir.isEmpty()) {
+            QElapsedTimer t; t.start();
+            int n = 0, hits = 0;
+            for (const QFileInfo &fi : QDir(coverDir).entryInfoList(QDir::Files)) {
+                const QImage img(fi.absoluteFilePath());
+                if (img.isNull()) continue;
+                ++n;
+                const QImage conv = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                if (hasFlatRoundedCorners(conv)) { ++hits; fprintf(stderr, "pre-rounded: %s\n", qPrintable(fi.fileName())); }
+            }
+            fprintf(stderr, "covers: %d scanned, %d pre-rounded, %.2f ms total (decode + check)\n", n, hits, t.nsecsElapsed() / 1e6);
         }
     }
 
