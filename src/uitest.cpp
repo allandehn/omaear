@@ -126,7 +126,8 @@ void startUiTest(QQmlApplicationEngine &engine)
     t->win->resize(1400, 900);
     QPointF row;
     // OMAEAR_UI_TEST_SHOTS=<dir>: grab the dialogs, the player bar (autoplay on
-    // and off), the shelf, Now Playing and the episode page into <dir> for design review. Pair it with
+    // and off), the shelf (gallery and list), Now Playing, the episode,
+    // queue, show, Explore and Search pages into <dir> for design review. Pair it with
     // OMAEAR_ROUNDING=<R> to pin the corner radius.
     const QString shots = qEnvironmentVariable("OMAEAR_UI_TEST_SHOTS");
     if (!shots.isEmpty()) {
@@ -138,6 +139,11 @@ void startUiTest(QQmlApplicationEngine &engine)
         };
         t->steps = {
             {2500, [grab]() { grab("shelf"); }},
+            {200, [t]() { t->eval("backend.setShelfView('grid')"); }},
+            {900, [grab]() { grab("shelf-gallery"); }},
+            {200, [t]() { t->eval("backend.setShelfView('list')"); }},
+            {1200, [grab]() { grab("shelf-list"); }},
+            {200, [t]() { t->eval("backend.setShelfView('grid')"); }},
             {200, [t]() { t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), backend.shows.titleAt ? backend.shows.titleAt(0) : 'this podcast')"); }},
             {700, [grab]() { grab("unsubscribe"); }},
             {200, [t]() { t->eval("win.closeModals(); win.confirmUnsubscribeAll()"); }},
@@ -159,6 +165,14 @@ void startUiTest(QQmlApplicationEngine &engine)
             {1200, [grab]() { grab("now-playing"); }},
             {200, [t]() { t->eval("win.openEpisodePage(backend.playerEpisodeId)"); }},
             {1200, [grab]() { grab("episode"); }},
+            {200, [t]() { t->eval("win.openQueuePage()"); }},
+            {1200, [t, grab]() { t->expect(t->eval("pageKind").toString() == "queue", "queue page opened"); grab("queue"); }},
+            {200, [t]() { t->eval("win.openShowPage(backend.shows.showIdAt(0))"); }},
+            {1500, [grab]() { grab("show"); }},
+            {200, [t]() { t->eval("win.openExplorePage()"); }},
+            {1500, [grab]() { grab("explore"); }},
+            {200, [t]() { t->eval("win.openSearchPage()"); }},
+            {1200, [grab]() { grab("search"); }},
         };
         t->run(0);
         return;
