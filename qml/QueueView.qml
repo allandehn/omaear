@@ -218,7 +218,7 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 visible: page.kbdRing && row.index === page.kbdIndex
-                radius: 4
+                radius: theme.rButton
                 color: "transparent"
                 border.width: 1
                 border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)

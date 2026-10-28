@@ -540,14 +540,14 @@ Rectangle {
                         Rectangle {
                             width: parent.width
                             height: parent.height
-                            radius: 3
+                            radius: theme.rButton
                             color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.18)
                         }
                         Rectangle {
                             anchors.bottom: parent.bottom
                             width: parent.width
                             height: parent.height * volumeSlider.position
-                            radius: 3
+                            radius: theme.rButton
                             color: theme.accent
                         }
                     }

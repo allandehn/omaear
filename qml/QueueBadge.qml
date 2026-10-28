@@ -10,7 +10,7 @@ Rectangle {
     visible: slot > 0
     width: Math.round(18 * theme.textScale)
     height: width
-    radius: 5
+    radius: theme.rButton
     color: Qt.rgba(0, 0, 0, 0.62)
     border.width: 1
     border.color: Qt.rgba(1, 1, 1, 0.18)

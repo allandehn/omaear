@@ -164,7 +164,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: body.coverSide
                     height: width
-                    radius: 12
+                    radius: theme.rCard
                     color: theme.selection
                     clip: true
 
@@ -217,7 +217,7 @@ Item {
                     id: compactArt
                     width: 56 * theme.textScale
                     height: width
-                    radius: 8
+                    radius: theme.rCard
                     color: theme.selection
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter

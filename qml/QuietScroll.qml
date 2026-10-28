@@ -111,7 +111,7 @@ Item {
         x: parent.width - width - 2
         y: bar.thumbY
         height: Math.max(0, bar.thumbLen)
-        radius: 3
+        radius: theme.rButton
         width: (grab.containsMouse || grab.pressed) ? 8 : 6
         color: (grab.pressed || grab.containsMouse) ? theme.foreground : theme.muted
         // Hidden at rest; appears instantly on scroll or hover, fades out after.
