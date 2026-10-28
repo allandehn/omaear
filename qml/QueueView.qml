@@ -309,7 +309,7 @@ Item {
                     anchors.fill: parent
                     icon.name: row.playing ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
                     icon.width: Math.max(16 * theme.textScale, page.cover * 0.375)
-                    icon.height: icon.width
+                    icon.height: Math.max(16 * theme.textScale, page.cover * 0.375)
                     glyph: theme.foreground
                     tip: row.playing ? "Pause" : "Play"
                     background: Item {}

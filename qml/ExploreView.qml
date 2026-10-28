@@ -541,6 +541,7 @@ Item {
             color: theme.background
             border.color: theme.selection
             border.width: 1
+            radius: theme.rCard
 
             MouseArea {
                 anchors.fill: parent
