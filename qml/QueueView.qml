@@ -104,7 +104,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: page.dismissRequested()
         }
@@ -119,20 +119,20 @@ Item {
             IconButton {
                 // Autoplay icon B: accent when on, foreground when off (the SVG dims its own triangle).
                 icon.width: 24 * theme.textScale
-                icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                icon.source: backend.queueAutoplay ? theme.iconBase + "autoplay-b-on-symbolic.svg" : theme.iconBase + "autoplay-b-off-symbolic.svg"
                 glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                 tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                 onClicked: backend.toggleQueueAutoplay()
             }
             IconButton {
                 visible: backend.queueCount > 0
-                icon.source: "qrc:/icons/queue-clear-symbolic.svg"
+                icon.source: theme.iconBase + "queue-clear-symbolic.svg"
                 glyph: theme.dim
                 tip: "Clear queue"
                 onClicked: page.clearRequested()
             }
             IconButton {
-                icon.source: "qrc:/icons/info-symbolic.svg"
+                icon.source: theme.iconBase + "info-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: "Info"
                 onClicked: win.helpOpen = true
@@ -278,11 +278,11 @@ Item {
                 width: page.cover
                 height: page.cover
                 z: 2
-                readonly property real coverRadius: theme.rInner(8)
+                readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: artImage; radius: art.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
                 Image {
                     id: artImage
                     anchors.fill: parent

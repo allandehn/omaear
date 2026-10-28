@@ -143,7 +143,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: win.back()
         }
@@ -171,12 +171,12 @@ Item {
                 onClicked: backend.refreshOpenShow(reloadArtwork)
             }
             IconButton {
-                icon.source: "qrc:/icons/queue-symbolic.svg"
+                icon.source: theme.iconBase + "queue-symbolic.svg"
                 tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
                 onClicked: page.queueRequested()
             }
             IconButton {
-                icon.source: "qrc:/icons/info-symbolic.svg"
+                icon.source: theme.iconBase + "info-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: "Info"
                 onClicked: win.helpOpen = true
@@ -261,11 +261,11 @@ Item {
                 readonly property string art: model.cover && model.cover !== ""
                                              ? model.cover
                                              : backend.openShowCover
-                readonly property real coverRadius: theme.rInner(18)
+                readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: wellImage; radius: playWell.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
                 Image {
                     id: wellImage
                     anchors.fill: parent

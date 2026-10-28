@@ -107,7 +107,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: page.dismissRequested()
         }
@@ -178,7 +178,7 @@ Item {
             anchors.right: helpButton.visible ? helpButton.left : parent.right
             anchors.rightMargin: helpButton.visible ? 2 : 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/globe-symbolic.svg"
+            icon.source: theme.iconBase + "globe-symbolic.svg"
             tip: searchField.text.trim().length > 0 ? "Search podcasts online for \u201C" + searchField.text.trim() + "\u201D"
                                                     : "Find new podcasts"
             onClicked: page.exploreRequested(searchField.text.trim())
@@ -190,7 +190,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/info-symbolic.svg"
+            icon.source: theme.iconBase + "info-symbolic.svg"
             dot: backend.updatePhase === "available"
             tip: "Info"
             onClicked: win.helpOpen = true
@@ -353,11 +353,11 @@ Item {
                 width: page.cover
                 height: page.cover
                 z: 2
-                readonly property real coverRadius: theme.rInner(20)
+                readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: artImage; radius: art.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
                 Image {
                     id: artImage
                     anchors.fill: parent

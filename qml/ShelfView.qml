@@ -259,14 +259,14 @@ Item {
             }
             IconButton {
                 visible: actions.hasShows
-                icon.source: "qrc:/icons/queue-symbolic.svg"
+                icon.source: theme.iconBase + "queue-symbolic.svg"
                 tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
                 onClicked: shelf.queueRequested()
             }
             // Everything else lives in the ⋯ menu (also the only button on an empty shelf).
             IconButton {
                 id: moreButton
-                icon.source: "qrc:/icons/more-symbolic.svg"
+                icon.source: theme.iconBase + "more-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: dot ? "More (update available)" : "More"
                 // Pressing ⋯ again closes the menu instead of reopening it.
@@ -353,7 +353,7 @@ Item {
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
                     layer.effect: CoverClip { art: tileImage; radius: cover.coverRadius }
-                    Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                    Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                     Image {
                         id: tileImage
@@ -517,11 +517,11 @@ Item {
                 width: shelf.listCover
                 height: width
                 clip: true
-                readonly property real coverRadius: theme.rInner(8)
+                readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
                 layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
-                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                 Image {
                     id: rowCover

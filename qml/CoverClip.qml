@@ -5,7 +5,7 @@ import QtQuick.Effects
 // cover's container so the art, its placeholder and any hover tint are clipped
 // together:
 //
-//     readonly property real coverRadius: theme.rCard   // or theme.rInner(padding)
+//     readonly property real coverRadius: theme.rCard   // rButton for row thumbs, rInner(p) when snug in a rounded container
 //     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
 //     layer.effect: CoverClip { art: theImage; radius: container.coverRadius }
 //
