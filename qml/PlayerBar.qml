@@ -387,8 +387,12 @@ Rectangle {
                     // Full title on hover when it's cut off.
                     HoverHandler { id: titleHover }
                     AppTip {
+                        id: titleTip
                         text: backend.playerTitle
-                        visible: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
+                        // Drive open/close imperatively: binding a Popup's visible
+                        // loops when the popup changes visible itself on close.
+                        readonly property bool wanted: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
+                        onWantedChanged: wanted ? open() : close()
                     }
                 }
             }
