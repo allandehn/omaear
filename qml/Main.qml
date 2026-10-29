@@ -76,7 +76,7 @@ ApplicationWindow {
     onYChanged: trackNormalGeometry()
     onWidthChanged: trackNormalGeometry()
     onHeightChanged: trackNormalGeometry()
-    onVisibilityChanged: {
+    onVisibilityChanged: function(visibility) {
         if (visibility === Window.Maximized || visibility === Window.FullScreen)
             wasMaximized = true
         else if (visibility === Window.Windowed)
@@ -459,7 +459,7 @@ ApplicationWindow {
         onActivated: back()
     }
     Shortcut {
-        sequence: StandardKey.Find
+        sequences: [StandardKey.Find]
         context: Qt.ApplicationShortcut
         enabled: !modalOpen
         onActivated: {
@@ -881,7 +881,7 @@ ApplicationWindow {
         }
     }
     Shortcut {
-        sequence: StandardKey.ZoomOut
+        sequences: [StandardKey.ZoomOut]
         context: Qt.ApplicationShortcut
         enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
         onActivated: {

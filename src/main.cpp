@@ -4,6 +4,7 @@
 #include "search.h"
 #include <cstdio>
 #include "covercache.h"
+#include "iconprovider.h"
 #include "explore.h"
 #include "netaccess.h"
 #include "player.h"
@@ -244,6 +245,7 @@ int main(int argc, char **argv)
     QQmlApplicationEngine engine;
     engine.setNetworkAccessManagerFactory(new AppNetworkAccessManagerFactory);
     engine.addImageProvider(QStringLiteral("covers"), new CoverImageProvider);
+    engine.addImageProvider(QStringLiteral("icons"), new IconProvider);
     engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("theme"), &theme);
     engine.rootContext()->setContextProperty(QStringLiteral("coverCache"), &coverCache);
