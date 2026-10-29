@@ -125,6 +125,8 @@ public:
     // Queue autoplay: when off the queue is a pinned list and never drives playback.
     bool queueAutoplay() const;
     void setQueueAutoplay(bool on);
+    bool motionTryout() const;
+    void setMotionTryout(bool on);
     void setMono(bool on);
     double volumeBeforeMute() const;
     void setVolumeBeforeMute(double volume);

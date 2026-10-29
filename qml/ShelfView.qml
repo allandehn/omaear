@@ -335,10 +335,51 @@ Item {
         model: backend.shows
         cacheBuffer: Math.max(0, height)
 
+        // Motion try-out: one keyboard ring that glides between covers (~120 ms, eased
+        // both ends). A Behavior retargets from wherever it is, so fast presses never queue.
+        Rectangle {
+            id: glideRing
+            parent: grid.contentItem
+            z: 2
+            readonly property int col: shelf.kbdIndex % Math.max(1, shelf.columns)
+            readonly property int row: Math.floor(shelf.kbdIndex / Math.max(1, shelf.columns))
+            visible: backend.motionTryout && shelf.kbdRing && grid.count > 0
+            x: col * grid.cellWidth + (grid.cellWidth - shelf.coverSize) / 2 - 4
+            y: row * grid.cellHeight - 4
+            width: shelf.coverSize + 8
+            height: shelf.coverSize + 8
+            radius: theme.rButton
+            color: "transparent"
+            border.width: 2
+            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+            scale: win.keyRepeating ? 1 : 1.03 // hugs the lifted cover
+            Behavior on x { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+            Behavior on y { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+        }
+
         delegate: Item {
+            id: tileItem
             readonly property string navTitle: model.title
             width: grid.cellWidth
             height: grid.cellHeight
+            // Motion try-out: only the ringed or hovered cover lifts (transform + opacity only).
+            readonly property bool lifted: backend.motionTryout && !win.keyRepeating
+                && ((shelf.kbdRing && index === shelf.kbdIndex) || tileMouse.containsMouse)
+            z: lifted ? 1 : 0
+
+            // Pre-baked soft shadow (static PNG); only its opacity and scale animate.
+            BorderImage {
+                visible: backend.motionTryout
+                x: (parent.width - shelf.coverSize) / 2 - 24
+                y: -24
+                width: shelf.coverSize + 48
+                height: shelf.coverSize + 48
+                source: "qrc:/cover-shadow.png"
+                border { left: 32; right: 32; top: 32; bottom: 32 }
+                opacity: tileItem.lifted ? 1 : 0
+                scale: cover.scale
+                Behavior on opacity { enabled: backend.motionTryout; NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+            }
 
             Column {
                 width: shelf.coverSize
@@ -349,6 +390,8 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    scale: tileItem.lifted ? 1.03 : 1
+                    Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
@@ -429,6 +472,7 @@ Item {
             }
 
             MouseArea {
+                id: tileMouse
                 anchors.fill: parent
                 // enabled: !backend.busy
                 enabled: true
@@ -454,7 +498,7 @@ Item {
             }
             // Keyboard ring: a quiet theme-foreground outline around the cover.
             Rectangle {
-                visible: shelf.kbdRing && index === shelf.kbdIndex
+                visible: !backend.motionTryout && shelf.kbdRing && index === shelf.kbdIndex
                 x: (parent.width - shelf.coverSize) / 2 - 4
                 y: -4
                 width: shelf.coverSize + 8
@@ -735,6 +779,10 @@ Item {
             text: "Export OPML…"
             enabled: backend.showCount > 0
             onChosen: shelf.exportRequested()
+        }
+        AppMenuItem {
+            text: backend.motionTryout ? "Motion try-out: on" : "Motion try-out: off"
+            onChosen: backend.toggleMotionTryout()
         }
         AppMenuSeparator {}
         AppMenuItem {

@@ -750,6 +750,16 @@ void Library::setQueueAutoplay(bool on)
     setSetting(QStringLiteral("queue.autoplay"), on ? QStringLiteral("1") : QStringLiteral("0"));
 }
 
+bool Library::motionTryout() const
+{
+    return setting(QStringLiteral("ui.motionTryout"), QStringLiteral("1")) == QStringLiteral("1");
+}
+
+void Library::setMotionTryout(bool on)
+{
+    setSetting(QStringLiteral("ui.motionTryout"), on ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
 bool Library::mono() const
 {
     return setting(QStringLiteral("playback.mono"), QStringLiteral("0")) == QStringLiteral("1");

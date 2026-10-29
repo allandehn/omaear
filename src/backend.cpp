@@ -1227,6 +1227,12 @@ void Backend::toggleQueueAutoplay()
     emit queueChanged();
 }
 
+void Backend::toggleMotionTryout()
+{
+    m_library.setMotionTryout(!m_library.motionTryout());
+    emit motionTryoutChanged();
+}
+
 void Backend::toggleMono()
 {
     m_playerMono = !m_playerMono;

@@ -650,6 +650,8 @@ ApplicationWindow {
         if (dir < 0 ? bi > 0 : bi < area.items.length - 1) navSetBar(area.name, bi + dir)
         else navRun(dir)
     }
+    // Motion try-out: true while a held key is auto-repeating (covers skip the lift).
+    property bool keyRepeating: false
     function shelfKey(event) {
         if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
         navSwitchPage()
@@ -918,7 +920,9 @@ ApplicationWindow {
             clip: true
             focus: true
             // Shelf keyboard navigation; other pages ignore these keys here.
-            Keys.onPressed: function(event) { win.shelfKey(event) }
+            Keys.onPressed: function(event) { win.keyRepeating = event.isAutoRepeat; win.shelfKey(event) }
+            // Motion try-out: no cover lift while a key auto-repeats; back on release.
+            Keys.onReleased: function(event) { if (!event.isAutoRepeat) win.keyRepeating = false }
 
             ShelfView {
                 id: shelfView

@@ -189,6 +189,35 @@ void startUiTest(QQmlApplicationEngine &engine)
         t->run(0);
         return;
     }
+    // OMAEAR_UI_TEST_MOTION=<dir>: frame strips of the motion try-out (keyboard ring
+    // gliding one cover right, then a cover lifting on hover). Pair with OMAEAR_ROUNDING.
+    const QString motion = qEnvironmentVariable("OMAEAR_UI_TEST_MOTION");
+    if (!motion.isEmpty()) {
+        QDir().mkpath(motion);
+        const QString r = QStringLiteral("-r") + QString::number(t->eval("theme.rounding").toInt());
+        auto grab = [t, motion, r](const QString &name) {
+            const QString path = motion + QLatin1Char('/') + name + r + QStringLiteral(".png");
+            t->expect(t->win->grabWindow().save(path), qPrintable(name));
+        };
+        t->steps = {
+            {2500, [t]() { t->eval("if (!backend.motionTryout) backend.toggleMotionTryout(); backend.setShelfView('grid');"
+                                   " shelfView.kbdRing = true; shelfView.kbdIndex = 0"); }},
+            {900, [grab]() { grab(QStringLiteral("ring-0ms")); }},
+            {0, [t]() { t->eval("shelfView.kbdIndex = 1"); }},
+            {40, [grab]() { grab(QStringLiteral("ring-40ms")); }},
+            {40, [grab]() { grab(QStringLiteral("ring-80ms")); }},
+            {80, [grab]() { grab(QStringLiteral("ring-160ms")); }},
+            {200, [t]() { t->eval("shelfView.kbdRing = false"); t->hover(t->centerOf("shelfView.coverItemAt(2)")); }},
+            {40, [grab]() { grab(QStringLiteral("lift-40ms")); }},
+            {40, [grab]() { grab(QStringLiteral("lift-80ms")); }},
+            {120, [grab]() { grab(QStringLiteral("lift-200ms")); }},
+            {0, [t]() { t->hover(QPointF(2, 2)); }},
+            {50, [grab]() { grab(QStringLiteral("settle-50ms")); }},
+            {150, [grab]() { grab(QStringLiteral("settle-200ms")); }},
+        };
+        t->run(0);
+        return;
+    }
     const QString shot = qEnvironmentVariable("OMAEAR_UI_TEST_SHOT");
     if (!shot.isEmpty()) {
         t->steps = {
