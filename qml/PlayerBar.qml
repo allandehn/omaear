@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 
 Rectangle {
     id: bar
@@ -183,6 +184,12 @@ Rectangle {
                 source: backend.playerArt
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                // Decode at display size (64px buckets x devicePixelRatio), never
+                // the full 3000px original (~36 MB). Buckets: textScale steps don't re-decode.
+                readonly property int decodeSide: Math.max(64, Math.ceil(barArt.width * Screen.devicePixelRatio / 64) * 64)
+                sourceSize.width: decodeSide
+                sourceSize.height: decodeSide
+                smooth: true
                 visible: backend.playerArt !== ""
             }
             Rectangle {
