@@ -35,6 +35,9 @@ Item {
     // Ring on the podcast at kbdIndex while Main says the grid area is active.
     property bool kbdRing: false
     property int kbdIndex: 0
+    // Mouse hover drives the same ring + lift as the keyboard (and moves kbdIndex there).
+    property int hoverIndex: -1
+    readonly property bool ringShown: kbdRing || hoverIndex >= 0
     property double kbdShowId: 0
     readonly property int navCount: grid.count
     // Gallery moves by row of `columns`; the list is one column.
@@ -219,7 +222,10 @@ Item {
             readonly property bool hasShows: backend.showCount > 0
             IconButton {
                 visible: actions.hasShows
-                icon.name: backend.shelfShowAll ? "view-reveal-symbolic" : "view-conceal-symbolic"
+                // Same glyph both states: dim = showing all, accent + dot = unplayed only.
+                icon.source: theme.iconBase + "filter-symbolic.svg"
+                glyph: backend.shelfShowAll ? theme.dim : theme.accent
+                dot: !backend.shelfShowAll
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.shelfShowAll ? "Show unplayed only" : "Show all"
                 // enabled: !backend.busy
@@ -232,10 +238,12 @@ Item {
                 icon.name: "view-refresh-symbolic"
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.lastRefreshLabel.length
-                     ? ("Refresh — " + backend.lastRefreshLabel + "  ·  Ctrl+click reloads artwork")
-                     : "Refresh  ·  Ctrl+click reloads artwork"
+                     ? ("Refresh feeds — " + backend.lastRefreshLabel + "  ·  Ctrl+click reloads artwork")
+                     : "Refresh feeds  ·  Ctrl+click reloads artwork"
                 // enabled: !backend.busy
                 enabled: true
+                // Motion try-out off: dim while refreshing instead of spinning.
+                glyph: backend.busy && !backend.motionTryout ? theme.dim : theme.foreground
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
@@ -250,20 +258,21 @@ Item {
                     to: 360
                     duration: 900
                     loops: Animation.Infinite
-                    running: backend.busy && refreshButton.visible
+                    running: backend.busy && backend.motionTryout && refreshButton.visible
                     onRunningChanged: {
                         if (!running && refreshButton.contentItem)
                             refreshButton.contentItem.rotation = 0
                     }
                 }
             }
+            // Add a podcast: opens Find new podcasts (search, or paste a feed URL there).
             IconButton {
-                visible: actions.hasShows
-                icon.source: theme.iconBase + "queue-symbolic.svg"
-                tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
-                onClicked: shelf.queueRequested()
+                icon.source: theme.iconBase + "add-symbolic.svg"
+                tip: "Add a podcast"
+                onClicked: shelf.exploreRequested()
             }
-            // Everything else lives in the ⋯ menu (also the only button on an empty shelf).
+            Item { width: 4; height: 1 } // 8 px before ⋯ (row spacing is 4)
+            // Everything else lives in the ⋯ menu.
             IconButton {
                 id: moreButton
                 icon.source: theme.iconBase + "more-symbolic.svg"
@@ -288,7 +297,7 @@ Item {
             color: theme.dim
             font.pixelSize: theme.body
             text: backend.shelfShowAll
-                  ? "Add a feed to start. An OPML export from another podcast app brings the shows with it."
+                  ? "Press + to add a podcast. An OPML export from another podcast app brings the shows with it."
                   : "No shows with unplayed episodes."
         }
         Text {
@@ -343,7 +352,7 @@ Item {
             z: 2
             readonly property int col: shelf.kbdIndex % Math.max(1, shelf.columns)
             readonly property int row: Math.floor(shelf.kbdIndex / Math.max(1, shelf.columns))
-            visible: backend.motionTryout && shelf.kbdRing && grid.count > 0
+            visible: backend.motionTryout && shelf.ringShown && grid.count > 0
             x: col * grid.cellWidth + (grid.cellWidth - shelf.coverSize) / 2 - 4
             y: row * grid.cellHeight - 4
             width: shelf.coverSize + 8
@@ -364,7 +373,7 @@ Item {
             height: grid.cellHeight
             // Motion try-out: only the ringed or hovered cover lifts (transform + opacity only).
             readonly property bool lifted: backend.motionTryout && !win.keyRepeating
-                && ((shelf.kbdRing && index === shelf.kbdIndex) || tileMouse.containsMouse)
+                && shelf.ringShown && index === shelf.kbdIndex
             z: lifted ? 1 : 0
 
             // Pre-baked soft shadow (static PNG); only its opacity and scale animate.
@@ -489,16 +498,20 @@ Item {
                     }
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
-                Rectangle {
-                    x: cover.x; y: cover.y; width: cover.width; height: cover.height
-                    z: -1
-                    color: theme.selection
-                    opacity: parent.containsMouse ? 0.28 : 0
+                // Hover = key focus: same ring and lift, no shading on the art.
+                onContainsMouseChanged: {
+                    if (containsMouse) {
+                        shelf.kbdIndex = index
+                        shelf.kbdShowId = model.showId
+                        shelf.hoverIndex = index
+                    } else if (shelf.hoverIndex === index) {
+                        shelf.hoverIndex = -1
+                    }
                 }
             }
             // Keyboard ring: a quiet theme-foreground outline around the cover.
             Rectangle {
-                visible: !backend.motionTryout && shelf.kbdRing && index === shelf.kbdIndex
+                visible: !backend.motionTryout && shelf.ringShown && index === shelf.kbdIndex
                 x: (parent.width - shelf.coverSize) / 2 - 4
                 y: -4
                 width: shelf.coverSize + 8
@@ -721,12 +734,7 @@ Item {
             visible: shelf.coverMenuShow === 0
             height: visible ? implicitHeight : 0
         }
-        AppMenuItem {
-            text: "Add feed…"
-            visible: shelf.coverMenuShow === 0
-            height: visible ? implicitHeight : 0
-            onChosen: shelf.addRequested()
-        }
+        // Add feed… hidden for now: paste a feed URL on Find new podcasts instead.
         AppMenuItem {
             text: "Import OPML…"
             visible: shelf.coverMenuShow === 0
@@ -763,14 +771,12 @@ Item {
             onChosen: shelf.searchRequested()
         }
         AppMenuItem {
-            text: "Find new podcasts…"
-            onChosen: shelf.exploreRequested()
+            text: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
+            enabled: backend.showCount > 0
+            onChosen: shelf.queueRequested()
         }
         AppMenuSeparator {}
-        AppMenuItem {
-            text: "Add feed…"
-            onChosen: shelf.addRequested()
-        }
+        // Find new podcasts and Add feed moved to the + button (Add feed: paste a URL there).
         AppMenuItem {
             text: "Import OPML…"
             onChosen: shelf.importRequested()

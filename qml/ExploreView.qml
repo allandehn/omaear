@@ -136,6 +136,7 @@ Item {
             leftPadding: 10
             // Room inside the box for the loading spinner and the clear button.
             rightPadding: 10 + clearButton.width + (spinner.visible ? spinner.width + 4 : 0)
+                          + (actionHint.visible ? actionHint.implicitWidth + 8 : 0)
             verticalAlignment: TextInput.AlignVCenter
             Material.accent: theme.accent
 
@@ -173,7 +174,7 @@ Item {
                 x: searchField.leftPadding
                 anchors.verticalCenter: parent.verticalCenter
                 visible: searchField.length === 0 && searchField.preeditText.length === 0
-                text: "Search podcasts"
+                text: "Search podcasts or paste a feed URL"
                 color: theme.dim
                 font: searchField.font
             }
@@ -206,7 +207,28 @@ Item {
                     win.navFromField(k)
                 }
             }
-            onAccepted: explore.searchNow()
+            // A pasted feed URL subscribes directly (same path as the old Add feed dialog).
+            readonly property bool looksLikeUrl: /^(https?|feed):\/\/\S+$/i.test(text.trim())
+            onAccepted: {
+                if (looksLikeUrl) {
+                    backend.addFeed(text.trim())
+                    clear()
+                    explore.setQuery("")
+                } else {
+                    explore.searchNow()
+                }
+            }
+            Text {
+                id: actionHint
+                // Action hint: what Enter does.
+                anchors.right: spinner.visible ? spinner.left : clearButton.left
+                anchors.rightMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                visible: searchField.length > 0
+                text: searchField.looksLikeUrl ? "↵ Add feed" : "↵ Search"
+                color: theme.dim
+                font.pixelSize: theme.caption
+            }
         }
 
         IconButton {

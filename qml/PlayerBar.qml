@@ -392,14 +392,23 @@ Rectangle {
                     onActivated: win.openEpisodePage(backend.playerEpisodeId)
 
                     // Full title on hover when it's cut off.
-                    HoverHandler { id: titleHover }
+                    HoverHandler {
+                        id: titleHover
+                        onHoveredChanged: Qt.callLater(titleTip.sync)
+                    }
                     AppTip {
                         id: titleTip
                         text: backend.playerTitle
-                        // Drive open/close imperatively: binding a Popup's visible
-                        // loops when the popup changes visible itself on close.
-                        readonly property bool wanted: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
-                        onWantedChanged: wanted ? open() : close()
+                        // Open/close imperatively and deferred: opening the tip changes
+                        // hover/layout, and doing it inside a binding's change handler
+                        // re-enters that binding (the "wanted" loop). No binding reads
+                        // the tip's own state.
+                        readonly property bool elided: titleText.implicitWidth > titleText.width + 1
+                        onElidedChanged: Qt.callLater(sync)
+                        function sync() {
+                            if (titleHover.hovered && elided) { if (!opened) open() }
+                            else if (visible) close()
+                        }
                     }
                 }
             }

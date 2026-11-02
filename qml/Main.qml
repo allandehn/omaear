@@ -1035,7 +1035,8 @@ ApplicationWindow {
         PlayerBar {
             id: playerBar
             Layout.fillWidth: true
-            visible: backend.playerEpisodeId !== 0
+            // Hidden on Now playing: that page has its own transport.
+            visible: backend.playerEpisodeId !== 0 && !win.nowPlayingOpen
             nowPlayingOpen: win.nowPlayingOpen
             onNowPlayingRequested: win.openNowPlayingPage()
             onNowPlayingCollapseRequested: win.collapseNowPlaying()
