@@ -36,6 +36,17 @@ Item {
     // Row under the mouse (-1: none). Hover moves kbdIndex there so keys continue from it.
     property int hoverIndex: -1
     property double kbdEpisodeId: 0
+    // Two virtual columns per row: 0 = cover (Enter plays), 1 = text (Enter opens details).
+    property int kbdCol: 1
+    Connections {
+        target: backend
+        function onOpenShowChanged() { page.kbdCol = 1 } // fresh entry: description column
+    }
+    // Left/Right switch columns inside the row (always consumed: never jumps rows).
+    function navSide(dir) {
+        kbdCol = dir < 0 ? 0 : 1
+        return true
+    }
     readonly property int navCount: list.count
     readonly property int navColumns: 1
     function syncNavIndex() {
@@ -51,7 +62,11 @@ Item {
         list.positionViewAtIndex(kbdIndex, ListView.Contain)
     }
     function openNavItem() {
-        if (navCount > 0)
+        if (navCount <= 0)
+            return
+        if (kbdCol === 0)
+            backend.playEpisode(list.model.episodeIdAt(kbdIndex))
+        else
             win.openEpisodePage(list.model.episodeIdAt(kbdIndex))
     }
 
@@ -164,7 +179,7 @@ Item {
             }
             IconButton {
                 icon.name: "view-refresh-symbolic"
-                tip: "Refresh  ·  Ctrl+click reloads artwork"
+                tip: "Refresh this show  ·  Ctrl+click reloads artwork"
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
@@ -172,16 +187,20 @@ Item {
                 }
                 onClicked: backend.refreshOpenShow(reloadArtwork)
             }
+            // Same set and order as the Shelf bar: eye, refresh, +, ⋯.
             IconButton {
-                icon.source: theme.iconBase + "queue-symbolic.svg"
-                tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
-                onClicked: page.queueRequested()
+                icon.source: theme.iconBase + "add-symbolic.svg"
+                tip: "Add a podcast"
+                onClicked: win.openExplorePage()
             }
+            Item { width: 4; height: 1 } // 8 px before ⋯ (row spacing is 4)
             IconButton {
-                icon.source: theme.iconBase + "info-symbolic.svg"
+                id: moreButton
+                icon.source: theme.iconBase + "more-symbolic.svg"
                 dot: backend.updatePhase === "available"
-                tip: "Info"
-                onClicked: win.helpOpen = true
+                tip: dot ? "More (update available)" : "More"
+                onClicked: showMenu.toggleAt(moreButton, moreButton.width - showMenu.implicitWidth,
+                                             moreButton.height, kbdFocus)
             }
         }
         Column {
@@ -231,8 +250,12 @@ Item {
             height: Math.max(page.listRowHeight, contentColumn.implicitHeight + 20 * theme.textScale)
             color: "transparent" // no hover shading: the cover lifts instead
             // Same lift as the shelf covers on hover or key focus (navigation animation only).
-            readonly property bool lifted: backend.motionTryout && !win.keyRepeating
-                && ((page.kbdRing && index === page.kbdIndex) || rowHover.hovered)
+            // Focus (keys or hover) sits on one part of the row; the ring wraps only that part.
+            readonly property bool focusedRow: (page.kbdRing || page.hoverIndex >= 0) && index === page.kbdIndex
+            readonly property bool coverFocus: focusedRow && page.kbdCol === 0
+            readonly property bool textFocus: focusedRow && page.kbdCol === 1
+            // Cover lifts only when the cover has focus (navigation animation on).
+            readonly property bool lifted: backend.motionTryout && !win.keyRepeating && coverFocus
             HoverHandler {
                 id: rowHover
                 onHoveredChanged: {
@@ -240,6 +263,8 @@ Item {
                         page.kbdIndex = index
                         page.kbdEpisodeId = model.episodeId
                         page.hoverIndex = index
+                        if (!coverHover.hovered)
+                            page.kbdCol = 1
                     } else if (page.hoverIndex === index) {
                         page.hoverIndex = -1
                     }
@@ -260,7 +285,9 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                visible: page.kbdRing && index === page.kbdIndex
+                // Text-part ring (static, also with navigation animation off).
+                visible: row.textFocus
+                anchors.leftMargin: playWell.x + playWell.width + 6
                 radius: theme.rButton
                 color: "transparent"
                 border.width: 1
@@ -323,7 +350,7 @@ Item {
                 }
                 Rectangle {
                     anchors.fill: parent
-                    color: Qt.rgba(0, 0, 0, playButton.hovered || playButton.down ? 0.45 : 0.28)
+                    color: Qt.rgba(0, 0, 0, row.coverFocus || playButton.down ? 0.45 : 0.28)
                     z: 1
                 }
                 IconButton {
@@ -340,7 +367,23 @@ Item {
                     glyph: theme.foreground
                     // Transparent chrome so episode art shows through under the glyph.
                     background: Item {}
+                    // Cover hover: the Play glyph lifts so it's clear a cover click plays.
+                    scale: row.coverFocus && backend.motionTryout && !win.keyRepeating ? 1.14 : 1
+                    Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                     onClicked: backend.playEpisode(model.episodeId)
+                }
+                HoverHandler {
+                    id: coverHover
+                    onHoveredChanged: {
+                        if (hovered) {
+                            page.kbdIndex = index
+                            page.kbdEpisodeId = model.episodeId
+                            page.hoverIndex = index
+                            page.kbdCol = 0
+                        } else if (rowHover.hovered) {
+                            page.kbdCol = 1
+                        }
+                    }
                 }
                 // Right-click on the art: the same episode menu as the row.
                 TapHandler {
@@ -355,6 +398,20 @@ Item {
                     // queueCount ties the lookup to queueChanged (add/remove/reorder).
                     slot: backend.queueCount >= 0 ? backend.queueSlot(model.episodeId) : 0
                 }
+            }
+
+            // Cover-part ring: follows the cover's lift.
+            Rectangle {
+                anchors.centerIn: playWell
+                width: playWell.width + 6
+                height: playWell.height + 6
+                scale: playWell.scale
+                visible: row.coverFocus
+                radius: theme.rButton + 2
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+                z: 5
             }
 
             Column {
@@ -443,4 +500,36 @@ Item {
 
 
     EpisodeMenu { id: episodeMenu }
+
+    // Episodes top bar overflow: show actions first, then the Shelf's general items.
+    AppMenu {
+        id: showMenu
+        AppMenuItem {
+            text: "Mark all as played"
+            enabled: backend.openShowUnheard > 0
+            onChosen: win.confirmMarkShow(backend.openShowId, backend.openShowTitle)
+        }
+        AppMenuItem {
+            text: "Unsubscribe"
+            onChosen: win.confirmUnsubscribe(backend.openShowId, backend.openShowTitle)
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Search episodes…"
+            onChosen: win.openSearchPage(backend.openShowId)
+        }
+        AppMenuItem {
+            text: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
+            onChosen: page.queueRequested()
+        }
+        AppMenuItem {
+            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            onChosen: backend.toggleMotionTryout()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: backend.updatePhase === "available" ? "Info  ·  update available" : "Info"
+            onChosen: win.helpOpen = true
+        }
+    }
 }

@@ -222,10 +222,8 @@ Item {
             readonly property bool hasShows: backend.showCount > 0
             IconButton {
                 visible: actions.hasShows
-                // Same glyph both states: foreground = showing all, accent + dot = unplayed only.
-                icon.source: theme.iconBase + "filter-symbolic.svg"
-                glyph: backend.shelfShowAll ? theme.foreground : theme.accent
-                dot: !backend.shelfShowAll
+                // Two states, both full foreground: open eye = showing all, struck eye = unplayed only.
+                icon.name: backend.shelfShowAll ? "view-reveal-symbolic" : "view-conceal-symbolic"
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.shelfShowAll ? "Show unplayed only" : "Show all"
                 // enabled: !backend.busy

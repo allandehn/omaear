@@ -297,8 +297,9 @@ ApplicationWindow {
     }
     function openQueuePage() { navigate(makeEntry("queue", 0, 0)) }
     function openExplorePage() { navigate(makeEntry("explore", 0, 0)) }
-    function openSearchPage() {
-        navigate(makeEntry("search", 0, 0))
+    // showId: search only that podcast (Episodes page ⋯); none = whole library.
+    function openSearchPage(showId) {
+        navigate(makeEntry("search", showId || 0, 0))
         searchPage.focusSearch()
     }
     // From library search: Explore with the same words already searched.
@@ -385,6 +386,8 @@ ApplicationWindow {
             if (backend.openEpisodeId !== entry.episodeId)
                 backend.openEpisode(entry.episodeId)
         }
+        if (entry.kind === "search")
+            librarySearch.setScope(entry.showId)
         // queue / nowPlaying cover the content and leave the backend as is.
         navGuard = false
         focusPage()
@@ -720,6 +723,9 @@ ApplicationWindow {
             else if (k === Qt.Key_Delete) { if (g.navDelete !== undefined) g.navDelete() }
             else if (k === Qt.Key_Home) g.setNavIndex(0)
             else if (k === Qt.Key_End) g.setNavIndex(count - 1)
+            // Rows with parts (Episodes: cover | text): Left/Right switch parts.
+            else if ((k === Qt.Key_Left || k === Qt.Key_Right) && g.navSide !== undefined
+                     && g.navSide(k === Qt.Key_Left ? -1 : 1)) {}
             else if (k === Qt.Key_Left) navMove(-1)
             else if (k === Qt.Key_Right) navMove(1)
             else if (k === Qt.Key_Up) { if (idx - cols >= 0) g.setNavIndex(idx - cols); else navStep(-1) }
