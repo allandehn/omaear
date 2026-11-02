@@ -222,9 +222,9 @@ Item {
             readonly property bool hasShows: backend.showCount > 0
             IconButton {
                 visible: actions.hasShows
-                // Same glyph both states: dim = showing all, accent + dot = unplayed only.
+                // Same glyph both states: foreground = showing all, accent + dot = unplayed only.
                 icon.source: theme.iconBase + "filter-symbolic.svg"
-                glyph: backend.shelfShowAll ? theme.dim : theme.accent
+                glyph: backend.shelfShowAll ? theme.foreground : theme.accent
                 dot: !backend.shelfShowAll
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.shelfShowAll ? "Show unplayed only" : "Show all"
@@ -242,7 +242,7 @@ Item {
                      : "Refresh feeds  ·  Ctrl+click reloads artwork"
                 // enabled: !backend.busy
                 enabled: true
-                // Motion try-out off: dim while refreshing instead of spinning.
+                // Navigation animation off: dim while refreshing instead of spinning.
                 glyph: backend.busy && !backend.motionTryout ? theme.dim : theme.foreground
                 property bool reloadArtwork: false
                 onPressedChanged: {
@@ -344,7 +344,7 @@ Item {
         model: backend.shows
         cacheBuffer: Math.max(0, height)
 
-        // Motion try-out: one keyboard ring that glides between covers (~120 ms, eased
+        // Navigation animation: one keyboard ring that glides between covers (~120 ms, eased
         // both ends). A Behavior retargets from wherever it is, so fast presses never queue.
         Rectangle {
             id: glideRing
@@ -371,7 +371,7 @@ Item {
             readonly property string navTitle: model.title
             width: grid.cellWidth
             height: grid.cellHeight
-            // Motion try-out: only the ringed or hovered cover lifts (transform + opacity only).
+            // Navigation animation: only the ringed or hovered cover lifts (transform + opacity only).
             readonly property bool lifted: backend.motionTryout && !win.keyRepeating
                 && shelf.ringShown && index === shelf.kbdIndex
             z: lifted ? 1 : 0
@@ -787,7 +787,7 @@ Item {
             onChosen: shelf.exportRequested()
         }
         AppMenuItem {
-            text: backend.motionTryout ? "Motion try-out: on" : "Motion try-out: off"
+            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
             onChosen: backend.toggleMotionTryout()
         }
         AppMenuSeparator {}

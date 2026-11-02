@@ -36,6 +36,7 @@
         <file alias="icons/add-symbolic.svg">qml/icons/add-symbolic.svg</file>
         <file alias="icons/queued-symbolic.svg">qml/icons/queued-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
+        <file alias="icons/stereo-symbolic.svg">qml/icons/stereo-symbolic.svg</file>
         <file alias="icons/back-symbolic.svg">qml/icons/back-symbolic.svg</file>
         <file alias="icons/info-symbolic.svg">qml/icons/info-symbolic.svg</file>
         <file alias="icons/autoplay-b-on-symbolic.svg">qml/icons/autoplay-b-on-symbolic.svg</file>

@@ -33,6 +33,8 @@ Item {
     // Episode list as a one-column grid; the ring follows the episode id.
     property bool kbdRing: false
     property int kbdIndex: 0
+    // Row under the mouse (-1: none). Hover moves kbdIndex there so keys continue from it.
+    property int hoverIndex: -1
     property double kbdEpisodeId: 0
     readonly property int navCount: list.count
     readonly property int navColumns: 1
@@ -227,7 +229,34 @@ Item {
             readonly property bool navPlayed: model.played
             width: list.width
             height: Math.max(page.listRowHeight, contentColumn.implicitHeight + 20 * theme.textScale)
-            color: hover.containsMouse ? theme.selection : "transparent"
+            color: "transparent" // no hover shading: the cover lifts instead
+            // Same lift as the shelf covers on hover or key focus (navigation animation only).
+            readonly property bool lifted: backend.motionTryout && !win.keyRepeating
+                && ((page.kbdRing && index === page.kbdIndex) || rowHover.hovered)
+            HoverHandler {
+                id: rowHover
+                onHoveredChanged: {
+                    if (hovered) {
+                        page.kbdIndex = index
+                        page.kbdEpisodeId = model.episodeId
+                        page.hoverIndex = index
+                    } else if (page.hoverIndex === index) {
+                        page.hoverIndex = -1
+                    }
+                }
+            }
+            // Pre-baked soft shadow under the lifted cover (opacity + scale only).
+            BorderImage {
+                anchors.centerIn: playWell
+                width: playWell.width + 48
+                height: playWell.height + 48
+                source: "qrc:/cover-shadow.png"
+                border { left: 32; right: 32; top: 32; bottom: 32 }
+                opacity: row.lifted ? 1 : 0
+                scale: playWell.scale
+                z: 1
+                Behavior on opacity { enabled: backend.motionTryout; NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -256,6 +285,8 @@ Item {
                 width: page.listCover
                 height: page.listCover
                 z: 2
+                scale: row.lifted ? 1.03 : 1
+                Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
 
                 // Episode art when the feed has it; otherwise the show cover.
                 readonly property string art: model.cover && model.cover !== ""

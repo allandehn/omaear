@@ -650,7 +650,7 @@ ApplicationWindow {
         if (dir < 0 ? bi > 0 : bi < area.items.length - 1) navSetBar(area.name, bi + dir)
         else navRun(dir)
     }
-    // Motion try-out: true while a held key is auto-repeating (covers skip the lift).
+    // Navigation animation: true while a held key is auto-repeating (covers skip the lift).
     property bool keyRepeating: false
     function shelfKey(event) {
         if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
@@ -693,6 +693,16 @@ ApplicationWindow {
                        Qt.Key_Return, Qt.Key_Enter, Qt.Key_Home, Qt.Key_End, Qt.Key_Delete]
         if (navKeys.indexOf(k) < 0) return
         event.accepted = true
+        // Mouse resting on a cover/row: that already shows where you are, so the
+        // first key moves from there instead of only revealing the ring.
+        if (!navShown) {
+            var hg = navFind(navAreas(), "grid")
+            if (hg && hg.grid.hoverIndex !== undefined && hg.grid.hoverIndex >= 0) {
+                navArea = "grid"
+                navShown = true
+                navRefreshRing()
+            }
+        }
         var area = navCurrent()
         if (!area) return
         // First key only reveals where you are (no surprise jump).
@@ -921,7 +931,7 @@ ApplicationWindow {
             focus: true
             // Shelf keyboard navigation; other pages ignore these keys here.
             Keys.onPressed: function(event) { win.keyRepeating = event.isAutoRepeat; win.shelfKey(event) }
-            // Motion try-out: no cover lift while a key auto-repeats; back on release.
+            // Navigation animation: no cover lift while a key auto-repeats; back on release.
             Keys.onReleased: function(event) { if (!event.isAutoRepeat) win.keyRepeating = false }
 
             ShelfView {

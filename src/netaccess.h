@@ -1,6 +1,10 @@
 #pragma once
 
+#include <QCoreApplication>
 #include <QNetworkAccessManager>
+#include <QNetworkDiskCache>
+#include <QStandardPaths>
+#include <QThread>
 #include <QNetworkRequest>
 #include <QQmlNetworkAccessManagerFactory>
 
@@ -41,6 +45,18 @@ class AppNetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory {
 public:
     QNetworkAccessManager *create(QObject *parent) override
     {
-        return new AppNetworkAccessManager(parent);
+        auto *nam = new AppNetworkAccessManager(parent);
+        // Remote Image loads (Explore covers) run on Qt Quick's image reader thread.
+        // Give that manager a small HTTP disk cache: Apple's artwork CDN sends
+        // ~6-month max-age, so repeat visits paint from disk instead of refetching.
+        // Only the reader thread gets it, so one cache instance owns the folder.
+        if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+            auto *cache = new QNetworkDiskCache(nam);
+            cache->setCacheDirectory(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                                     + QStringLiteral("/http"));
+            cache->setMaximumCacheSize(64LL * 1024 * 1024); // oldest entries go first
+            nam->setCache(cache);
+        }
+        return nam;
     }
 };

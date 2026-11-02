@@ -353,13 +353,14 @@ Rectangle {
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }
-                    // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
+                    // Mono/Stereo switch (shared with Now Playing).
                     IconButton {
                         id: monoButton
                         visible: !extras.dropMono
-                        icon.source: theme.iconBase + "mono-symbolic.svg"
-                        glyph: backend.playerMono ? theme.foreground : theme.muted
-                        tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
+                        // A Mono/Stereo switch, never "off": the icon shows the current mode.
+                        icon.source: theme.iconBase + (backend.playerMono ? "mono-symbolic.svg" : "stereo-symbolic.svg")
+                        tip: backend.playerMono ? "Mono (left and right mixed)  ·  click for stereo"
+                                                : "Stereo (left and right separate)  ·  click for mono"
                         onClicked: backend.toggleMono()
                     }
                     IconButton {

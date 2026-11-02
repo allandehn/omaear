@@ -410,7 +410,9 @@ Item {
                     Image {
                         id: art
                         anchors.fill: parent
-                        source: tile.model.cover
+                        // Tiles ask Apple's CDN for 400px art (about half the bytes of 600px;
+                        // still ≥ 2× the tile). The preview keeps the 600px URL.
+                        source: (tile.model.cover || "").replace("/600x600bb.", "/400x400bb.")
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
