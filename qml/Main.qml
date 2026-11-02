@@ -374,6 +374,7 @@ ApplicationWindow {
             pruneHistory(function(e) { return !entryValid(e) })
             return
         }
+        pointerActive = false // new view: a resting pointer doesn't count as hover
         navGuard = true
         if (entry.kind === "shelf") {
             backend.closeShow()
@@ -510,6 +511,10 @@ ApplicationWindow {
     property bool navShown: false
     property var navPainted: []
     property point navMouseAt: Qt.point(-1, -1)
+    // Hover may steer focus only after a REAL pointer move since the last key press
+    // or view change. A resting pointer over a freshly shown view (Hyprland sends
+    // hover-enter then) must not steal keyboard focus or show hover rings.
+    property bool pointerActive: false
     readonly property bool navActive: navShown && navPages.indexOf(pageKind) >= 0
                                       && !modalOpen && !helpOpen && !explorePage.regionOpen
 
@@ -706,6 +711,7 @@ ApplicationWindow {
                 navRefreshRing()
             }
         }
+        pointerActive = false // keys own focus until the pointer really moves
         var area = navCurrent()
         if (!area) return
         // First key only reveals where you are (no surprise jump).
@@ -921,8 +927,11 @@ ApplicationWindow {
         HoverHandler {
             onPointChanged: {
                 var p = point.scenePosition
-                if (win.navMouseAt.x >= 0 && (p.x !== win.navMouseAt.x || p.y !== win.navMouseAt.y))
+                // > 1.5px: synthetic re-hovers after a view change jitter by sub-pixels
+                if (win.navMouseAt.x >= 0 && Math.abs(p.x - win.navMouseAt.x) + Math.abs(p.y - win.navMouseAt.y) > 1.5) {
                     win.navShown = false
+                    win.pointerActive = true
+                }
                 win.navMouseAt = p
             }
         }

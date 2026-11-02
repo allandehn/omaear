@@ -36,7 +36,17 @@ Item {
     property bool kbdRing: false
     property int kbdIndex: 0
     // Mouse hover drives the same ring + lift as the keyboard (and moves kbdIndex there).
-    property int hoverIndex: -1
+    // Cover under the pointer (raw), and the effective hover: only after a real
+    // pointer move (win.pointerActive). Effective hover moves the key focus there.
+    property int hoverRaw: -1
+    property double hoverRawShowId: 0
+    readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
+    onHoverIndexChanged: {
+        if (hoverIndex >= 0) {
+            kbdIndex = hoverIndex
+            kbdShowId = hoverRawShowId
+        }
+    }
     readonly property bool ringShown: kbdRing || hoverIndex >= 0
     property double kbdShowId: 0
     readonly property int navCount: grid.count
@@ -499,11 +509,10 @@ Item {
                 // Hover = key focus: same ring and lift, no shading on the art.
                 onContainsMouseChanged: {
                     if (containsMouse) {
-                        shelf.kbdIndex = index
-                        shelf.kbdShowId = model.showId
-                        shelf.hoverIndex = index
-                    } else if (shelf.hoverIndex === index) {
-                        shelf.hoverIndex = -1
+                        shelf.hoverRawShowId = model.showId
+                        shelf.hoverRaw = index
+                    } else if (shelf.hoverRaw === index) {
+                        shelf.hoverRaw = -1
                     }
                 }
             }
@@ -554,7 +563,7 @@ Item {
                 radius: theme.rButton
                 id: rowHover
                 color: theme.selection
-                opacity: rowMouse.containsMouse ? 0.35 : 0
+                opacity: rowMouse.containsMouse && win.pointerActive ? 0.35 : 0
             }
             Rectangle {
                 anchors.fill: parent

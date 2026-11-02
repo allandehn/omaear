@@ -34,7 +34,20 @@ Item {
     property bool kbdRing: false
     property int kbdIndex: 0
     // Row under the mouse (-1: none). Hover moves kbdIndex there so keys continue from it.
-    property int hoverIndex: -1
+    // Raw pointer position (row, part); effective only after a real pointer move.
+    property int hoverRaw: -1
+    property int hoverRawCol: 1
+    property double hoverRawEpisodeId: 0
+    readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
+    function applyHover() {
+        if (hoverIndex < 0)
+            return
+        kbdIndex = hoverIndex
+        kbdEpisodeId = hoverRawEpisodeId
+        kbdCol = hoverRawCol
+    }
+    onHoverIndexChanged: applyHover()
+    onHoverRawColChanged: applyHover()
     property double kbdEpisodeId: 0
     // Two virtual columns per row: 0 = cover (Enter plays), 1 = text (Enter opens details).
     property int kbdCol: 1
@@ -260,13 +273,12 @@ Item {
                 id: rowHover
                 onHoveredChanged: {
                     if (hovered) {
-                        page.kbdIndex = index
-                        page.kbdEpisodeId = model.episodeId
-                        page.hoverIndex = index
+                        page.hoverRawEpisodeId = model.episodeId
                         if (!coverHover.hovered)
-                            page.kbdCol = 1
-                    } else if (page.hoverIndex === index) {
-                        page.hoverIndex = -1
+                            page.hoverRawCol = 1
+                        page.hoverRaw = index
+                    } else if (page.hoverRaw === index) {
+                        page.hoverRaw = -1
                     }
                 }
             }
@@ -348,11 +360,6 @@ Item {
                     visible: playWell.art === ""
                     z: 0
                 }
-                Rectangle {
-                    anchors.fill: parent
-                    color: Qt.rgba(0, 0, 0, row.coverFocus || playButton.down ? 0.45 : 0.28)
-                    z: 1
-                }
                 IconButton {
                     id: playButton
                     anchors.fill: parent
@@ -376,12 +383,11 @@ Item {
                     id: coverHover
                     onHoveredChanged: {
                         if (hovered) {
-                            page.kbdIndex = index
-                            page.kbdEpisodeId = model.episodeId
-                            page.hoverIndex = index
-                            page.kbdCol = 0
+                            page.hoverRawEpisodeId = model.episodeId
+                            page.hoverRawCol = 0
+                            page.hoverRaw = index
                         } else if (rowHover.hovered) {
-                            page.kbdCol = 1
+                            page.hoverRawCol = 1
                         }
                     }
                 }

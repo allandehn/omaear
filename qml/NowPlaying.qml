@@ -132,6 +132,11 @@ Item {
             // they shrink (and scroll) or step aside rather than run under the bar.
             readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
                                               - spacing * 4 - 120 * theme.textScale
+            // The notes get ~5 lines or 35% of the free height, whichever is more (the
+            // cover fits around that, so they grow/shrink with the window); any
+            // height still free under the cover goes to the notes too (notesLeft).
+            readonly property real notesReserve: Math.max(0, Math.min(synopsis.implicitHeight, Math.max(theme.bodySmall * 1.4 * 5, notesRoom * 0.35), notesRoom))
+            readonly property real notesLeft: page.height - topPad - bottomPad - coverBlock.height - baseChrome - spacing * 4
             readonly property real chromeBelow: {
                 var gaps = 3
                 var h = baseChrome
@@ -139,7 +144,7 @@ Item {
                 // room without squeezing the cover to a thumbnail; nothing sits
                 // hidden below the fold above the player bar any more.
                 if (synopsisBox.visible) {
-                    h += synopsisBox.height
+                    h += notesReserve
                     gaps += 1
                 }
                 return h + spacing * gaps + bottomPad
@@ -155,6 +160,7 @@ Item {
 
             // Compact: small art beside title/show. Full: large centered cover above titles.
             Item {
+                id: coverBlock
                 width: parent.width
                 height: coverFrame.height
                 visible: !page.compact
@@ -481,14 +487,15 @@ Item {
                 }
             }
 
-            // Notes: up to about five lines on show; longer notes scroll in place.
+            // Notes: fill the height left under the cover (at least ~5 lines when
+            // there is room); longer notes scroll in place, with a fade while clipped.
             Flickable {
                 id: synopsisBox
                 width: Math.min(parent.width, 560 * theme.textScale)
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !page.compact && backend.playerDescription.length > 0
                          && body.notesRoom >= theme.bodySmall * 1.4 * 2
-                height: Math.max(0, Math.min(synopsis.implicitHeight, theme.bodySmall * 1.4 * 5, body.notesRoom))
+                height: Math.max(body.notesReserve, Math.min(synopsis.implicitHeight, body.notesLeft))
                 contentWidth: width
                 contentHeight: synopsis.implicitHeight
                 interactive: contentHeight > height
@@ -509,6 +516,20 @@ Item {
                     font.family: "monospace"
                     wrapMode: TextEdit.Wrap
                     opacity: 0.9
+                }
+                // "More below": soft fade at the bottom edge while the text is clipped.
+                Rectangle {
+                    parent: synopsisBox
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Math.min(28 * theme.textScale, synopsisBox.height / 2)
+                    visible: synopsisBox.contentHeight > synopsisBox.height + 1
+                             && synopsisBox.contentY + synopsisBox.height < synopsisBox.contentHeight - 1
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: Qt.rgba(theme.background.r, theme.background.g, theme.background.b, 0) }
+                        GradientStop { position: 1; color: theme.background }
+                    }
                 }
             }
         }

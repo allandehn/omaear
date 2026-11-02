@@ -422,7 +422,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         color: theme.selection
-                        opacity: tileMouse.containsMouse ? 0.28 : 0
+                        opacity: tileMouse.containsMouse && win.pointerActive ? 0.28 : 0
                     }
                     Rectangle {
                         visible: page.kbdRing && tile.index === page.kbdIndex
@@ -443,7 +443,7 @@ Item {
                         height: width
                         radius: width / 2
                         color: tile.model.subscribed ? theme.accent : theme.background
-                        opacity: tile.model.subscribed || tile.model.adding || tileMouse.containsMouse
+                        opacity: tile.model.subscribed || tile.model.adding || (tileMouse.containsMouse && win.pointerActive)
                                  || subscribeButton.hovered ? 0.95 : 0.8
                         IconButton {
                             id: subscribeButton
@@ -941,7 +941,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: regionList.currentIndex = row.index
+                        onEntered: if (win.pointerActive) regionList.currentIndex = row.index
                         onClicked: regionPopup.choose(row.modelData.code)
                     }
                 }
