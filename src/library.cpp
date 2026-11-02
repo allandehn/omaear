@@ -760,6 +760,16 @@ void Library::setMotionTryout(bool on)
     setSetting(QStringLiteral("ui.motionTryout"), on ? QStringLiteral("1") : QStringLiteral("0"));
 }
 
+bool Library::gridWrapFull() const
+{
+    return setting(QStringLiteral("ui.gridWrap"), QStringLiteral("rows")) == QStringLiteral("full");
+}
+
+void Library::setGridWrapFull(bool on)
+{
+    setSetting(QStringLiteral("ui.gridWrap"), on ? QStringLiteral("full") : QStringLiteral("rows"));
+}
+
 bool Library::mono() const
 {
     return setting(QStringLiteral("playback.mono"), QStringLiteral("0")) == QStringLiteral("1");

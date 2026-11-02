@@ -1240,6 +1240,12 @@ void Backend::toggleMotionTryout()
     emit motionTryoutChanged();
 }
 
+void Backend::toggleGridWrap()
+{
+    m_library.setGridWrapFull(!m_library.gridWrapFull());
+    emit gridWrapChanged();
+}
+
 void Backend::toggleMono()
 {
     m_playerMono = !m_playerMono;

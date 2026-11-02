@@ -19,8 +19,9 @@ Item {
     readonly property int navColumns: columns
     readonly property Item searchFieldItem: searchField
     function navItems() {
-        return [back, searchField, flagButton, helpButton].filter(function(i) { return i.visible })
+        return [back, flagButton, helpButton].filter(function(i) { return i.visible })
     }
+    function searchItems() { return searchField.visible ? [searchField] : [] }
     function previewItems() {
         return [previewSubscribe, previewBrowser, previewClose].filter(function(i) { return i.visible && i.enabled })
     }
@@ -74,7 +75,7 @@ Item {
     onVisibleChanged: {
         if (visible) {
             explore.activate()
-            if (win.navShown && win.navArea !== "top")
+            if (win.navShown && win.navArea !== "search")
                 Qt.callLater(win.navRestoreFocus)
             else
                 focusSearch()
@@ -188,10 +189,10 @@ Item {
             // Tab, and Left/Right at either end of the text.
             onActiveFocusChanged: if (activeFocus && win.pageKind === "explore") {
                 win.navSwitchPage()
-                if (win.navArea === "top" && win.navIdx.top === page.navItems().indexOf(searchField))
+                if (win.navArea === "search")
                     return
-                win.navArea = "top"
-                win.navSetBar("top", page.navItems().indexOf(searchField))
+                win.navArea = "search"
+                win.navSetBar("search", 0)
             }
             Keys.onPressed: function(event) {
                 if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
@@ -199,11 +200,11 @@ Item {
                 var k = event.key
                 var atStart = cursorPosition === 0 && selectedText.length === 0
                 var atEnd = cursorPosition === length && selectedText.length === 0
-                if (k === Qt.Key_Up || k === Qt.Key_Down || k === Qt.Key_Tab || k === Qt.Key_Backtab
-                        || (k === Qt.Key_Left && atStart) || (k === Qt.Key_Right && atEnd)) {
+                // Tab / Shift+Tab leave the field (its own zone); arrows stay in the text.
+                if (k === Qt.Key_Tab || k === Qt.Key_Backtab) {
                     event.accepted = true
                     win.navSwitchPage()
-                    win.navArea = "top"
+                    win.navArea = "search"
                     win.navFromField(k)
                 }
             }

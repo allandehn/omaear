@@ -127,6 +127,8 @@ public:
     void setQueueAutoplay(bool on);
     bool motionTryout() const;
     void setMotionTryout(bool on);
+    bool gridWrapFull() const;
+    void setGridWrapFull(bool on);
     void setMono(bool on);
     double volumeBeforeMute() const;
     void setVolumeBeforeMute(double volume);

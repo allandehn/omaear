@@ -797,6 +797,10 @@ Item {
             text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
             onChosen: backend.toggleMotionTryout()
         }
+        AppMenuItem {
+            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            onChosen: backend.toggleGridWrap()
+        }
         AppMenuSeparator {}
         AppMenuItem {
             text: backend.updatePhase === "available" ? "Info  ·  update available" : "Info"

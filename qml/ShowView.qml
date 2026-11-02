@@ -55,9 +55,10 @@ Item {
         target: backend
         function onOpenShowChanged() { page.kbdCol = 1 } // fresh entry: description column
     }
-    // Left/Right switch columns inside the row (always consumed: never jumps rows).
+    // Left/Right switch columns inside the row, wrapping (two columns: either key
+    // flips cover <-> text). Always consumed: never jumps rows.
     function navSide(dir) {
-        kbdCol = dir < 0 ? 0 : 1
+        kbdCol = 1 - kbdCol
         return true
     }
     readonly property int navCount: list.count
@@ -531,6 +532,10 @@ Item {
         AppMenuItem {
             text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
             onChosen: backend.toggleMotionTryout()
+        }
+        AppMenuItem {
+            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}
         AppMenuItem {

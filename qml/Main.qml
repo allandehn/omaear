@@ -497,12 +497,21 @@ ApplicationWindow {
     }
 
     // ---- Keyboard navigation (main page, Explore, Now Playing) ---------------
-    // Each page is a stack of areas: a row of buttons, or a grid (podcasts,
-    // Explore results). Up/Down and Tab/Shift+Tab move between areas, Left/Right
-    // within one and run on into the next area at the ends; a grid moves by row
-    // and leaves at its top/bottom row. Enter activates. Areas that aren't
-    // showing are skipped. The ring appears after the first nav key and hides on
-    // mouse movement; each page remembers where it was.
+    // Navigation zones: top bar, content, bottom bar (PlayerBar), plus Explore's
+    // search field as its own stop. Tab / Shift+Tab move to the next / previous
+    // zone (wrapping; hidden or empty zones are skipped) and land where that zone
+    // was last left, or on its first item. Arrow keys never leave a zone: they
+    // wrap inside it. A zone is one or more areas (a row of buttons or a grid);
+    // Now Playing's content stacks transport / controls / seek / notes, and
+    // Up/Down step between those. Grid wrap (backend.gridWrapFull):
+    //   rows: Left/Right wrap within the row; Up/Down wrap top<->bottom in the
+    //         same column (clamped to the last item on a short last row).
+    //   full: Left/Right walk the whole grid in reading order, wrapping at the
+    //         ends; Up/Down walk it column by column: past the bottom you land on
+    //         the top of the next column, past the top on the bottom of the
+    //         previous one (wrapping at the last/first column).
+    // Enter activates. The ring appears after the first nav key and hides on
+    // mouse movement; each page remembers its area and per-zone spots.
     readonly property var navPages: ["shelf", "explore", "nowPlaying", "show", "episode", "queue"]
     property string navArea: "grid"
     property var navIdx: ({})          // area name -> button index
@@ -519,10 +528,11 @@ ApplicationWindow {
                                       && !modalOpen && !helpOpen && !explorePage.regionOpen
 
     function navDefaults(kind) {
-        if (kind === "explore") return { area: "top", idx: { top: 1, player: 1, preview: 0 } }
-        if (kind === "episode") return { area: "top", idx: { top: 1, player: 1 } }   // Play
-        if (kind === "nowPlaying") return { area: "transport", idx: { top: 0, transport: playerBar.prevId !== 0 ? 2 : 1, controls: 0, seek: 0, player: 1 } }
-        return { area: "grid", idx: { top: 0, player: 1 } }
+        // Unvisited zones start on their first item; the page's own start spot is kept.
+        if (kind === "explore") return { area: "search", idx: { preview: 0 } }
+        if (kind === "episode") return { area: "actions", idx: {} }   // Play
+        if (kind === "nowPlaying") return { area: "transport", idx: { transport: playerBar.prevId !== 0 ? 2 : 1 } }
+        return { area: "grid", idx: {} }
     }
     function navSwitchPage() {
         if (navKind === pageKind) return
@@ -544,6 +554,7 @@ ApplicationWindow {
             if (explore.previewOpen)
                 return [{ name: "preview", items: explorePage.previewItems() }]
             list.push({ name: "top", items: explorePage.navItems() })
+            list.push({ name: "search", zone: "search", items: explorePage.searchItems() })
             list.push({ name: "grid", grid: explorePage })
         } else if (kind === "show") {
             var sp = activeShow()
@@ -555,17 +566,27 @@ ApplicationWindow {
             list.push({ name: "top", items: queuePage.navItems() })
             list.push({ name: "grid", grid: queuePage })
         } else if (kind === "episode") {
-            list.push({ name: "top", items: episodePage.navItems() })
+            var ep = episodePage.navItems()   // [back, actions...]
+            list.push({ name: "top", items: ep.slice(0, 1) })
+            list.push({ name: "actions", items: ep.slice(1) })
         } else if (kind === "nowPlaying") {
             list.push({ name: "top", items: nowPlayingPage.navTop() })
             list.push({ name: "transport", items: nowPlayingPage.navTransport() })
             list.push({ name: "controls", items: nowPlayingPage.navControls() })
             list.push({ name: "seek", items: nowPlayingPage.navSeek() })
+            list.push({ name: "notes", items: nowPlayingPage.navNotes() })
             player = playerBar.visible ? playerBar.navItems() : []
         }
         list.push({ name: "player", items: player })
+        list.forEach(function(a) {
+            if (!a.zone) a.zone = a.name === "top" || a.name === "player" ? a.name : "content"
+        })
         return list.filter(function(a) { return a.grid ? a.grid.navCount > 0 : a.items.length > 0 })
     }
+    function navZoneOf(name) {
+        return name === "top" || name === "player" || name === "search" ? name : "content"
+    }
+
     function navAreas() { return navAreasFor(pageKind) }
     function navFind(areas, name) {
         for (var i = 0; i < areas.length; ++i) if (areas[i].name === name) return areas[i]
@@ -591,17 +612,51 @@ ApplicationWindow {
         var i = edge === "first" ? 0 : edge === "last" ? n - 1 : navBarIndex(area.name)
         navSetBar(area.name, Math.max(0, Math.min(i, n - 1)))
     }
-    function navStep(step) {        // previous/next area, wrapping
+    // Tab / Shift+Tab: previous/next zone, wrapping; lands where that zone was left.
+    function navStep(step) {
         var areas = navAreas()
         if (areas.length === 0) return
-        var at = areas.indexOf(navFind(areas, navArea))
-        navEnter(areas[at < 0 ? 0 : (at + step + areas.length) % areas.length], "")
+        var zones = []
+        areas.forEach(function(a) { if (zones.indexOf(a.zone) < 0) zones.push(a.zone) })
+        var cur = navFind(areas, navArea)
+        if (zones.length === 1 && cur && !cur.grid) { navMove(step); return } // one zone (preview): Tab walks it
+        var at = cur ? zones.indexOf(cur.zone) : -1
+        var zone = zones[at < 0 ? 0 : (at + step + zones.length) % zones.length]
+        var target = navFind(areas, navIdx["@" + zone])
+        if (!target || target.zone !== zone)
+            target = areas.filter(function(a) { return a.zone === zone })[0]
+        navEnter(target, "")
     }
-    function navRun(step) {         // Left/Right past the end of an area
+    // Up/Down between the areas of one zone (Now Playing), wrapping; no-op if alone.
+    function navVert(step) {
         var areas = navAreas()
-        if (areas.length === 0) return
-        var at = Math.max(0, areas.indexOf(navFind(areas, navArea)))
-        navEnter(areas[(at + step + areas.length) % areas.length], step > 0 ? "first" : "last")
+        var cur = navFind(areas, navArea)
+        if (!cur) return
+        var same = areas.filter(function(a) { return a.zone === cur.zone })
+        if (same.length < 2) return
+        var at = same.indexOf(cur)
+        navEnter(same[(at + step + same.length) % same.length], "")
+    }
+    // Grid / list arrow moves with wrap (see the zone comment above).
+    function navGridKey(g, k) {
+        var n = g.navCount, c = Math.max(1, Math.min(g.navColumns, n)), i = g.kbdIndex
+        if (n <= 0) return
+        var col = i % c, row = Math.floor(i / c), rows = Math.ceil(n / c)
+        var dir = (k === Qt.Key_Left || k === Qt.Key_Up) ? -1 : 1
+        var horiz = k === Qt.Key_Left || k === Qt.Key_Right
+        var j = i
+        if (backend.gridWrapFull) {
+            if (horiz) j = (i + dir + n) % n
+            else if (dir > 0) j = i + c < n ? i + c : (col + 1) % c
+            else if (i - c >= 0) j = i - c
+            else { var pc = (col - 1 + c) % c; j = pc + Math.floor((n - 1 - pc) / c) * c }
+        } else if (horiz) {
+            var start = row * c, len = Math.min(c, n - start)
+            j = start + (col + dir + len) % len
+        } else {
+            j = Math.min(((row + dir + rows) % rows) * c + col, n - 1)
+        }
+        if (j !== i) g.setNavIndex(j)
     }
     function navCurrent() {
         var areas = navAreas()
@@ -640,23 +695,16 @@ ApplicationWindow {
     // Called by a field (Explore search) for keys it doesn't use itself.
     function navFromField(key) {
         navShown = true
-        if (key === Qt.Key_Left) navMove(-1)
-        else if (key === Qt.Key_Right) navMove(1)
-        else if (key === Qt.Key_Up || key === Qt.Key_Backtab) navStep(-1)
-        else navStep(1)
+        // Only Tab leaves a field; arrows stay inside it.
+        if (key === Qt.Key_Backtab) navStep(-1)
+        else if (key === Qt.Key_Tab) navStep(1)
     }
     function navMove(dir) {
         var area = navCurrent()
         if (!area) return
-        if (area.grid) {
-            var idx = area.grid.kbdIndex
-            if (dir < 0 ? idx > 0 : idx < area.grid.navCount - 1) area.grid.setNavIndex(idx + dir)
-            else navRun(dir)
-            return
-        }
-        var bi = navBarIndex(area.name)
-        if (dir < 0 ? bi > 0 : bi < area.items.length - 1) navSetBar(area.name, bi + dir)
-        else navRun(dir)
+        if (area.grid) { navGridKey(area.grid, dir < 0 ? Qt.Key_Left : Qt.Key_Right); return }
+        var n = area.items.length
+        navSetBar(area.name, (navBarIndex(area.name) + dir + n) % n)
     }
     // Navigation animation: true while a held key is auto-repeating (covers skip the lift).
     property bool keyRepeating: false
@@ -670,11 +718,16 @@ ApplicationWindow {
         if (pageKind === "explore" && !explore.previewOpen && event.text.length === 1
                 && event.text.charCodeAt(0) > 32 && event.text.charCodeAt(0) !== 127) {
             event.accepted = true
-            var items = explorePage.navItems()
-            navArea = "top"
-            navSetBar("top", items.indexOf(explorePage.searchFieldItem))
+            navArea = "search"
+            navSetBar("search", 0)
             explorePage.typeIntoSearch(event.text)
             return
+        }
+        // Vim keys: h/j/k/l = Left/Down/Up/Right (plain only; never while typing).
+        if (!(event.modifiers & Qt.ShiftModifier) && !navIsField(activeFocusItem)) {
+            var vim = { [Qt.Key_H]: Qt.Key_Left, [Qt.Key_J]: Qt.Key_Down,
+                        [Qt.Key_K]: Qt.Key_Up, [Qt.Key_L]: Qt.Key_Right }
+            if (vim[k] !== undefined) k = vim[k]
         }
         // Menu key / Shift+F10: the ringed item's context menu.
         if (k === Qt.Key_Menu || (k === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
@@ -732,15 +785,7 @@ ApplicationWindow {
             // Rows with parts (Episodes: cover | text): Left/Right switch parts.
             else if ((k === Qt.Key_Left || k === Qt.Key_Right) && g.navSide !== undefined
                      && g.navSide(k === Qt.Key_Left ? -1 : 1)) {}
-            else if (k === Qt.Key_Left) navMove(-1)
-            else if (k === Qt.Key_Right) navMove(1)
-            else if (k === Qt.Key_Up) { if (idx - cols >= 0) g.setNavIndex(idx - cols); else navStep(-1) }
-            else if (k === Qt.Key_Down) {
-                if (idx + cols < count) g.setNavIndex(idx + cols)
-                // Last partial row below: land on the last item first.
-                else if (Math.floor(idx / cols) < Math.floor((count - 1) / cols)) g.setNavIndex(count - 1)
-                else navStep(1)
-            }
+            else navGridKey(g, k)
             return
         }
         var bi = navBarIndex(area.name)
@@ -758,8 +803,11 @@ ApplicationWindow {
             item.navNudge(k === Qt.Key_Left ? -1 : 1)
         else if (k === Qt.Key_Left) navMove(-1)
         else if (k === Qt.Key_Right) navMove(1)
-        else if (k === Qt.Key_Up) navStep(-1)
-        else if (k === Qt.Key_Down) navStep(1)
+        // A scrolling box (Now Playing notes) scrolls first, then hands Up/Down on.
+        else if ((k === Qt.Key_Up || k === Qt.Key_Down) && item.navScroll !== undefined
+                 && item.navScroll(k === Qt.Key_Up ? -1 : 1)) {}
+        else if (k === Qt.Key_Up) navVert(-1)
+        else if (k === Qt.Key_Down) navVert(1)
     }
     // Paint the ring: clear what was lit, then light the current spot.
     function navRefreshRing() {
@@ -785,7 +833,11 @@ ApplicationWindow {
         navPainted = lit
     }
     onNavActiveChanged: navRefreshRing()
-    onNavAreaChanged: navRefreshRing()
+    // Also remember which area each zone was left in (per page, inside navIdx).
+    onNavAreaChanged: {
+        var m = navIdx; m["@" + navZoneOf(navArea)] = navArea; navIdx = m
+        navRefreshRing()
+    }
     onPageKindChanged: {
         navSwitchPage()
         var listPage = pageKind === "shelf" ? shelfView : pageKind === "explore" ? explorePage

@@ -59,6 +59,8 @@ Item {
         for (var i = 0; i < controls.children.length; ++i) list.push(controls.children[i])
         return shown(list) }
     function navSeek() { return shown([scrubber]) }
+    // The notes are a stop only when they scroll (Up/Down scroll them, then move on).
+    function navNotes() { return synopsisBox.visible && synopsisBox.interactive ? [synopsisBox] : [] }
 
     function nudge(seconds) {
         var next = backend.playerPosition + seconds
@@ -500,6 +502,24 @@ Item {
                 contentHeight: synopsis.implicitHeight
                 interactive: contentHeight > height
                 clip: true
+                property bool kbdFocus: false
+                // Up/Down from the keyboard: ~3 lines; false at the end so focus moves on.
+                function navScroll(dir) {
+                    var max = Math.max(0, contentHeight - height)
+                    if ((dir < 0 && contentY <= 0) || (dir > 0 && contentY >= max - 0.5)) return false
+                    contentY = Math.max(0, Math.min(max, contentY + dir * theme.bodySmall * 1.4 * 3))
+                    return true
+                }
+                Rectangle {   // keyboard ring
+                    parent: synopsisBox
+                    anchors.fill: parent
+                    z: 3
+                    color: "transparent"
+                    radius: theme.rButton
+                    border.width: 2
+                    border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
+                    visible: synopsisBox.kbdFocus
+                }
                 boundsBehavior: Flickable.StopAtBounds
                 FastWheel { }
                 SelectableText {
