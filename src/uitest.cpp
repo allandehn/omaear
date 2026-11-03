@@ -5,6 +5,7 @@
 #include <QCursor>
 #include <QGuiApplication>
 #include <QImage>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QQmlApplicationEngine>
@@ -87,6 +88,14 @@ struct UiTest {
                         first ? qPrintable(first->property("text").toString()) : "-");
             }
         }
+    }
+    // A key press + release delivered to the window (like a real keyboard).
+    void key(int k, const QString &text = QString())
+    {
+        QKeyEvent press(QEvent::KeyPress, k, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(win, &press);
+        QKeyEvent release(QEvent::KeyRelease, k, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(win, &release);
     }
     void expect(bool ok, const char *what)
     {
@@ -214,6 +223,88 @@ void startUiTest(QQmlApplicationEngine &engine)
             {0, [t]() { t->hover(QPointF(2, 2)); }},
             {50, [grab]() { grab(QStringLiteral("settle-50ms")); }},
             {150, [grab]() { grab(QStringLiteral("settle-200ms")); }},
+        };
+        t->run(0);
+        return;
+    }
+    // OMAEAR_UI_TEST_NAV=1: input mode (keyboard vs mouse) and absolute grid wrap.
+    // OMAEAR_UI_TEST_FEEDS=<dir of .xml feeds> (tests/nav-feeds): added via file:// on start;
+    // the last one has no episodes. Run with a throwaway XDG library.
+    if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST_NAV") == 1) {
+        const QString feeds = qEnvironmentVariable("OMAEAR_UI_TEST_FEEDS");
+        // Grid math on a stand-in grid: 7 items, 3 columns (rows 0-2, 3-5, 6).
+        auto gk = [t](int n, int c, int from, const char *k, bool full = false) {
+            return t->eval(QStringLiteral("(function(){ var keep = backend.gridWrapFull;"
+                " if (keep !== %5) backend.toggleGridWrap();"
+                " var g = { navCount: %1, navColumns: %2, kbdIndex: %3, setNavIndex: function(j) { this.kbdIndex = j } };"
+                " win.navGridKey(g, Qt.%4); if (backend.gridWrapFull !== keep) backend.toggleGridWrap(); return g.kbdIndex })()")
+                .arg(n).arg(c).arg(from).arg(QLatin1String(k)).arg(full ? "true" : "false")).toInt();
+        };
+        t->steps = {
+            {500, [t, feeds]() {
+                int delay = 0;
+                for (const QString &f : QDir(feeds).entryList({QStringLiteral("*.xml")}, QDir::Files, QDir::Name)) {
+                    QTimer::singleShot(delay, t->win, [t, feeds, f]() {
+                        t->eval(QStringLiteral("backend.addFeed('file://%1/%2')").arg(feeds, f));
+                    });
+                    delay += 700;
+                }
+            }},
+            {4000, [t, gk]() {
+                fprintf(stderr, "[uitest] status=%s shows=%d busy=%d\n", qPrintable(t->eval("backend.status").toString()),
+                        t->eval("shelfView.navCount").toInt(), t->eval("backend.busy").toBool());
+                t->expect(gk(7, 3, 4, "Key_Down") == 1, "rows: Down past the bottom of column 1 wraps to its top (no clamp)");
+                t->expect(gk(7, 3, 1, "Key_Up") == 4, "rows: Up past the top of column 1 wraps to its own bottom, not the last item");
+                t->expect(gk(7, 3, 0, "Key_Up") == 6, "rows: Up from the top of column 0 wraps to the short last row");
+                t->expect(gk(7, 3, 6, "Key_Down") == 0, "rows: Down from the short last row wraps to the top of column 0");
+                t->expect(gk(7, 3, 2, "Key_Down") == 5 && gk(7, 3, 5, "Key_Down") == 2, "rows: column 2 cycles 2 -> 5 -> 2");
+                t->expect(gk(7, 3, 5, "Key_Right") == 3 && gk(7, 3, 3, "Key_Left") == 5, "rows: Left/Right wrap within the row");
+                t->expect(gk(7, 3, 6, "Key_Right") == 6, "rows: a one-item row stays put on Left/Right");
+                t->expect(gk(7, 3, 4, "Key_Down", true) == 2, "full mode unchanged: Down past column 1's bottom goes to the top of column 2");
+                t->expect(t->eval("shelfView.navCount >= 2").toBool(), "test library has at least 2 shows");
+                t->expect(!t->eval("win.keyboardMode").toBool(), "starts in mouse mode");
+                t->expect(!t->eval("shelfView.kbdRing").toBool(), "mouse mode: no key ring on the shelf");
+                t->key(Qt::Key_Down);
+            }},
+            {300, [t]() {
+                t->expect(t->eval("win.keyboardMode").toBool(), "a key press switches to keyboard mode");
+                t->expect(t->eval("shelfView.kbdRing").toBool(), "keyboard mode: ring shows on the shelf");
+                t->eval("win.openShowPage(backend.shows.showIdAt(0))");
+            }},
+            {1500, [t]() {
+                t->expect(t->eval("pageKind").toString() == "show", "show page opened");
+                t->expect(t->eval("activeShow().navCount > 0").toBool(), "show 0 has episodes");
+                t->expect(t->eval("win.navArea === 'grid' && activeShow().kbdIndex === 0 && activeShow().kbdCol === 0"
+                                  " && activeShow().kbdRing").toBool(), "keyboard mode: Episodes starts on the first episode's cover");
+                t->key(Qt::Key_Down);
+            }},
+            {300, [t]() {
+                t->expect(t->eval("activeShow().kbdIndex === 1 || activeShow().navCount === 1").toBool(), "first key on a fresh page moves straight away");
+                t->key(Qt::Key_Escape);
+            }},
+            {800, [t]() {
+                t->eval("win.openShowPage(backend.shows.showIdAt(shelfView.navCount - 1))");
+            }},
+            {1500, [t]() {
+                t->expect(t->eval("activeShow().navCount === 0").toBool(), "last show has no episodes");
+                t->expect(t->eval("win.navArea === 'top' && win.navBarIndex('top') === 0 && activeShow().backItem.kbdFocus").toBool(),
+                          "keyboard mode, no episodes: focus on Back");
+                t->hover(QPointF(300, 300));
+            }},
+            {100, [t]() { t->hover(QPointF(340, 330)); }},
+            {300, [t]() {
+                t->expect(!t->eval("win.keyboardMode").toBool(), "a real mouse move switches to mouse mode");
+                t->expect(!t->eval("activeShow().backItem.kbdFocus").toBool(), "mouse mode: ring hidden");
+                t->eval("win.back(); win.openShowPage(backend.shows.showIdAt(0))");
+            }},
+            {1500, [t]() {
+                t->expect(!t->eval("activeShow().kbdRing").toBool() && !t->eval("win.navShown").toBool(),
+                          "mouse mode: entering a page shows no key ring");
+                t->key(Qt::Key_Down);
+            }},
+            {300, [t]() {
+                t->expect(t->eval("win.keyboardMode && activeShow().kbdRing").toBool(), "key press after mouse: ring back");
+            }},
         };
         t->run(0);
         return;

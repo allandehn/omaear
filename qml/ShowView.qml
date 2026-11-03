@@ -263,13 +263,13 @@ Item {
             width: list.width
             height: Math.max(page.listRowHeight, contentColumn.implicitHeight + 20 * theme.textScale)
             color: "transparent" // no hover shading: the cover lifts instead
-            // Same lift as the shelf covers on hover or key focus (navigation animation only).
+            // Same lift as the shelf covers on hover or key focus.
             // Focus (keys or hover) sits on one part of the row; the ring wraps only that part.
             readonly property bool focusedRow: (page.kbdRing || page.hoverIndex >= 0) && index === page.kbdIndex
             readonly property bool coverFocus: focusedRow && page.kbdCol === 0
             readonly property bool textFocus: focusedRow && page.kbdCol === 1
-            // Cover lifts only when the cover has focus (navigation animation on).
-            readonly property bool lifted: backend.motionTryout && !win.keyRepeating && coverFocus
+            // Cover lifts only when the cover has focus (always; the setting only affects ring glide).
+            readonly property bool lifted: !win.keyRepeating && coverFocus
             HoverHandler {
                 id: rowHover
                 onHoveredChanged: {
@@ -293,7 +293,7 @@ Item {
                 opacity: row.lifted ? 1 : 0
                 scale: playWell.scale
                 z: 1
-                Behavior on opacity { enabled: backend.motionTryout; NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+                Behavior on opacity { NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
             }
 
             Rectangle {
@@ -326,7 +326,7 @@ Item {
                 height: page.listCover
                 z: 2
                 scale: row.lifted ? 1.03 : 1
-                Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+                Behavior on scale { NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
 
                 // Episode art when the feed has it; otherwise the show cover.
                 readonly property string art: model.cover && model.cover !== ""
@@ -376,8 +376,8 @@ Item {
                     // Transparent chrome so episode art shows through under the glyph.
                     background: Item {}
                     // Cover hover: the Play glyph lifts so it's clear a cover click plays.
-                    scale: row.coverFocus && backend.motionTryout && !win.keyRepeating ? 1.14 : 1
-                    Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+                    scale: row.lifted ? 1.14 : 1
+                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                     onClicked: backend.playEpisode(model.episodeId)
                 }
                 HoverHandler {

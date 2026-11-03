@@ -379,14 +379,15 @@ Item {
             readonly property string navTitle: model.title
             width: grid.cellWidth
             height: grid.cellHeight
-            // Navigation animation: only the ringed or hovered cover lifts (transform + opacity only).
-            readonly property bool lifted: backend.motionTryout && !win.keyRepeating
+            // Only the ringed or hovered cover lifts (transform + opacity only, always on;
+            // the Navigation animation setting only decides whether the ring glides).
+            readonly property bool lifted: !win.keyRepeating
                 && shelf.ringShown && index === shelf.kbdIndex
             z: lifted ? 1 : 0
 
             // Pre-baked soft shadow (static PNG); only its opacity and scale animate.
             BorderImage {
-                visible: backend.motionTryout
+                visible: opacity > 0
                 x: (parent.width - shelf.coverSize) / 2 - 24
                 y: -24
                 width: shelf.coverSize + 48
@@ -395,7 +396,7 @@ Item {
                 border { left: 32; right: 32; top: 32; bottom: 32 }
                 opacity: tileItem.lifted ? 1 : 0
                 scale: cover.scale
-                Behavior on opacity { enabled: backend.motionTryout; NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+                Behavior on opacity { NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
             }
 
             Column {
@@ -408,7 +409,7 @@ Item {
                     width: parent.width
                     height: width
                     scale: tileItem.lifted ? 1.03 : 1
-                    Behavior on scale { enabled: backend.motionTryout; NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+                    Behavior on scale { NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
@@ -519,6 +520,7 @@ Item {
             // Keyboard ring: a quiet theme-foreground outline around the cover.
             Rectangle {
                 visible: !backend.motionTryout && shelf.ringShown && index === shelf.kbdIndex
+                scale: cover.scale // hugs the lifted cover
                 x: (parent.width - shelf.coverSize) / 2 - 4
                 y: -4
                 width: shelf.coverSize + 8

@@ -232,6 +232,7 @@ Rectangle {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 15 * theme.textScale
+                        icon.height: 15 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 30 * theme.textScale
                         implicitHeight: 30 * theme.textScale
                         icon.name: "media-skip-backward-symbolic"
@@ -243,6 +244,7 @@ Rectangle {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 22 * theme.textScale
+                        icon.height: 22 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 40 * theme.textScale
                         implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-backward-symbolic"
@@ -255,6 +257,7 @@ Rectangle {
                         // Size tier (play): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 27 * theme.textScale
+                        icon.height: 27 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 44 * theme.textScale
                         implicitHeight: 44 * theme.textScale
                         icon.name: backend.playerStatus === "playing"
@@ -269,6 +272,7 @@ Rectangle {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 22 * theme.textScale
+                        icon.height: 22 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 40 * theme.textScale
                         implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-forward-symbolic"
@@ -281,6 +285,7 @@ Rectangle {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 15 * theme.textScale
+                        icon.height: 15 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 30 * theme.textScale
                         implicitHeight: 30 * theme.textScale
                         enabled: bar.upNextId !== 0

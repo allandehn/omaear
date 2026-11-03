@@ -341,6 +341,7 @@ Item {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 17 * theme.textScale
+                        icon.height: 17 * theme.textScale
                         implicitWidth: 34 * theme.textScale
                         implicitHeight: 34 * theme.textScale
                         icon.name: "media-skip-backward-symbolic"
@@ -352,6 +353,7 @@ Item {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 26 * theme.textScale
+                        icon.height: 26 * theme.textScale
                         implicitWidth: 48 * theme.textScale
                         implicitHeight: 48 * theme.textScale
                         icon.name: "media-seek-backward-symbolic"
@@ -362,6 +364,7 @@ Item {
                         // Size tier (play): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 34 * theme.textScale
+                        icon.height: 34 * theme.textScale
                         implicitWidth: 56 * theme.textScale
                         implicitHeight: 56 * theme.textScale
                         icon.name: backend.playerStatus === "playing"
@@ -374,6 +377,7 @@ Item {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 26 * theme.textScale
+                        icon.height: 26 * theme.textScale
                         implicitWidth: 48 * theme.textScale
                         implicitHeight: 48 * theme.textScale
                         icon.name: "media-seek-forward-symbolic"
@@ -384,6 +388,7 @@ Item {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 17 * theme.textScale
+                        icon.height: 17 * theme.textScale
                         implicitWidth: 34 * theme.textScale
                         implicitHeight: 34 * theme.textScale
                         icon.name: "media-skip-forward-symbolic"

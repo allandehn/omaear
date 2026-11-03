@@ -160,7 +160,10 @@ ApplicationWindow {
             list.splice(1, 1)
         history = list
         historyIndex = list.length - 1
+        // A fresh visit (not Back/Forward) starts at the page's own start spot.
+        var states = navStates; delete states[entry.kind]; navStates = states
         applyPage()
+        Qt.callLater(navFreshEntry)
     }
 
     function closeModals() {
@@ -375,6 +378,7 @@ ApplicationWindow {
             return
         }
         pointerActive = false // new view: a resting pointer doesn't count as hover
+        navShown = keyboardMode // keyboard mode: ring shows at once; mouse mode: none until a key
         navGuard = true
         if (entry.kind === "shelf") {
             backend.closeShow()
@@ -504,8 +508,9 @@ ApplicationWindow {
     // wrap inside it. A zone is one or more areas (a row of buttons or a grid);
     // Now Playing's content stacks transport / controls / seek / notes, and
     // Up/Down step between those. Grid wrap (backend.gridWrapFull):
-    //   rows: Left/Right wrap within the row; Up/Down wrap top<->bottom in the
-    //         same column (clamped to the last item on a short last row).
+    //   rows: absolute. Left/Right wrap within the row; Up/Down always stay in
+    //         the same column and wrap top<->bottom of that column (a short last
+    //         row that lacks the column is skipped, never clamped).
     //   full: Left/Right walk the whole grid in reading order, wrapping at the
     //         ends; Up/Down walk it column by column: past the bottom you land on
     //         the top of the next column, past the top on the bottom of the
@@ -524,6 +529,29 @@ ApplicationWindow {
     // or view change. A resting pointer over a freshly shown view (Hyprland sends
     // hover-enter then) must not steal keyboard focus or show hover rings.
     property bool pointerActive: false
+    // Input mode: true after any key press, false after a real pointer move.
+    // Decides where focus lands when a page is entered (see navFreshEntry).
+    property bool keyboardMode: false
+    // Fresh page (not Back/Forward): the spot starts at the page's natural start;
+    // in keyboard mode the ring shows there at once, in mouse mode only after a key.
+    //   Shelf / Queue: first item. Episodes: first episode's cover, else Back.
+    //   Explore: search field. Episode: Play. Now playing: play/pause.
+    function navFreshEntry() {
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
+        navSwitchPage()
+        var g = pageKind === "shelf" ? shelfView : pageKind === "queue" ? queuePage
+              : pageKind === "show" ? activeShow() : null
+        if (g) {
+            if (g.kbdCol !== undefined) g.kbdCol = 0
+            if (g.kbdEpisodeId !== undefined) g.kbdEpisodeId = 0
+            if (g.navCount > 0) { g.setNavIndex(0); navArea = "grid" }
+            else { var m = navIdx; m.top = 0; navIdx = m; navArea = "top" }
+        }
+        if (!keyboardMode) { navRefreshRing(); return }
+        navShown = true
+        navApplyFocus()
+        navRefreshRing()
+    }
     readonly property bool navActive: navShown && navPages.indexOf(pageKind) >= 0
                                       && !modalOpen && !helpOpen && !explorePage.regionOpen
 
@@ -654,7 +682,10 @@ ApplicationWindow {
             var start = row * c, len = Math.min(c, n - start)
             j = start + (col + dir + len) % len
         } else {
-            j = Math.min(((row + dir + rows) % rows) * c + col, n - 1)
+            // Absolute: stay in this column; past the end wrap to its far end
+            // (a short last row without this column is skipped, never clamped).
+            var colRows = Math.floor((n - 1 - col) / c) + 1
+            j = ((row + dir + colRows) % colRows) * c + col
         }
         if (j !== i) g.setNavIndex(j)
     }
@@ -694,6 +725,7 @@ ApplicationWindow {
     }
     // Called by a field (Explore search) for keys it doesn't use itself.
     function navFromField(key) {
+        keyboardMode = true
         navShown = true
         // Only Tab leaves a field; arrows stay inside it.
         if (key === Qt.Key_Backtab) navStep(-1)
@@ -983,6 +1015,7 @@ ApplicationWindow {
                 if (win.navMouseAt.x >= 0 && Math.abs(p.x - win.navMouseAt.x) + Math.abs(p.y - win.navMouseAt.y) > 1.5) {
                     win.navShown = false
                     win.pointerActive = true
+                    win.keyboardMode = false
                 }
                 win.navMouseAt = p
             }
@@ -997,7 +1030,7 @@ ApplicationWindow {
             clip: true
             focus: true
             // Shelf keyboard navigation; other pages ignore these keys here.
-            Keys.onPressed: function(event) { win.keyRepeating = event.isAutoRepeat; win.shelfKey(event) }
+            Keys.onPressed: function(event) { win.keyboardMode = true; win.keyRepeating = event.isAutoRepeat; win.shelfKey(event) }
             // Navigation animation: no cover lift while a key auto-repeats; back on release.
             Keys.onReleased: function(event) { if (!event.isAutoRepeat) win.keyRepeating = false }
 
