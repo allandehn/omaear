@@ -295,6 +295,8 @@ private:
     QString m_showTitle;
     QString m_art;
     QString m_description;
+    QString m_libraryIdentity;
+    bool libraryReplaced();
     QString m_error;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
@@ -391,6 +393,7 @@ PlayerService::PlayerService(Library &library, QObject *parent)
     : QObject(parent)
     , m_library(library)
 {
+    m_libraryIdentity = Library::fileIdentity(m_library.path());
     m_player = new QMediaPlayer(this);
     m_audio = new QAudioOutput(this);
     m_player->setAudioOutput(m_audio);
@@ -671,9 +674,31 @@ QVariantMap PlayerService::metadata() const
     return meta;
 }
 
+// The player outlives the window while an episode is loaded. If the library file was
+// deleted or replaced meanwhile (a fresh install), this process still reads the old,
+// unlinked database: episode ids then mean different episodes than in the UI's library,
+// so the UI showed one episode's art over another's audio and title. Quit instead; the
+// UI starts a fresh player on the next Load.
+bool PlayerService::libraryReplaced()
+{
+    if (m_libraryIdentity.isEmpty() || Library::fileIdentity(m_library.path()) == m_libraryIdentity)
+        return false;
+    qWarning("[omaear-player] library %s was replaced; quitting the stale player",
+             qPrintable(m_library.path()));
+    m_libraryIdentity.clear();
+    if (m_player)
+        m_player->stop();
+    m_episode = {};
+    QDBusConnection::sessionBus().unregisterService(kPlayerService);
+    QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+    return true;
+}
+
 QVariantMap PlayerService::State()
 {
     QVariantMap state;
+    if (libraryReplaced())
+        return state;
     QString status = QStringLiteral("stopped");
     if (m_episode.id != 0) {
         // Loaded episode is either playing or paused (never "stopped") so the
@@ -743,6 +768,8 @@ void PlayerService::LoadPaused(qlonglong episodeId)
 
 void PlayerService::loadEpisode(qlonglong episodeId, bool autoPlay)
 {
+    if (libraryReplaced())
+        return;
     if (m_episode.id == episodeId && episodeId != 0
         && m_player->playbackState() != QMediaPlayer::StoppedState) {
         // Same episode already loaded: if we are still near the start but the
@@ -885,6 +912,8 @@ void PlayerService::Pause()
 
 void PlayerService::PlayPause()
 {
+    if (libraryReplaced())
+        return;
     if (m_player->playbackState() == QMediaPlayer::PlayingState)
         Pause();
     else

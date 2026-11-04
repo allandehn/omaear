@@ -7,6 +7,10 @@
 #include <QThread>
 #include <QNetworkRequest>
 #include <QQmlNetworkAccessManagerFactory>
+#include <QPointer>
+#include <QRegularExpression>
+#include <QSet>
+#include <QUrl>
 
 // User-Agent for EPISODE AUDIO only (HttpFileBuffer: play, prefetch, resume).
 //
@@ -39,6 +43,57 @@ protected:
     }
 };
 
+// The Explore cover disk cache (owned by Qt Quick's image reader thread).
+inline QPointer<QNetworkDiskCache> &coverDiskCache()
+{
+    static QPointer<QNetworkDiskCache> cache;
+    return cache;
+}
+
+// Every URL a cover can be fetched under: as given, plus the 400px tile and
+// 600px preview sizes of Apple's CDN path.
+inline QStringList coverUrlVariants(const QString &cover)
+{
+    if (cover.isEmpty())
+        return {};
+    static const QRegularExpression size(QStringLiteral("/\\d+x\\d+bb\\."));
+    QString tile = cover, preview = cover;
+    tile.replace(size, QStringLiteral("/400x400bb."));
+    preview.replace(size, QStringLiteral("/600x600bb."));
+    QStringList out{cover};
+    if (!out.contains(tile))
+        out << tile;
+    if (!out.contains(preview))
+        out << preview;
+    return out;
+}
+
+// Removes the given URLs from an HTTP cache; returns how many were there.
+inline int removeFromCache(QAbstractNetworkCache *cache, const QStringList &urls)
+{
+    int removed = 0;
+    if (!cache)
+        return 0;
+    // Count by metaData: QNetworkDiskCache::remove() can report false after removing.
+    for (const QString &u : QSet<QString>(urls.begin(), urls.end())) {
+        const QUrl url(u);
+        if (!cache->metaData(url).isValid())
+            continue;
+        cache->remove(url);
+        ++removed;
+    }
+    return removed;
+}
+
+// Force refresh: drop these cover URLs from the disk cache, on the cache's own thread.
+inline void dropCoverUrlsFromDiskCache(const QStringList &urls)
+{
+    QNetworkDiskCache *cache = coverDiskCache().data();
+    if (!cache || urls.isEmpty())
+        return;
+    QMetaObject::invokeMethod(cache, [cache, urls]() { removeFromCache(cache, urls); }, Qt::QueuedConnection);
+}
+
 // Qt Quick (remote Image sources such as Explore covers or episode art that is
 // not cached yet, XMLHttpRequest) uses this so QML loads take the same path.
 class AppNetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory {
@@ -56,6 +111,7 @@ public:
                                      + QStringLiteral("/http"));
             cache->setMaximumCacheSize(64LL * 1024 * 1024); // oldest entries go first
             nam->setCache(cache);
+            coverDiskCache() = cache;
         }
         return nam;
     }

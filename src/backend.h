@@ -114,6 +114,11 @@ public:
     double playerVolume() const { return m_playerVolume; }
     bool playerMono() const { return m_playerMono; }
     bool queueAutoplay() const { return m_library.queueAutoplay(); }
+    // /proc/meminfo MemAvailable / MemTotal in bytes (0 if unreadable). Sizes the
+    // Explore kept-covers budget so it never over-spends on a small machine.
+    Q_INVOKABLE double memAvailable() const;
+    Q_INVOKABLE double memTotal() const;
+    static qint64 meminfoBytes(const QByteArray &key);
     Q_INVOKABLE void toggleQueueAutoplay();
     bool motionTryout() const { return m_library.motionTryout(); }
     Q_INVOKABLE void toggleMotionTryout();
@@ -249,6 +254,8 @@ signals:
     void statusChanged();
     void busyChanged();
     void lastRefreshChanged();
+    // Force refresh (Ctrl+click): views drop any covers they keep decoded in memory.
+    void artworkForced();
     void openShowChanged();
     void openEpisodeChanged();
     void playerStateChanged();

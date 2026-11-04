@@ -304,6 +304,58 @@ void startUiTest(QQmlApplicationEngine &engine)
             }},
             {300, [t]() {
                 t->expect(t->eval("win.keyboardMode && activeShow().kbdRing").toBool(), "key press after mouse: ring back");
+                // Issue A: a library refresh (play/pause re-emits openShowChanged) must not
+                // move focus from the cover to the text column.
+                t->eval("win.navArea = 'grid'; activeShow().kbdCol = 0; backend.openShowChanged()");
+                t->expect(t->eval("activeShow().kbdCol === 0").toBool(), "refresh keeps focus on the cover (Enter no longer jumps right)");
+                // Enter acts on the focused episode by id, even if the row index went stale.
+                t->eval("var s = activeShow(); s.kbdCol = 1; s.kbdEpisodeId = s.navCount > 1 ? (s.episodeModel !== null ? s.episodeModel : backend.episodes).episodeIdAt(1) : 0");
+            }},
+            {200, [t]() {
+                const double want = t->eval("activeShow().kbdEpisodeId").toDouble();
+                if (want != 0) {
+                    t->eval("activeShow().kbdIndex = 0; activeShow().openNavItem()");
+                }
+            }},
+            {800, [t]() {
+                t->expect(t->eval("backend.openEpisodeId === activeShow().kbdEpisodeId || pageKind === 'episode'").toBool()
+                          && t->eval("pageKind").toString() == "episode", "Enter opens the episode by id, not by a stale row");
+                t->eval("win.openExplorePage()");
+            }},
+            {1200, [t]() {
+                // Issue C: Find Tab order, wrapping.
+                t->eval("win.keyboardMode = true; win.navShown = true; win.navArea = 'top'; win.navSetBar('top', 0)");
+                QStringList seen;
+                for (int i = 0; i < 6; ++i) {
+                    seen << t->eval("win.navArea").toString();
+                    t->eval("win.navStep(1)");
+                }
+                const QString got = seen.join(QLatin1Char(','));
+                fprintf(stderr, "[uitest] find tab order: %s\n", qPrintable(got));
+                const bool info = t->eval("explorePage.infoItem.visible").toBool();
+                const bool grid = t->eval("explorePage.navCount > 0").toBool();
+                QStringList cyc = {QStringLiteral("top"), QStringLiteral("search"), QStringLiteral("region")};
+                if (info) cyc << QStringLiteral("info");
+                if (grid) cyc << QStringLiteral("grid");
+                QStringList exp;
+                for (int i = 0; i < 6; ++i) exp << cyc.at(i % cyc.size());
+                t->expect(got == exp.join(QLatin1Char(',')), "Find: Tab walks back, search, region, info, results and wraps");
+                t->eval("win.navArea = 'search'; win.navStep(-1)");
+                t->expect(t->eval("win.navArea").toString() == "top", "Find: Shift+Tab from search goes back to Back");
+                // Kept covers: RAM-sized budget, and a force refresh drops them at once.
+                const double avail = t->eval("backend.memAvailable()").toDouble();
+                const double total = t->eval("backend.memTotal()").toDouble();
+                const double budget = t->eval("explorePage.coverBudget()").toDouble();
+                fprintf(stderr, "[uitest] meminfo avail=%.0f total=%.0f cover budget=%.0f\n", avail, total, budget);
+                const double want = avail < total * 0.10 ? 0 : qBound(8.0 * 1048576, avail * 0.02, 32.0 * 1048576);
+                t->expect(avail > 0 && total >= avail && budget == want, "Find: kept-covers budget = clamp(2% MemAvailable, 8 MB, 32 MB)");
+                const char *seed = "explorePage.heldCovers = [{ s: 'file:///nonexistent-a.jpg', w: 32, h: 32 }, { s: 'file:///nonexistent-b.jpg', w: 32, h: 32 }]; explorePage.heldCovers.length";
+                const bool seeded = t->eval(seed).toInt() == 2;
+                t->eval("backend.refreshAll(true)");
+                t->expect(seeded && t->eval("explorePage.heldCovers.length").toInt() == 0, "Find: force refresh (all) drops the kept previous-region covers");
+                t->eval(seed);
+                t->eval("backend.refreshOpenShow(true)");
+                t->expect(t->eval("explorePage.heldCovers.length").toInt() == 0, "Find: force refresh (open show) drops the kept covers too");
             }},
         };
         t->run(0);

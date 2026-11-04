@@ -530,7 +530,7 @@ Item {
                 SelectableText {
                     id: synopsis
                     width: synopsisBox.width
-                    horizontalAlignment: TextEdit.AlignHCenter
+                    horizontalAlignment: TextEdit.AlignLeft
                     // Links and timestamps as on episode details (same linkify).
                     text: episodePage.linkify(backend.playerDescription, theme.blue)
                     textFormat: TextEdit.RichText

@@ -18,6 +18,9 @@ Item {
     readonly property int navCount: grid.count
     readonly property int navColumns: columns
     readonly property Item searchFieldItem: searchField
+    readonly property Item backItem: back
+    readonly property Item regionItem: flagButton
+    readonly property Item infoItem: helpButton
     function navItems() {
         return [back, flagButton, helpButton].filter(function(i) { return i.visible })
     }
@@ -356,6 +359,96 @@ Item {
         Material.accent: theme.accent
     }
 
+    // Region / search switches reset the results model, which destroys every tile and
+    // its cover Image. Qt Quick keeps only ~2 MB of unreferenced decoded images, so
+    // coming back meant re-decoding everything from the disk cache. Keep the covers of
+    // the list we just left referenced (one list only: potato RAM), so DK -> US -> DK
+    // paints straight from memory.
+    property var heldCovers: []
+    // Budget = clamp(2 % of MemAvailable, 8 MB, 32 MB), read at start-up and on each
+    // switch; 0 when MemAvailable < 10 % of MemTotal (drop the kept covers at once).
+    property double heldBudget: coverBudget()
+    function coverBudget() {
+        var avail = backend.memAvailable(), total = backend.memTotal()
+        if (avail <= 0 || total <= 0)
+            return 8 * 1048576
+        if (avail < total * 0.10)
+            return 0
+        return Math.min(32 * 1048576, Math.max(8 * 1048576, avail * 0.02))
+    }
+    function holdCurrentCovers() {
+        heldBudget = coverBudget()
+        if (heldBudget <= 0) {
+            heldTrim.stop()
+            heldCovers = []
+            return
+        }
+        // Nearest the view first: on-screen tiles, then the cache-buffer rows.
+        var tiles = []
+        for (var i = 0; i < grid.count; ++i) {
+            var t = grid.itemAtIndex(i)
+            if (t && t.coverArt && t.coverArt.status === Image.Ready && t.coverArt.source.toString() !== "") {
+                var mid = t.y + t.height / 2 - grid.contentY - grid.height / 2
+                tiles.push({ d: Math.abs(mid), a: t.coverArt })
+            }
+        }
+        tiles.sort(function(x, y) { return x.d - y.d })
+        var now = [], bytes = 0
+        for (var j = 0; j < tiles.length; ++j) {
+            var a = tiles[j].a
+            var w = a.sourceSize.width, h = a.sourceSize.height
+            var cost = w * h * 4
+            if (bytes + cost > heldBudget)
+                break
+            bytes += cost
+            now.push({ s: a.source, w: w, h: h })
+        }
+        heldBytes = bytes
+        if (now.length === 0) {
+            heldCovers = []
+            return
+        }
+        // Keep the older set alive until the new tiles have picked up their images.
+        heldCovers = heldCovers.concat(now)
+        heldKeep = now.length
+        heldTrim.restart()
+    }
+    property double heldBytes: 0
+    property int heldKeep: 0
+    Timer {
+        id: heldTrim
+        interval: 1500
+        onTriggered: if (page.heldCovers.length > page.heldKeep)
+                         page.heldCovers = page.heldCovers.slice(page.heldCovers.length - page.heldKeep)
+    }
+    // Force refresh: never let a kept cover show the old picture.
+    function dropHeldCovers() {
+        heldTrim.stop()
+        heldCovers = []
+        heldBytes = 0
+        heldKeep = 0
+    }
+    Connections {
+        target: backend
+        function onArtworkForced() { page.dropHeldCovers() }
+    }
+    Connections {
+        target: explore.results
+        function onModelAboutToBeReset() { page.holdCurrentCovers() }
+    }
+    Repeater {
+        model: page.heldCovers
+        delegate: Image {
+            required property var modelData
+            visible: false
+            asynchronous: true
+            cache: true
+            source: modelData.s
+            sourceSize.width: modelData.w
+            sourceSize.height: modelData.h
+        }
+    }
+
     GridView {
         id: grid
         anchors.top: subhead.bottom
@@ -377,6 +470,7 @@ Item {
             id: tile
             required property int index
             required property var model
+            readonly property Item coverArt: art
             width: grid.cellWidth
             height: grid.cellHeight
 
@@ -417,8 +511,9 @@ Item {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        sourceSize.width: Math.max(168, cover.width * 2)
-                        sourceSize.height: Math.max(168, cover.height * 2)
+                        // Decode at the on-screen size only (×DPR): a 2× decode cost 4× the RAM.
+                        sourceSize.width: Math.max(32, Math.ceil(cover.width * Screen.devicePixelRatio))
+                        sourceSize.height: Math.max(32, Math.ceil(cover.height * Screen.devicePixelRatio))
                     }
                     Rectangle {
                         anchors.fill: parent

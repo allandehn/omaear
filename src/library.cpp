@@ -9,6 +9,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <sys/stat.h>
 #include <QVariant>
 
 namespace {
@@ -111,6 +112,14 @@ bool Library::migrateLegacyLocations(QString *message)
     if (message)
         *message = log.join(QLatin1Char('\n'));
     return true;
+}
+
+QString Library::fileIdentity(const QString &path)
+{
+    struct stat st;
+    if (::stat(QFile::encodeName(path).constData(), &st) != 0)
+        return {};
+    return QStringLiteral("%1:%2").arg(qulonglong(st.st_dev)).arg(qulonglong(st.st_ino));
 }
 
 QString Library::settingsPath()

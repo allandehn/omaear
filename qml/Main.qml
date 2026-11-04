@@ -581,8 +581,13 @@ ApplicationWindow {
         } else if (kind === "explore") {
             if (explore.previewOpen)
                 return [{ name: "preview", items: explorePage.previewItems() }]
-            list.push({ name: "top", items: explorePage.navItems() })
+            // Find: every header control is its own Tab stop, in reading order:
+            // back, search field, region, info, results, player (wrapping).
+            var ex = explorePage.navItems()   // [back, flag, help] (visible ones)
+            list.push({ name: "top", items: ex.filter(function(i) { return i === explorePage.backItem }) })
             list.push({ name: "search", zone: "search", items: explorePage.searchItems() })
+            list.push({ name: "region", zone: "region", items: ex.filter(function(i) { return i === explorePage.regionItem }) })
+            list.push({ name: "info", zone: "info", items: ex.filter(function(i) { return i === explorePage.infoItem }) })
             list.push({ name: "grid", grid: explorePage })
         } else if (kind === "show") {
             var sp = activeShow()
@@ -612,7 +617,7 @@ ApplicationWindow {
         return list.filter(function(a) { return a.grid ? a.grid.navCount > 0 : a.items.length > 0 })
     }
     function navZoneOf(name) {
-        return name === "top" || name === "player" || name === "search" ? name : "content"
+        return ["top", "player", "search", "region", "info"].indexOf(name) >= 0 ? name : "content"
     }
 
     function navAreas() { return navAreasFor(pageKind) }

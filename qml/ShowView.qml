@@ -51,9 +51,18 @@ Item {
     property double kbdEpisodeId: 0
     // Two virtual columns per row: 0 = cover (Enter plays), 1 = text (Enter opens details).
     property int kbdCol: 1
+    // Fresh entry: description column. openShowChanged also fires on every library
+    // refresh (play/pause updates unplayed counts), so only reset on a real show change,
+    // otherwise Enter on a cover looked like it moved focus to the text column.
+    property double kbdColShowId: 0
     Connections {
         target: backend
-        function onOpenShowChanged() { page.kbdCol = 1 } // fresh entry: description column
+        function onOpenShowChanged() {
+            if (backend.openShowId !== page.kbdColShowId) {
+                page.kbdColShowId = backend.openShowId
+                page.kbdCol = 1
+            }
+        }
     }
     // Left/Right switch columns inside the row, wrapping (two columns: either key
     // flips cover <-> text). Always consumed: never jumps rows.
@@ -78,10 +87,16 @@ Item {
     function openNavItem() {
         if (navCount <= 0)
             return
+        // Act on the focused episode by id: rows can reorder or vanish (unplayed
+        // filter, refresh) between the focus move and Enter.
+        syncNavIndex()
+        var id = kbdEpisodeId
+        if (!id)
+            return
         if (kbdCol === 0)
-            backend.playEpisode(list.model.episodeIdAt(kbdIndex))
+            backend.playEpisode(id)
         else
-            win.openEpisodePage(list.model.episodeIdAt(kbdIndex))
+            win.openEpisodePage(id)
     }
 
     function zoomIn() {

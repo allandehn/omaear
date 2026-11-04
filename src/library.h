@@ -82,6 +82,9 @@ public:
     bool isOpen() const { return m_open; }
     QString error() const { return m_error; }
     QString path() const { return m_path; }
+    // "dev:inode" of a file, empty if it is missing. A long-lived player compares this
+    // with what it opened, to notice the library was deleted or replaced underneath it.
+    static QString fileIdentity(const QString &path);
 
     QList<ShowRow> shows() const;
     QList<EpisodeRow> episodes(qint64 showId) const;
