@@ -1,6 +1,7 @@
 // Headless UI self-test (OMAEAR_UI_TEST=1, offscreen, temp library only).
 // Drives the real window with synthetic mouse events delivered to THIS
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
+#include <QDir>
 #include <QCursor>
 #include <QGuiApplication>
 #include <QImage>
@@ -124,6 +125,39 @@ void startUiTest(QQmlApplicationEngine &engine)
     t->win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     t->win->resize(1400, 900);
     QPointF row;
+    // OMAEAR_UI_TEST_SHOTS=<dir>: grab the dialogs, the player bar (autoplay on
+    // and off) and Now Playing into <dir> for design review. Pair it with
+    // OMAEAR_ROUNDING=<R> to pin the corner radius.
+    const QString shots = qEnvironmentVariable("OMAEAR_UI_TEST_SHOTS");
+    if (!shots.isEmpty()) {
+        QDir().mkpath(shots);
+        const QString r = QStringLiteral("-r") + QString::number(t->eval("theme.rounding").toInt());
+        auto grab = [t, shots, r](const char *name) {
+            const QString path = shots + QLatin1Char('/') + QLatin1String(name) + r + QStringLiteral(".png");
+            t->expect(t->win->grabWindow().save(path), name);
+        };
+        t->steps = {
+            {1000, [t]() { t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), backend.shows.titleAt ? backend.shows.titleAt(0) : 'this podcast')"); }},
+            {700, [grab]() { grab("unsubscribe"); }},
+            {200, [t]() { t->eval("win.closeModals(); win.confirmUnsubscribeAll()"); }},
+            {700, [grab]() { grab("unsubscribe-all-step1"); }},
+            {200, [t]() { t->eval("dialog.accepted()"); }},
+            {700, [t, grab]() {
+                t->expect(t->eval("confirmUnsubAll2 && dialog.selectedIndex === 0").toBool(), "step 2 starts on Cancel");
+                grab("unsubscribe-all-step2");
+            }},
+            {200, [t]() { t->eval("win.closeModals(); feedField.text = ''; win.addOpen = true"); }},
+            {700, [grab]() { grab("add-feed"); }},
+            {200, [t]() { t->eval("win.closeModals(); if (!backend.queueAutoplay) backend.toggleQueueAutoplay()"); }},
+            {700, [grab]() { grab("playerbar-autoplay-on"); }},
+            {200, [t]() { t->eval("backend.toggleQueueAutoplay()"); }},
+            {700, [grab]() { grab("playerbar-autoplay-off"); }},
+            {200, [t]() { t->eval("backend.toggleQueueAutoplay(); win.openNowPlayingPage()"); }},
+            {1200, [grab]() { grab("now-playing"); }},
+        };
+        t->run(0);
+        return;
+    }
     const QString shot = qEnvironmentVariable("OMAEAR_UI_TEST_SHOT");
     if (!shot.isEmpty()) {
         t->steps = {

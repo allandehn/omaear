@@ -51,7 +51,7 @@ Item {
         color: theme.background
         border.color: theme.selection
         border.width: 1
-        radius: 8
+        radius: theme.rCard
         clip: true
 
         // Clicks on the padding stay in the card. The dim area behind it dismisses.

@@ -232,7 +232,7 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 visible: page.kbdRing && index === page.kbdIndex
-                radius: 4
+                radius: theme.rButton
                 color: "transparent"
                 border.width: 1
                 border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
@@ -363,7 +363,7 @@ Item {
                     visible: !model.played && model.duration > 0 && model.positionMs > 0
                     width: parent.width
                     height: 3
-                    radius: 1
+                    radius: theme.rIcon
                     color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.15)
                     Rectangle {
                         width: parent.width * Math.min(1, model.positionMs / (model.duration * 1000))

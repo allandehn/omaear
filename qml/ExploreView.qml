@@ -180,6 +180,7 @@ Item {
             background: Rectangle {
                 color: theme.selection
                 opacity: 0.55
+                radius: theme.rButton
             }
             onTextEdited: { explore.setQuery(text); page.kbdIndex = 0 }
             // Keys the field doesn't need hand over to page navigation: Up/Down,
@@ -394,7 +395,7 @@ Item {
                         visible: page.kbdRing && tile.index === page.kbdIndex
                         anchors.fill: parent
                         anchors.margins: -4
-                        radius: 4
+                        radius: theme.rButton
                         color: "transparent"
                         border.width: 2
                         border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
@@ -776,6 +777,7 @@ Item {
             color: theme.background
             border.color: theme.foreground
             border.width: 1
+            radius: theme.rButton
         }
 
         onAboutToShow: {
@@ -820,6 +822,7 @@ Item {
                 background: Rectangle {
                     color: theme.selection
                     opacity: 0.55
+                    radius: theme.rButton
                 }
                 onTextEdited: {
                     regionPopup.filter = text

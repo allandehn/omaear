@@ -369,7 +369,7 @@ Item {
                                  && backend.openEpisodePositionMs > 0
                         width: Math.min(parent.width, 280 * theme.textScale)
                         height: 3
-                        radius: 1
+                        radius: theme.rIcon
                         color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.15)
                         Rectangle {
                             width: parent.width * Math.min(1, backend.openEpisodePositionMs

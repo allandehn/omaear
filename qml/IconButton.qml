@@ -39,7 +39,7 @@ Button {
     implicitHeight: 36 * theme.textScale
 
     background: Rectangle {
-        radius: 6
+        radius: theme.rButton
         color: !control.enabled ? "transparent"
              : control.down ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.16)
              : control.hovered || control.kbdFocus ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)

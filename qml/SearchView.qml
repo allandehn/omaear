@@ -157,6 +157,7 @@ Item {
             background: Rectangle {
                 color: theme.selection
                 opacity: 0.55
+                radius: theme.rButton
             }
             onTextEdited: librarySearch.setQuery(text)
             // Enter opens the top result.
@@ -537,7 +538,7 @@ Item {
         readonly property bool last: on && (librarySearch.fields & ~bit) === 0
         implicitWidth: chipText.implicitWidth + 18
         implicitHeight: chipText.implicitHeight + 6
-        radius: height / 2
+        radius: theme.rButton
         color: on ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b,
                             chipMouse.containsMouse ? 0.16 : 0.10)
                   : chipMouse.containsMouse ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.06)

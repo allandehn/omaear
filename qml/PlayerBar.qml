@@ -335,9 +335,9 @@ Rectangle {
                     IconButton {
                         id: autoplayButton
                         visible: !extras.dropAutoplay
-                        icon.source: "qrc:/icons/autoplay-queue-symbolic.svg"
-                        glyph: backend.queueAutoplay ? theme.foreground : theme.muted
-                        tip: backend.queueAutoplay ? "Autoplay queue: on" : "Autoplay queue: off"
+                        icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                        glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                        tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }
                     // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
@@ -540,14 +540,14 @@ Rectangle {
                         Rectangle {
                             width: parent.width
                             height: parent.height
-                            radius: 3
+                            radius: theme.rButton
                             color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.18)
                         }
                         Rectangle {
                             anchors.bottom: parent.bottom
                             width: parent.width
                             height: parent.height * volumeSlider.position
-                            radius: 3
+                            radius: theme.rButton
                             color: theme.accent
                         }
                     }

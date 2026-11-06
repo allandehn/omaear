@@ -14,6 +14,7 @@
         <file alias="EpisodeMenu.qml">qml/EpisodeMenu.qml</file>
         <file alias="ArtMenu.qml">qml/ArtMenu.qml</file>
         <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
+        <file alias="ConfirmDialog.qml">qml/ConfirmDialog.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>
@@ -34,8 +35,8 @@
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
         <file alias="icons/back-symbolic.svg">qml/icons/back-symbolic.svg</file>
         <file alias="icons/info-symbolic.svg">qml/icons/info-symbolic.svg</file>
-        <file alias="icons/autoplay-on-symbolic.svg">qml/icons/autoplay-on-symbolic.svg</file>
-        <file alias="icons/autoplay-off-symbolic.svg">qml/icons/autoplay-off-symbolic.svg</file>
+        <file alias="icons/autoplay-b-on-symbolic.svg">qml/icons/autoplay-b-on-symbolic.svg</file>
+        <file alias="icons/autoplay-b-off-symbolic.svg">qml/icons/autoplay-b-off-symbolic.svg</file>
         <file alias="icons/queue-add-symbolic.svg">qml/icons/queue-add-symbolic.svg</file>
         <file alias="icons/queue-remove-symbolic.svg">qml/icons/queue-remove-symbolic.svg</file>
         <file alias="icons/queue-clear-symbolic.svg">qml/icons/queue-clear-symbolic.svg</file>
