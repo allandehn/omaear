@@ -1,6 +1,7 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/">
+        <file alias="cover-shadow.png">assets/cover-shadow.png</file>
         <file alias="Main.qml">qml/Main.qml</file>
         <file alias="HelpOverlay.qml">qml/HelpOverlay.qml</file>
         <file alias="ShelfView.qml">qml/ShelfView.qml</file>

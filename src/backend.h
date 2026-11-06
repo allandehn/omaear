@@ -54,6 +54,8 @@ class Backend : public QObject {
     Q_PROPERTY(double playerVolume READ playerVolume NOTIFY playerStateChanged)
     Q_PROPERTY(bool playerMono READ playerMono NOTIFY monoChanged)
     Q_PROPERTY(bool queueAutoplay READ queueAutoplay NOTIFY queueAutoplayChanged)
+    // Try-out: eased keyboard ring and cover lift (ui.motionTryout, on by default while testing).
+    Q_PROPERTY(bool motionTryout READ motionTryout NOTIFY motionTryoutChanged)
     Q_PROPERTY(QString playerDescription READ playerDescription NOTIFY playerStateChanged)
     Q_PROPERTY(double playerPosition READ playerPosition NOTIFY playerPositionChanged)
     Q_PROPERTY(double playerDuration READ playerDuration NOTIFY playerStateChanged)
@@ -111,6 +113,8 @@ public:
     bool playerMono() const { return m_playerMono; }
     bool queueAutoplay() const { return m_library.queueAutoplay(); }
     Q_INVOKABLE void toggleQueueAutoplay();
+    bool motionTryout() const { return m_library.motionTryout(); }
+    Q_INVOKABLE void toggleMotionTryout();
     // Opens the default terminal running `omarchy update`. False if no terminal launcher.
     Q_INVOKABLE bool runSystemUpdate();
     // Quits the window and the player, then starts the new version.
@@ -235,6 +239,7 @@ public:
 
 signals:
     void queueAutoplayChanged();
+    void motionTryoutChanged();
     void monoChanged();
     void statusChanged();
     void busyChanged();
