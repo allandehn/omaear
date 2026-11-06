@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QImage>
 #include <QList>
 #include <QObject>
 #include <QStringList>
@@ -19,6 +20,11 @@ QString localCoverSource(const QString &path);
 constexpr int kCoverTileSide = 512;
 constexpr int kCoverRowSide = 256;
 
+// Artwork that bakes its own rounded corners on a flat colour: all four corner
+// pixels match each other and differ from the art just inside them (along the
+// diagonal and along both edges). Pure; used once per image (cached by path).
+bool hasFlatRoundedCorners(const QImage &image);
+
 // Background thread: decode these covers into the memory cache (startup).
 void prewarmCovers(const QStringList &paths, const QList<int> &sides);
 
@@ -33,6 +39,8 @@ public:
     int tileSide() const { return kCoverTileSide; }
     int rowSide() const { return kCoverRowSide; }
     Q_INVOKABLE bool ready(const QString &source, int side) const;
+    // Cached hasFlatRoundedCorners() for a cover source (image:// or file).
+    Q_INVOKABLE bool preRounded(const QString &source) const;
 };
 
 // Decoded episode/show covers, memory-cached (Qt Quick's own cache keeps only

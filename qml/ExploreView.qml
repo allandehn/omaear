@@ -363,6 +363,11 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: art; radius: cover.coverRadius }
+                    Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
 
                     Rectangle {
                         anchors.fill: parent
@@ -565,6 +570,10 @@ Item {
                             asynchronous: true
                             sourceSize.width: width * 2
                             sourceSize.height: height * 2
+                            readonly property real coverRadius: theme.rCard
+                            layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                            layer.smooth: true
+                            layer.effect: CoverClip { art: previewArt; radius: previewArt.coverRadius }
                             Rectangle {
                                 anchors.fill: parent
                                 color: theme.selection

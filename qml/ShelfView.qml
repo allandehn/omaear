@@ -349,8 +349,14 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: tileImage; radius: cover.coverRadius }
+                    Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
 
                     Image {
+                        id: tileImage
                         anchors.fill: parent
                         source: model.cover
                         fillMode: Image.PreserveAspectCrop
@@ -511,6 +517,11 @@ Item {
                 width: shelf.listCover
                 height: width
                 clip: true
+                readonly property real coverRadius: theme.rInner(8)
+                layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                layer.smooth: true
+                layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
+                Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
 
                 Image {
                     id: rowCover

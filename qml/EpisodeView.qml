@@ -322,7 +322,12 @@ Item {
                     height: width
                     color: theme.selection
                     visible: page.art !== ""
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: episodeImage; radius: artFrame.coverRadius }
                     Image {
+                        id: episodeImage
                         anchors.fill: parent
                         source: page.art
                         fillMode: Image.PreserveAspectCrop
@@ -337,6 +342,7 @@ Item {
                 Rectangle {
                     width: 160 * theme.textScale
                     height: width
+                    radius: theme.rCard
                     color: theme.selection
                     visible: page.art === ""
                     Text {

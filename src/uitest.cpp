@@ -126,7 +126,7 @@ void startUiTest(QQmlApplicationEngine &engine)
     t->win->resize(1400, 900);
     QPointF row;
     // OMAEAR_UI_TEST_SHOTS=<dir>: grab the dialogs, the player bar (autoplay on
-    // and off) and Now Playing into <dir> for design review. Pair it with
+    // and off), the shelf, Now Playing and the episode page into <dir> for design review. Pair it with
     // OMAEAR_ROUNDING=<R> to pin the corner radius.
     const QString shots = qEnvironmentVariable("OMAEAR_UI_TEST_SHOTS");
     if (!shots.isEmpty()) {
@@ -137,13 +137,16 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->win->grabWindow().save(path), name);
         };
         t->steps = {
-            {1000, [t]() { t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), backend.shows.titleAt ? backend.shows.titleAt(0) : 'this podcast')"); }},
+            {2500, [grab]() { grab("shelf"); }},
+            {200, [t]() { t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), backend.shows.titleAt ? backend.shows.titleAt(0) : 'this podcast')"); }},
             {700, [grab]() { grab("unsubscribe"); }},
             {200, [t]() { t->eval("win.closeModals(); win.confirmUnsubscribeAll()"); }},
             {700, [grab]() { grab("unsubscribe-all-step1"); }},
             {200, [t]() { t->eval("dialog.accepted()"); }},
             {700, [t, grab]() {
                 t->expect(t->eval("confirmUnsubAll2 && dialog.selectedIndex === 0").toBool(), "step 2 starts on Cancel");
+                t->expect(t->eval("dialog.title === 'Unsubscribe from all ' + unsubAllCount + (unsubAllCount === 1 ? ' podcast?' : ' podcasts?')"
+                                  " && dialog.detail === \"This can't be undone.\"").toBool(), "step 2 title has the count");
                 grab("unsubscribe-all-step2");
             }},
             {200, [t]() { t->eval("win.closeModals(); feedField.text = ''; win.addOpen = true"); }},
@@ -154,6 +157,8 @@ void startUiTest(QQmlApplicationEngine &engine)
             {700, [grab]() { grab("playerbar-autoplay-off"); }},
             {200, [t]() { t->eval("backend.toggleQueueAutoplay(); win.openNowPlayingPage()"); }},
             {1200, [grab]() { grab("now-playing"); }},
+            {200, [t]() { t->eval("win.openEpisodePage(backend.playerEpisodeId)"); }},
+            {1200, [grab]() { grab("episode"); }},
         };
         t->run(0);
         return;

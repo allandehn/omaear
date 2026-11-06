@@ -1054,7 +1054,10 @@ ApplicationWindow {
             id: dialog
             anchors.centerIn: parent
             visible: dialogScrim.visible
-            title: addOpen ? "Add a feed" : ""
+            title: addOpen ? "Add a feed"
+                   : confirmUnsubAll2 ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "?"
+                   : ""
+            detail: confirmUnsubAll2 ? "This can't be undone." : ""
             destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
             startOnCancel: confirmUnsubAll2
             initialFocusItem: addOpen ? feedField : null
@@ -1062,7 +1065,7 @@ ApplicationWindow {
                      : confirmUnsubAll
                      ? "Unsubscribe from all podcasts?"
                      : confirmUnsubAll2
-                     ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "? This can't be undone."
+                     ? ""
                      : confirmQueue
                      ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
                      : confirmRemove

@@ -11,6 +11,8 @@ Rectangle {
     id: dialog
     property string title: ""
     property string message: ""
+    // Optional dimmed second line under the message (e.g. "This can't be undone.").
+    property string detail: ""
     property string actionLabel: ""
     property string cancelLabel: "Cancel"
     property bool destructive: false
@@ -79,6 +81,15 @@ Rectangle {
             wrapMode: Text.Wrap
             text: dialog.message
             color: theme.foreground
+            font.pixelSize: theme.body
+            font.weight: Font.Normal
+        }
+        Text {
+            visible: dialog.detail.length > 0
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: dialog.detail
+            color: theme.dim
             font.pixelSize: theme.body
             font.weight: Font.Normal
         }

@@ -10,12 +10,19 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QCache>
+#include <QHash>
 #include <QAtomicInt>
 #include <QThreadPool>
 #include <QUrl>
 
 namespace {
 QMutex cacheMutex;
+// path -> pre-rounded flag, computed once per decoded image.
+QHash<QString, bool> &cornerFlags()
+{
+    static QHash<QString, bool> flags;
+    return flags;
+}
 
 // On-disk thumbnails at the requested display size. Originals are up to
 // 3000x3000, so decoding them on every launch made covers fill in one by one;
@@ -131,6 +138,12 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
     const int cost = qMax(1, int(image.sizeInBytes()));
     QMutexLocker lock(&cacheMutex);
     memoryCache().insert(key, new QImage(image), cost);
+    if (!cornerFlags().contains(path)) {
+        lock.unlock();
+        const bool flat = hasFlatRoundedCorners(image); // ~40 pixel reads
+        lock.relock();
+        cornerFlags().insert(path, flat);
+    }
     return image;
 }
 }
@@ -153,6 +166,75 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
             }, side == sides.constFirst() ? 1 : 0);
         }
     }
+}
+
+bool hasFlatRoundedCorners(const QImage &image)
+{
+    const int w = image.width(), h = image.height();
+    if (w < 24 || h < 24)
+        return false;
+    // Small 2x2 average so JPEG noise does not decide alone.
+    auto at = [&](int x, int y) {
+        int r = 0, g = 0, b = 0, a = 0;
+        for (int dy = 0; dy < 2; ++dy)
+            for (int dx = 0; dx < 2; ++dx) {
+                const QRgb c = image.pixel(qBound(0, x + dx, w - 2), qBound(0, y + dy, h - 2));
+                r += qRed(c); g += qGreen(c); b += qBlue(c); a += qAlpha(c);
+            }
+        return qRgba(r / 4, g / 4, b / 4, a / 4);
+    };
+    auto same = [](QRgb p, QRgb q, int tol) {
+        if (qAlpha(p) < 16 && qAlpha(q) < 16)
+            return true; // both transparent
+        return qAbs(qRed(p) - qRed(q)) <= tol && qAbs(qGreen(p) - qGreen(q)) <= tol
+            && qAbs(qBlue(p) - qBlue(q)) <= tol && qAbs(qAlpha(p) - qAlpha(q)) <= tol;
+    };
+    const int side = qMin(w, h);
+    const int diag = qMax(2, int(side * 0.05));  // inside an arc of radius <= ~17%
+    const int edge = qMax(3, int(side * 0.20));  // past the arc, on the edge itself
+    struct Corner { int x, y, sx, sy; };
+    const Corner corners[4] = { {0, 0, 1, 1}, {w - 2, 0, -1, 1}, {0, h - 2, 1, -1}, {w - 2, h - 2, -1, -1} };
+    const QRgb ref = at(0, 0);
+    int artInside = 0;
+    for (const Corner &c : corners) {
+        const QRgb corner = at(c.x, c.y);
+        if (!same(corner, ref, 10))
+            return false; // corners must all be one flat colour
+        const bool diagArt = !same(corner, at(c.x + c.sx * diag, c.y + c.sy * diag), 24);
+        const bool edgeArt = !same(corner, at(c.x + c.sx * edge, c.y), 24)
+            && !same(corner, at(c.x, c.y + c.sy * edge), 24);
+        if (diagArt && edgeArt)
+            ++artInside;
+    }
+    // A plain border or white background fails here: the art must reach the
+    // edges and fill the corner just inside the cut-out at every corner.
+    return artInside == 4;
+}
+
+bool CoverCache::preRounded(const QString &source) const
+{
+    static const QString prefix = QStringLiteral("image://covers/");
+    QString path;
+    if (source.startsWith(prefix))
+        path = absolutePath(source.mid(prefix.size()));
+    else if (source.startsWith(QStringLiteral("file:")))
+        path = QUrl(source).toLocalFile();
+    else if (source.startsWith(QLatin1Char('/')))
+        path = source;
+    if (path.isEmpty())
+        return false;
+    {
+        QMutexLocker lock(&cacheMutex);
+        const auto it = cornerFlags().constFind(path);
+        if (it != cornerFlags().constEnd())
+            return it.value();
+    }
+    // Not decoded through the provider yet: one small decode, then cached.
+    const QImage image = loadCover(path, kCoverRowSide, kCoverRowSide);
+    const bool flat = hasFlatRoundedCorners(image);
+    QMutexLocker lock(&cacheMutex);
+    cornerFlags().insert(path, flat);
+    return flat;
 }
 
 bool CoverCache::ready(const QString &source, int side) const
