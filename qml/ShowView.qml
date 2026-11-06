@@ -33,7 +33,43 @@ Item {
     // Episode list as a one-column grid; the ring follows the episode id.
     property bool kbdRing: false
     property int kbdIndex: 0
+    // Row under the mouse (-1: none). Hover moves kbdIndex there so keys continue from it.
+    // Raw pointer position (row, part); effective only after a real pointer move.
+    property int hoverRaw: -1
+    property int hoverRawCol: 1
+    property double hoverRawEpisodeId: 0
+    readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
+    function applyHover() {
+        if (hoverIndex < 0)
+            return
+        kbdIndex = hoverIndex
+        kbdEpisodeId = hoverRawEpisodeId
+        kbdCol = hoverRawCol
+    }
+    onHoverIndexChanged: applyHover()
+    onHoverRawColChanged: applyHover()
     property double kbdEpisodeId: 0
+    // Two virtual columns per row: 0 = cover (Enter plays), 1 = text (Enter opens details).
+    property int kbdCol: 1
+    // Fresh entry: description column. openShowChanged also fires on every library
+    // refresh (play/pause updates unplayed counts), so only reset on a real show change,
+    // otherwise Enter on a cover looked like it moved focus to the text column.
+    property double kbdColShowId: 0
+    Connections {
+        target: backend
+        function onOpenShowChanged() {
+            if (backend.openShowId !== page.kbdColShowId) {
+                page.kbdColShowId = backend.openShowId
+                page.kbdCol = 1
+            }
+        }
+    }
+    // Left/Right switch columns inside the row, wrapping (two columns: either key
+    // flips cover <-> text). Always consumed: never jumps rows.
+    function navSide(dir) {
+        kbdCol = 1 - kbdCol
+        return true
+    }
     readonly property int navCount: list.count
     readonly property int navColumns: 1
     function syncNavIndex() {
@@ -49,8 +85,18 @@ Item {
         list.positionViewAtIndex(kbdIndex, ListView.Contain)
     }
     function openNavItem() {
-        if (navCount > 0)
-            win.openEpisodePage(list.model.episodeIdAt(kbdIndex))
+        if (navCount <= 0)
+            return
+        // Act on the focused episode by id: rows can reorder or vanish (unplayed
+        // filter, refresh) between the focus move and Enter.
+        syncNavIndex()
+        var id = kbdEpisodeId
+        if (!id)
+            return
+        if (kbdCol === 0)
+            backend.playEpisode(id)
+        else
+            win.openEpisodePage(id)
     }
 
     function zoomIn() {
@@ -162,7 +208,7 @@ Item {
             }
             IconButton {
                 icon.name: "view-refresh-symbolic"
-                tip: "Refresh  ·  Ctrl+click reloads artwork"
+                tip: "Refresh this show  ·  Ctrl+click reloads artwork"
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
@@ -170,16 +216,20 @@ Item {
                 }
                 onClicked: backend.refreshOpenShow(reloadArtwork)
             }
+            // Same set and order as the Shelf bar: eye, refresh, +, ⋯.
             IconButton {
-                icon.source: theme.iconBase + "queue-symbolic.svg"
-                tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
-                onClicked: page.queueRequested()
+                icon.source: theme.iconBase + "add-symbolic.svg"
+                tip: "Add a podcast"
+                onClicked: win.openExplorePage()
             }
+            Item { width: 4; height: 1 } // 8 px before ⋯ (row spacing is 4)
             IconButton {
-                icon.source: theme.iconBase + "info-symbolic.svg"
+                id: moreButton
+                icon.source: theme.iconBase + "more-symbolic.svg"
                 dot: backend.updatePhase === "available"
-                tip: "Info"
-                onClicked: win.helpOpen = true
+                tip: dot ? "More (update available)" : "More"
+                onClicked: showMenu.toggleAt(moreButton, moreButton.width - showMenu.implicitWidth,
+                                             moreButton.height, kbdFocus)
             }
         }
         Column {
@@ -227,11 +277,45 @@ Item {
             readonly property bool navPlayed: model.played
             width: list.width
             height: Math.max(page.listRowHeight, contentColumn.implicitHeight + 20 * theme.textScale)
-            color: hover.containsMouse ? theme.selection : "transparent"
+            color: "transparent" // no hover shading: the cover lifts instead
+            // Same lift as the shelf covers on hover or key focus.
+            // Focus (keys or hover) sits on one part of the row; the ring wraps only that part.
+            readonly property bool focusedRow: (page.kbdRing || page.hoverIndex >= 0) && index === page.kbdIndex
+            readonly property bool coverFocus: focusedRow && page.kbdCol === 0
+            readonly property bool textFocus: focusedRow && page.kbdCol === 1
+            // Cover lifts only when the cover has focus (always; the setting only affects ring glide).
+            readonly property bool lifted: !win.keyRepeating && coverFocus
+            HoverHandler {
+                id: rowHover
+                onHoveredChanged: {
+                    if (hovered) {
+                        page.hoverRawEpisodeId = model.episodeId
+                        if (!coverHover.hovered)
+                            page.hoverRawCol = 1
+                        page.hoverRaw = index
+                    } else if (page.hoverRaw === index) {
+                        page.hoverRaw = -1
+                    }
+                }
+            }
+            // Pre-baked soft shadow under the lifted cover (opacity + scale only).
+            BorderImage {
+                anchors.centerIn: playWell
+                width: playWell.width + 48
+                height: playWell.height + 48
+                source: "qrc:/cover-shadow.png"
+                border { left: 32; right: 32; top: 32; bottom: 32 }
+                opacity: row.lifted ? 1 : 0
+                scale: playWell.scale
+                z: 1
+                Behavior on opacity { NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+            }
 
             Rectangle {
                 anchors.fill: parent
-                visible: page.kbdRing && index === page.kbdIndex
+                // Text-part ring (static, also with navigation animation off).
+                visible: row.textFocus
+                anchors.leftMargin: playWell.x + playWell.width + 6
                 radius: theme.rButton
                 color: "transparent"
                 border.width: 1
@@ -256,6 +340,8 @@ Item {
                 width: page.listCover
                 height: page.listCover
                 z: 2
+                scale: row.lifted ? 1.03 : 1
+                Behavior on scale { NumberAnimation { duration: row.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
 
                 // Episode art when the feed has it; otherwise the show cover.
                 readonly property string art: model.cover && model.cover !== ""
@@ -290,11 +376,6 @@ Item {
                     visible: playWell.art === ""
                     z: 0
                 }
-                Rectangle {
-                    anchors.fill: parent
-                    color: Qt.rgba(0, 0, 0, playButton.hovered || playButton.down ? 0.45 : 0.28)
-                    z: 1
-                }
                 IconButton {
                     id: playButton
                     anchors.fill: parent
@@ -309,7 +390,22 @@ Item {
                     glyph: theme.foreground
                     // Transparent chrome so episode art shows through under the glyph.
                     background: Item {}
+                    // Cover hover: the Play glyph lifts so it's clear a cover click plays.
+                    scale: row.lifted ? 1.14 : 1
+                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                     onClicked: backend.playEpisode(model.episodeId)
+                }
+                HoverHandler {
+                    id: coverHover
+                    onHoveredChanged: {
+                        if (hovered) {
+                            page.hoverRawEpisodeId = model.episodeId
+                            page.hoverRawCol = 0
+                            page.hoverRaw = index
+                        } else if (rowHover.hovered) {
+                            page.hoverRawCol = 1
+                        }
+                    }
                 }
                 // Right-click on the art: the same episode menu as the row.
                 TapHandler {
@@ -324,6 +420,20 @@ Item {
                     // queueCount ties the lookup to queueChanged (add/remove/reorder).
                     slot: backend.queueCount >= 0 ? backend.queueSlot(model.episodeId) : 0
                 }
+            }
+
+            // Cover-part ring: follows the cover's lift.
+            Rectangle {
+                anchors.centerIn: playWell
+                width: playWell.width + 6
+                height: playWell.height + 6
+                scale: playWell.scale
+                visible: row.coverFocus
+                radius: theme.rButton + 2
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+                z: 5
             }
 
             Column {
@@ -412,4 +522,40 @@ Item {
 
 
     EpisodeMenu { id: episodeMenu }
+
+    // Episodes top bar overflow: show actions first, then the Shelf's general items.
+    AppMenu {
+        id: showMenu
+        AppMenuItem {
+            text: "Mark all as played"
+            enabled: backend.openShowUnheard > 0
+            onChosen: win.confirmMarkShow(backend.openShowId, backend.openShowTitle)
+        }
+        AppMenuItem {
+            text: "Unsubscribe"
+            onChosen: win.confirmUnsubscribe(backend.openShowId, backend.openShowTitle)
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Search episodes…"
+            onChosen: win.openSearchPage(backend.openShowId)
+        }
+        AppMenuItem {
+            text: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
+            onChosen: page.queueRequested()
+        }
+        AppMenuItem {
+            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            onChosen: backend.toggleMotionTryout()
+        }
+        AppMenuItem {
+            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            onChosen: backend.toggleGridWrap()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: backend.updatePhase === "available" ? "Info  ·  update available" : "Info"
+            onChosen: win.helpOpen = true
+        }
+    }
 }

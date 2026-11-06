@@ -324,6 +324,8 @@ bool Backend::controlHeld() const
 
 void Backend::refreshAll(bool forceArtwork)
 {
+    if (forceArtwork)
+        emit artworkForced();
     const QStringList urls = m_library.feedUrls();
     if (urls.isEmpty())
         return;
@@ -345,6 +347,8 @@ void Backend::refreshAll(bool forceArtwork)
 
 void Backend::refreshOpenShow(bool forceArtwork)
 {
+    if (forceArtwork)
+        emit artworkForced();
     if (m_openShowId == 0)
         return;
     if (forceArtwork)
@@ -1055,6 +1059,16 @@ void Backend::invokePlayer(const QString &method, const QVariantList &args)
                                       QDBusConnection::sessionBus(), this);
     }
     m_player->callWithArgumentList(QDBus::Block, method, args);
+    // A stale player (its library file was replaced) drops off the bus instead of
+    // acting on ids from the old database. Replay this call on a fresh player.
+    if (!playerReady() && (method == QStringLiteral("Load") || method == QStringLiteral("LoadPaused")
+                           || method == QStringLiteral("PlayPause"))) {
+        applyPlayerState({});
+        if (method != QStringLiteral("PlayPause"))
+            m_pendingPlayerCalls.append({method, args});
+        startPlayerService();
+        return;
+    }
     pollPlayer();
 }
 
@@ -1238,6 +1252,12 @@ void Backend::toggleMotionTryout()
 {
     m_library.setMotionTryout(!m_library.motionTryout());
     emit motionTryoutChanged();
+}
+
+void Backend::toggleGridWrap()
+{
+    m_library.setGridWrapFull(!m_library.gridWrapFull());
+    emit gridWrapChanged();
 }
 
 void Backend::toggleMono()
@@ -1499,10 +1519,11 @@ void Backend::pollPlayer()
 void Backend::applyPlayerState(const QVariantMap &state)
 {
     const qint64 episodeId = state.value(QStringLiteral("episodeId")).toLongLong();
-    const qint64 showId = state.value(QStringLiteral("showId")).toLongLong();
-    const QString title = state.value(QStringLiteral("title")).toString();
-    const QString showTitle = state.value(QStringLiteral("showTitle")).toString();
+    qint64 showId = state.value(QStringLiteral("showId")).toLongLong();
+    QString title = state.value(QStringLiteral("title")).toString();
+    QString showTitle = state.value(QStringLiteral("showTitle")).toString();
     QString art = state.value(QStringLiteral("art")).toString();
+    QString description = state.value(QStringLiteral("description")).toString();
     // Prefer library episode art (cache or URL) over whatever the player last published,
     // so Now Playing / PlayerBar never stay stuck on show cover after a download lands.
     if (episodeId != 0) {
@@ -1511,6 +1532,12 @@ void Backend::applyPlayerState(const QVariantMap &state)
             const QString preferred = preferredPlayerArt(m_library, row);
             if (!preferred.isEmpty())
                 art = preferred;
+            // Title, show and notes come from the same library row as the art, so the
+            // bar and Now playing can never mix two episodes.
+            showId = row.showId;
+            title = row.title;
+            showTitle = m_library.showTitle(row.showId);
+            description = row.description;
         }
     }
     const QString status = state.value(QStringLiteral("status"), QStringLiteral("stopped")).toString();
@@ -1520,7 +1547,6 @@ void Backend::applyPlayerState(const QVariantMap &state)
     const double volume = state.contains(QStringLiteral("volume"))
         ? state.value(QStringLiteral("volume")).toDouble()
         : m_library.volume();
-    const QString description = state.value(QStringLiteral("description")).toString();
     const double position = state.value(QStringLiteral("position")).toDouble();
     const double duration = state.value(QStringLiteral("duration")).toDouble();
 
@@ -2139,3 +2165,24 @@ void Backend::startUpdateCheck()
                                  .arg(reply->errorString());
     });
 }
+
+qint64 Backend::meminfoBytes(const QByteArray &key)
+{
+    QFile f(QStringLiteral("/proc/meminfo"));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return 0;
+    // /proc files report size 0, so atEnd() is true at once: read it in one go.
+    const QList<QByteArray> lines = f.readAll().split('\n');
+    for (const QByteArray &line : lines) {
+        if (!line.startsWith(key) || line.size() <= key.size() || line.at(key.size()) != ':')
+            continue;
+        const QList<QByteArray> parts = line.mid(key.size() + 1).simplified().split(' ');
+        bool ok = false;
+        const qint64 kb = parts.value(0).toLongLong(&ok);
+        return ok ? kb * 1024 : 0;
+    }
+    return 0;
+}
+
+double Backend::memAvailable() const { return double(meminfoBytes("MemAvailable")); }
+double Backend::memTotal() const { return double(meminfoBytes("MemTotal")); }

@@ -271,6 +271,16 @@ void LibrarySearch::setQuery(const QString &query)
     });
 }
 
+void LibrarySearch::setScope(qint64 showId)
+{
+    if (showId == m_scope)
+        return;
+    m_scope = showId;
+    if (showId)
+        ensureIndex(); // scopeTitle comes from the index
+    run();
+}
+
 void LibrarySearch::libraryChanged()
 {
     if (!m_indexed)
@@ -345,6 +355,8 @@ void LibrarySearch::run()
         QVector<Match> matches;
         for (int d = 0; d < m_docs.size(); ++d) {
             const Doc &doc = m_docs.at(d);
+            if (m_scope && doc.row.showId != m_scope)
+                continue;
             int tier = 0;
             for (const QStringMatcher &m : matchers) {
                 if (useShow && m.indexIn(doc.showLower) >= 0)

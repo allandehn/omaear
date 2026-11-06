@@ -19,6 +19,9 @@ class Theme : public QObject {
     Q_PROPERTY(QColor muted READ muted NOTIFY changed)
     Q_PROPERTY(QColor dim READ dim NOTIFY changed)
     Q_PROPERTY(QColor urgent READ urgent NOTIFY changed)
+    // Tints derived from the live theme in OKLCH (recomputed in loadColors()).
+    Q_PROPERTY(QColor barBackground READ barBackground NOTIFY changed)
+    Q_PROPERTY(QColor pillBackground READ pillBackground NOTIFY changed)
     // Live Hyprland decoration:rounding (R) and the radius scale derived from it.
     Q_PROPERTY(int rounding READ rounding NOTIFY roundingChanged)
     Q_PROPERTY(int rCard READ rounding NOTIFY roundingChanged)
@@ -47,6 +50,12 @@ public:
     QColor muted() const { return m_muted; }
     QColor dim() const { return m_dim; }
     QColor urgent() const { return m_urgent; }
+    QColor barBackground() const { return m_barBackground; }
+    QColor pillBackground() const { return m_pillBackground; }
+    // Shift a colour's OKLCH lightness by dL and scale its chroma by cScale,
+    // keeping hue and alpha. Out-of-gamut results are pulled in by lowering C.
+    static qreal oklchLightness(const QColor &c);
+    static QColor oklchNudge(const QColor &c, qreal dL, qreal cScale = 1.0);
     int rounding() const { return m_rounding; }
     int rButton() const { return qMin(m_rounding, 4); }
     int rIcon() const { return qMin(qRound(m_rounding / 4.0), 2); }
@@ -100,6 +109,8 @@ private:
     int m_display = 24;
     QFileSystemWatcher m_watcher;
     QColor m_urgent = QColor("#e06c75");
+    QColor m_barBackground = QColor("#0d0d0d");
+    QColor m_pillBackground = QColor("#0b0b0b");
     int m_rounding = 0;          // last good value; Omarchy default is square
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
     QProcess m_roundingProc;

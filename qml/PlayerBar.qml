@@ -8,7 +8,7 @@ Rectangle {
     // refresh runs. Spinner / StatusNote still use backend.busy elsewhere.
     signal nowPlayingRequested()
     signal nowPlayingCollapseRequested()
-    color: theme.darkMode ? Qt.darker(theme.background, 1.25) : Qt.lighter(theme.background, 1.08)
+    color: theme.barBackground
     implicitHeight: 96 * theme.textScale
     height: implicitHeight
 
@@ -232,6 +232,7 @@ Rectangle {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 15 * theme.textScale
+                        icon.height: 15 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 30 * theme.textScale
                         implicitHeight: 30 * theme.textScale
                         icon.name: "media-skip-backward-symbolic"
@@ -243,6 +244,7 @@ Rectangle {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 22 * theme.textScale
+                        icon.height: 22 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 40 * theme.textScale
                         implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-backward-symbolic"
@@ -255,6 +257,7 @@ Rectangle {
                         // Size tier (play): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 27 * theme.textScale
+                        icon.height: 27 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 44 * theme.textScale
                         implicitHeight: 44 * theme.textScale
                         icon.name: backend.playerStatus === "playing"
@@ -269,6 +272,7 @@ Rectangle {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 22 * theme.textScale
+                        icon.height: 22 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 40 * theme.textScale
                         implicitHeight: 40 * theme.textScale
                         icon.name: "media-seek-forward-symbolic"
@@ -281,6 +285,7 @@ Rectangle {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 15 * theme.textScale
+                        icon.height: 15 * theme.textScale // square: IconButton's default height is 18
                         implicitWidth: 30 * theme.textScale
                         implicitHeight: 30 * theme.textScale
                         enabled: bar.upNextId !== 0
@@ -353,13 +358,14 @@ Rectangle {
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }
-                    // Mono downmix: bright when on, dimmed when off (shared with Now Playing).
+                    // Mono/Stereo switch (shared with Now Playing).
                     IconButton {
                         id: monoButton
                         visible: !extras.dropMono
-                        icon.source: theme.iconBase + "mono-symbolic.svg"
-                        glyph: backend.playerMono ? theme.foreground : theme.muted
-                        tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
+                        // A Mono/Stereo switch, never "off": the icon shows the current mode.
+                        icon.source: theme.iconBase + (backend.playerMono ? "mono-symbolic.svg" : "stereo-symbolic.svg")
+                        tip: backend.playerMono ? "Mono (left and right mixed)  ·  click for stereo"
+                                                : "Stereo (left and right separate)  ·  click for mono"
                         onClicked: backend.toggleMono()
                     }
                     IconButton {
@@ -392,14 +398,23 @@ Rectangle {
                     onActivated: win.openEpisodePage(backend.playerEpisodeId)
 
                     // Full title on hover when it's cut off.
-                    HoverHandler { id: titleHover }
+                    HoverHandler {
+                        id: titleHover
+                        onHoveredChanged: Qt.callLater(titleTip.sync)
+                    }
                     AppTip {
                         id: titleTip
                         text: backend.playerTitle
-                        // Drive open/close imperatively: binding a Popup's visible
-                        // loops when the popup changes visible itself on close.
-                        readonly property bool wanted: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
-                        onWantedChanged: wanted ? open() : close()
+                        // Open/close imperatively and deferred: opening the tip changes
+                        // hover/layout, and doing it inside a binding's change handler
+                        // re-enters that binding (the "wanted" loop). No binding reads
+                        // the tip's own state.
+                        readonly property bool elided: titleText.implicitWidth > titleText.width + 1
+                        onElidedChanged: Qt.callLater(sync)
+                        function sync() {
+                            if (titleHover.hovered && elided) { if (!opened) open() }
+                            else if (visible) close()
+                        }
                     }
                 }
             }

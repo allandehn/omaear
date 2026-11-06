@@ -110,6 +110,8 @@ public:
     // "" = automatic (time zone). Persists, then reloads the chart / search.
     Q_INVOKABLE void setRegion(const QString &code);
     static QStringList storefronts();
+    // Every cover URL (all sizes) in the cached charts / searches and on screen.
+    Q_INVOKABLE QStringList knownCoverUrls() const;
 
     // Page opened: show the top chart (cached after the first time).
     Q_INVOKABLE void activate();

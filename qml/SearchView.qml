@@ -128,6 +128,7 @@ Item {
             rightPadding: 10 + clearButton.width
             verticalAlignment: TextInput.AlignVCenter
             Material.accent: theme.accent
+            placeholderText: librarySearch.scope ? "Search in " + librarySearch.scopeTitle : "Search episodes"
 
             IconButton {
                 id: clearButton
@@ -245,7 +246,9 @@ Item {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: librarySearch.query.length === 0 ? "Search titles and show notes of every episode you subscribe to"
+            text: librarySearch.query.length === 0
+                  ? (librarySearch.scope ? "Search titles and show notes of " + librarySearch.scopeTitle
+                                         : "Search titles and show notes of every episode you subscribe to")
                                                     : "No episodes match \u201C" + librarySearch.query + "\u201D"
             color: librarySearch.query.length === 0 ? theme.dim : theme.foreground
             font.pixelSize: librarySearch.query.length === 0 ? theme.body : theme.titleSize

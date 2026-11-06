@@ -20,6 +20,9 @@ class LibrarySearch : public QAbstractListModel {
     Q_PROPERTY(double elapsedMs READ elapsedMs NOTIFY resultsChanged)
     // Which fields are searched: bit 1 = show name/author, 2 = episode title, 4 = notes.
     Q_PROPERTY(int fields READ fields NOTIFY fieldsChanged)
+    // 0 = whole library; otherwise only this show's episodes are searched.
+    Q_PROPERTY(qint64 scope READ scope NOTIFY resultsChanged)
+    Q_PROPERTY(QString scopeTitle READ scopeTitle NOTIFY resultsChanged)
 public:
     enum Roles {
         EpisodeIdRole = Qt::UserRole + 1,
@@ -49,6 +52,10 @@ public:
     double elapsedMs() const { return m_elapsedMs; }
 
     Q_INVOKABLE void setQuery(const QString &query);
+    // Limit the search to one show (0 = everything). Re-runs the current query.
+    Q_INVOKABLE void setScope(qint64 showId);
+    qint64 scope() const { return m_scope; }
+    QString scopeTitle() const { return m_showTitles.value(m_scope); }
     // Build the index ahead of the first keystroke (page opened).
     Q_INVOKABLE void warm();
     // Flip one field (FieldShow / FieldTitle / FieldNotes). The last one on stays
@@ -106,4 +113,5 @@ private:
     double m_scanMs = 0;
     bool m_pending = false;
     int m_fields = FieldAll;
+    qint64 m_scope = 0;
 };

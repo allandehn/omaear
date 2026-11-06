@@ -6,6 +6,7 @@
 #include "covercache.h"
 #include <QPainter>
 #include <QLinearGradient>
+#include "theme.h"
 #include "covercache.h"
 #include "explore.h"
 #include "feed.h"
@@ -20,6 +21,8 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QTemporaryDir>
+#include <QNetworkDiskCache>
+#include "netaccess.h"
 
 namespace {
 int g_fails = 0;
@@ -38,6 +41,21 @@ int runSelfTest(int argc, char **argv)
     QCoreApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omaear-selftest"));
 
+    {
+        // OKLCH tints: zero nudge round-trips; hue survives lightness nudges.
+        for (const char *hex : {"#1a1b26", "#7aa2f7", "#e0af68", "#ffffff", "#000000", "#fdf6e3"}) {
+            const QColor c = QColor::fromString(QLatin1String(hex));
+            const QColor rt = Theme::oklchNudge(c, 0);
+            check(qAbs(rt.red() - c.red()) <= 1 && qAbs(rt.green() - c.green()) <= 1 && qAbs(rt.blue() - c.blue()) <= 1,
+                  "oklch round-trip");
+        }
+        const QColor blue(QStringLiteral("#7aa2f7"));
+        const QColor bluer = Theme::oklchNudge(blue, 0.08);
+        check(bluer.lightnessF() > blue.lightnessF() && qAbs(bluer.hsvHue() - blue.hsvHue()) <= 6, "oklch blue stays blue");
+        const QColor yellow(QStringLiteral("#e0af68"));
+        const QColor yd = Theme::oklchNudge(yellow, -0.1);
+        check(yd.value() < yellow.value() && qAbs(yd.hsvHue() - yellow.hsvHue()) <= 6, "oklch yellow darkens in hue");
+    }
     check(parseDuration(QStringLiteral("90")) == 90, "duration seconds");
     check(parseDuration(QStringLiteral("1:02:03")) == 3723, "duration hms");
     check(parseDuration(QStringLiteral("12:34")) == 754, "duration ms");
@@ -271,6 +289,46 @@ int runSelfTest(int argc, char **argv)
             check(library.lastPlayedEpisodeId() == 0, "clear lastPlayed episode id");
             library.setLastPlayedEpisodeId(newest);
             check(library.lastPlayedEpisodeId() == newest, "set lastPlayed for restore");
+            {
+                // A long-lived player notices its library file was replaced (fresh install).
+                {
+                    // Force refresh: cover URLs leave the HTTP disk cache, other entries stay.
+                    QTemporaryDir dir;
+                    QNetworkDiskCache cache;
+                    cache.setCacheDirectory(dir.path());
+                    auto put = [&cache](const QString &u) {
+                        QNetworkCacheMetaData md;
+                        md.setUrl(QUrl(u));
+                        md.setSaveToDisk(true);
+                        md.setExpirationDate(QDateTime::currentDateTimeUtc().addDays(30));
+                        md.setLastModified(QDateTime::currentDateTimeUtc().addDays(-1));
+                        md.setRawHeaders({{"Content-Type", "image/jpeg"}, {"Cache-Control", "max-age=14204435"}});
+                        if (QIODevice *d = cache.prepare(md)) { d->write("jpeg"); cache.insert(d); }
+                    };
+                    const QString cover = QStringLiteral("https://is1-ssl.mzstatic.com/image/thumb/a/b/600x600bb.jpg");
+                    const QString tile = QStringLiteral("https://is1-ssl.mzstatic.com/image/thumb/a/b/400x400bb.jpg");
+                    const QString other = QStringLiteral("https://is1-ssl.mzstatic.com/image/thumb/c/d/400x400bb.jpg");
+                    put(tile); put(other);
+                    const bool stored = cache.metaData(QUrl(tile)).isValid() && cache.metaData(QUrl(other)).isValid();
+                    const QStringList v = coverUrlVariants(cover);
+                    check(v.contains(tile) && v.contains(cover), "cover URL variants include the 400px tile URL");
+                    const int removed = removeFromCache(&cache, v);
+                    check(stored && removed == 1 && !cache.metaData(QUrl(tile)).isValid() && cache.metaData(QUrl(other)).isValid(),
+                          "force refresh removes only the listed cover URLs from the disk cache");
+                }
+                const QString probe = QDir::tempPath() + QStringLiteral("/omaear-identity-probe");
+                QFile::remove(probe);
+                check(Library::fileIdentity(probe).isEmpty(), "file identity: missing file has none");
+                { QFile f(probe); if (f.open(QIODevice::WriteOnly)) f.write("a"); }
+                const QString first = Library::fileIdentity(probe);
+                QFile keep(probe);
+                const bool held = keep.open(QIODevice::ReadOnly); // like an open sqlite handle
+                QFile::remove(probe);
+                { QFile f(probe); if (f.open(QIODevice::WriteOnly)) f.write("b"); }
+                check(held && !first.isEmpty() && Library::fileIdentity(probe) != first,
+                      "file identity: deleted and recreated file differs");
+                QFile::remove(probe);
+            }
         }
 
         ParsedShow caughtUp = *parsed;

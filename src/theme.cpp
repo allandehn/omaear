@@ -13,8 +13,35 @@
 #include <QTextStream>
 #include <QVariant>
 #include <QtMath>
+#include <cmath>
 
 namespace {
+qreal toLinear(qreal v) { return v <= 0.04045 ? v / 12.92 : qPow((v + 0.055) / 1.055, 2.4); }
+qreal toSrgb(qreal v) { return v <= 0.0031308 ? v * 12.92 : 1.055 * qPow(v, 1.0 / 2.4) - 0.055; }
+
+// sRGB -> OKLab (Björn Ottosson's matrices).
+void toOklab(const QColor &c, qreal &L, qreal &a, qreal &b)
+{
+    const qreal r = toLinear(c.redF()), g = toLinear(c.greenF()), bl = toLinear(c.blueF());
+    const qreal l = std::cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl);
+    const qreal m = std::cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl);
+    const qreal s = std::cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl);
+    L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+    a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+}
+
+// OKLab -> linear sRGB (unclamped).
+void fromOklab(qreal L, qreal a, qreal b, qreal &r, qreal &g, qreal &bl)
+{
+    const qreal l = qPow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+    const qreal m = qPow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+    const qreal s = qPow(L - 0.0894841775 * a - 1.2914855480 * b, 3);
+    r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+    bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+}
+
 QVariant unwrap(QVariant value)
 {
     while (value.canConvert<QDBusVariant>())
@@ -29,6 +56,38 @@ QColor fallbackMix(const QColor &background, const QColor &foreground)
         background.greenF() + (foreground.greenF() - background.greenF()) * 0.45,
         background.blueF() + (foreground.blueF() - background.blueF()) * 0.45);
 }
+}
+
+qreal Theme::oklchLightness(const QColor &c)
+{
+    qreal L, a, b;
+    toOklab(c, L, a, b);
+    return L;
+}
+
+QColor Theme::oklchNudge(const QColor &c, qreal dL, qreal cScale)
+{
+    qreal L, a, b;
+    toOklab(c, L, a, b);
+    L = qBound<qreal>(0.0, L + dL, 1.0);
+    const qreal C = std::hypot(a, b) * cScale;
+    const qreal h = std::atan2(b, a);
+    // Gamut map by bisecting chroma down; hue and lightness stay put.
+    qreal lo = 0.0, hi = C, r = 0, g = 0, bl = 0;
+    auto inGamut = [&](qreal cc) {
+        fromOklab(L, cc * std::cos(h), cc * std::sin(h), r, g, bl);
+        const qreal e = 1e-4;
+        return r >= -e && r <= 1 + e && g >= -e && g <= 1 + e && bl >= -e && bl <= 1 + e;
+    };
+    if (!inGamut(C)) {
+        for (int i = 0; i < 16; ++i) {
+            const qreal mid = (lo + hi) / 2;
+            (inGamut(mid) ? lo : hi) = mid;
+        }
+        inGamut(lo);
+    }
+    return QColor::fromRgbF(qBound<qreal>(0, toSrgb(r), 1), qBound<qreal>(0, toSrgb(g), 1),
+                            qBound<qreal>(0, toSrgb(bl), 1), c.alphaF());
 }
 
 Theme::Theme(QObject *parent)
@@ -179,10 +238,18 @@ void Theme::loadColors()
         urgent = color1;
     if (!urgent.isValid())
         urgent = QColor(dark ? QStringLiteral("#e06c75") : QStringLiteral("#c0392b"));
-    const QColor dim = foreground.darker(155);
+    // Derived tints: OKLCH lightness nudges of the live colours, so hue and
+    // perceived lightness stay put (blues don't drift purple, yellows don't glow).
+    // Computed once per theme load, never per frame.
+    const QColor dim = oklchNudge(foreground, -0.28 * oklchLightness(foreground), 0.85);
+    const QColor barBackground = oklchNudge(background, dark ? -0.035 : 0.025);
+    const QColor pillBackground = oklchNudge(background, dark ? -0.05 : 0.035);
     const bool changedColors = background != m_background || foreground != m_foreground
         || accent != m_accent || blue != m_blue || selection != m_selection || muted != m_muted
-        || dim != m_dim || dark != m_darkMode || urgent != m_urgent;
+        || dim != m_dim || dark != m_darkMode || urgent != m_urgent
+        || barBackground != m_barBackground || pillBackground != m_pillBackground;
+    m_barBackground = barBackground;
+    m_pillBackground = pillBackground;
     m_urgent = urgent;
     m_background = background;
     m_foreground = foreground;

@@ -119,6 +119,7 @@ Item {
             IconButton {
                 // Autoplay icon B: accent when on, foreground when off (the SVG dims its own triangle).
                 icon.width: 24 * theme.textScale
+                icon.height: 24 * theme.textScale
                 icon.source: backend.queueAutoplay ? theme.iconBase + "autoplay-b-on-symbolic.svg" : theme.iconBase + "autoplay-b-off-symbolic.svg"
                 glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                 tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
