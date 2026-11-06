@@ -6,6 +6,7 @@
 #include "covercache.h"
 #include <QPainter>
 #include <QLinearGradient>
+#include "theme.h"
 #include "covercache.h"
 #include "explore.h"
 #include "feed.h"
@@ -40,6 +41,21 @@ int runSelfTest(int argc, char **argv)
     QCoreApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omaear-selftest"));
 
+    {
+        // OKLCH tints: zero nudge round-trips; hue survives lightness nudges.
+        for (const char *hex : {"#1a1b26", "#7aa2f7", "#e0af68", "#ffffff", "#000000", "#fdf6e3"}) {
+            const QColor c = QColor::fromString(QLatin1String(hex));
+            const QColor rt = Theme::oklchNudge(c, 0);
+            check(qAbs(rt.red() - c.red()) <= 1 && qAbs(rt.green() - c.green()) <= 1 && qAbs(rt.blue() - c.blue()) <= 1,
+                  "oklch round-trip");
+        }
+        const QColor blue(QStringLiteral("#7aa2f7"));
+        const QColor bluer = Theme::oklchNudge(blue, 0.08);
+        check(bluer.lightnessF() > blue.lightnessF() && qAbs(bluer.hsvHue() - blue.hsvHue()) <= 6, "oklch blue stays blue");
+        const QColor yellow(QStringLiteral("#e0af68"));
+        const QColor yd = Theme::oklchNudge(yellow, -0.1);
+        check(yd.value() < yellow.value() && qAbs(yd.hsvHue() - yellow.hsvHue()) <= 6, "oklch yellow darkens in hue");
+    }
     check(parseDuration(QStringLiteral("90")) == 90, "duration seconds");
     check(parseDuration(QStringLiteral("1:02:03")) == 3723, "duration hms");
     check(parseDuration(QStringLiteral("12:34")) == 754, "duration ms");

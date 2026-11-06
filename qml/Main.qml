@@ -1129,7 +1129,7 @@ ApplicationWindow {
                 width: Math.min(globalStatus.naturalWidth + 2 + padX * 2, parent.width * 0.8)
                 height: globalStatus.implicitHeight + 10
                 radius: theme.rButton
-                color: theme.darkMode ? Qt.darker(theme.background, 1.35) : Qt.lighter(theme.background, 1.12)
+                color: theme.pillBackground
                 border.width: 1
                 border.color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.25)
                 opacity: globalStatus.fade

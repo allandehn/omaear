@@ -8,7 +8,7 @@ Rectangle {
     // refresh runs. Spinner / StatusNote still use backend.busy elsewhere.
     signal nowPlayingRequested()
     signal nowPlayingCollapseRequested()
-    color: theme.darkMode ? Qt.darker(theme.background, 1.25) : Qt.lighter(theme.background, 1.08)
+    color: theme.barBackground
     implicitHeight: 96 * theme.textScale
     height: implicitHeight
 
