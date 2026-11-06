@@ -35,6 +35,19 @@ Item {
     // Ring on the podcast at kbdIndex while Main says the grid area is active.
     property bool kbdRing: false
     property int kbdIndex: 0
+    // Mouse hover drives the same ring + lift as the keyboard (and moves kbdIndex there).
+    // Cover under the pointer (raw), and the effective hover: only after a real
+    // pointer move (win.pointerActive). Effective hover moves the key focus there.
+    property int hoverRaw: -1
+    property double hoverRawShowId: 0
+    readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
+    onHoverIndexChanged: {
+        if (hoverIndex >= 0) {
+            kbdIndex = hoverIndex
+            kbdShowId = hoverRawShowId
+        }
+    }
+    readonly property bool ringShown: kbdRing || hoverIndex >= 0
     property double kbdShowId: 0
     readonly property int navCount: grid.count
     // Gallery moves by row of `columns`; the list is one column.
@@ -219,6 +232,7 @@ Item {
             readonly property bool hasShows: backend.showCount > 0
             IconButton {
                 visible: actions.hasShows
+                // Two states, both full foreground: open eye = showing all, struck eye = unplayed only.
                 icon.name: backend.shelfShowAll ? "view-reveal-symbolic" : "view-conceal-symbolic"
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.shelfShowAll ? "Show unplayed only" : "Show all"
@@ -232,10 +246,12 @@ Item {
                 icon.name: "view-refresh-symbolic"
                 // tip: backend.busy ? "Refreshing…" : …
                 tip: backend.lastRefreshLabel.length
-                     ? ("Refresh — " + backend.lastRefreshLabel + "  ·  Ctrl+click reloads artwork")
-                     : "Refresh  ·  Ctrl+click reloads artwork"
+                     ? ("Refresh feeds — " + backend.lastRefreshLabel + "  ·  Ctrl+click reloads artwork")
+                     : "Refresh feeds  ·  Ctrl+click reloads artwork"
                 // enabled: !backend.busy
                 enabled: true
+                // Navigation animation off: dim while refreshing instead of spinning.
+                glyph: backend.busy && !backend.motionTryout ? theme.dim : theme.foreground
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
@@ -250,23 +266,24 @@ Item {
                     to: 360
                     duration: 900
                     loops: Animation.Infinite
-                    running: backend.busy && refreshButton.visible
+                    running: backend.busy && backend.motionTryout && refreshButton.visible
                     onRunningChanged: {
                         if (!running && refreshButton.contentItem)
                             refreshButton.contentItem.rotation = 0
                     }
                 }
             }
+            // Add a podcast: opens Find new podcasts (search, or paste a feed URL there).
             IconButton {
-                visible: actions.hasShows
-                icon.source: "qrc:/icons/queue-symbolic.svg"
-                tip: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
-                onClicked: shelf.queueRequested()
+                icon.source: theme.iconBase + "add-symbolic.svg"
+                tip: "Add a podcast"
+                onClicked: shelf.exploreRequested()
             }
-            // Everything else lives in the ⋯ menu (also the only button on an empty shelf).
+            Item { width: 4; height: 1 } // 8 px before ⋯ (row spacing is 4)
+            // Everything else lives in the ⋯ menu.
             IconButton {
                 id: moreButton
-                icon.source: "qrc:/icons/more-symbolic.svg"
+                icon.source: theme.iconBase + "more-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: dot ? "More (update available)" : "More"
                 // Pressing ⋯ again closes the menu instead of reopening it.
@@ -288,7 +305,7 @@ Item {
             color: theme.dim
             font.pixelSize: theme.body
             text: backend.shelfShowAll
-                  ? "Add a feed to start. An OPML export from another podcast app brings the shows with it."
+                  ? "Press + to add a podcast. An OPML export from another podcast app brings the shows with it."
                   : "No shows with unplayed episodes."
         }
         Text {
@@ -333,12 +350,54 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: backend.shows
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
+
+        // Navigation animation: one keyboard ring that glides between covers (~120 ms, eased
+        // both ends). A Behavior retargets from wherever it is, so fast presses never queue.
+        Rectangle {
+            id: glideRing
+            parent: grid.contentItem
+            z: 2
+            readonly property int col: shelf.kbdIndex % Math.max(1, shelf.columns)
+            readonly property int row: Math.floor(shelf.kbdIndex / Math.max(1, shelf.columns))
+            visible: backend.motionTryout && shelf.ringShown && grid.count > 0
+            x: col * grid.cellWidth + (grid.cellWidth - shelf.coverSize) / 2 - 4
+            y: row * grid.cellHeight - 4
+            width: shelf.coverSize + 8
+            height: shelf.coverSize + 8
+            radius: theme.rButton
+            color: "transparent"
+            border.width: 2
+            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+            scale: win.keyRepeating ? 1 : 1.03 // hugs the lifted cover
+            Behavior on x { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+            Behavior on y { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+        }
 
         delegate: Item {
+            id: tileItem
             readonly property string navTitle: model.title
             width: grid.cellWidth
             height: grid.cellHeight
+            // Only the ringed or hovered cover lifts (transform + opacity only, always on;
+            // the Navigation animation setting only decides whether the ring glides).
+            readonly property bool lifted: !win.keyRepeating
+                && shelf.ringShown && index === shelf.kbdIndex
+            z: lifted ? 1 : 0
+
+            // Pre-baked soft shadow (static PNG); only its opacity and scale animate.
+            BorderImage {
+                visible: opacity > 0
+                x: (parent.width - shelf.coverSize) / 2 - 24
+                y: -24
+                width: shelf.coverSize + 48
+                height: shelf.coverSize + 48
+                source: "qrc:/cover-shadow.png"
+                border { left: 32; right: 32; top: 32; bottom: 32 }
+                opacity: tileItem.lifted ? 1 : 0
+                scale: cover.scale
+                Behavior on opacity { NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+            }
 
             Column {
                 width: shelf.coverSize
@@ -349,8 +408,16 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    scale: tileItem.lifted ? 1.03 : 1
+                    Behavior on scale { NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: tileImage; radius: cover.coverRadius }
+                    Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                     Image {
+                        id: tileImage
                         anchors.fill: parent
                         source: model.cover
                         fillMode: Image.PreserveAspectCrop
@@ -423,6 +490,7 @@ Item {
             }
 
             MouseArea {
+                id: tileMouse
                 anchors.fill: parent
                 // enabled: !backend.busy
                 enabled: true
@@ -439,16 +507,20 @@ Item {
                     }
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
-                Rectangle {
-                    anchors.fill: cover
-                    z: -1
-                    color: theme.selection
-                    opacity: parent.containsMouse ? 0.28 : 0
+                // Hover = key focus: same ring and lift, no shading on the art.
+                onContainsMouseChanged: {
+                    if (containsMouse) {
+                        shelf.hoverRawShowId = model.showId
+                        shelf.hoverRaw = index
+                    } else if (shelf.hoverRaw === index) {
+                        shelf.hoverRaw = -1
+                    }
                 }
             }
             // Keyboard ring: a quiet theme-foreground outline around the cover.
             Rectangle {
-                visible: shelf.kbdRing && index === shelf.kbdIndex
+                visible: !backend.motionTryout && shelf.ringShown && index === shelf.kbdIndex
+                scale: cover.scale // hugs the lifted cover
                 x: (parent.width - shelf.coverSize) / 2 - 4
                 y: -4
                 width: shelf.coverSize + 8
@@ -480,7 +552,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: backend.shows
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
         spacing: 2
 
         delegate: Item {
@@ -491,8 +563,9 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 radius: theme.rButton
+                id: rowHover
                 color: theme.selection
-                opacity: rowMouse.containsMouse ? 0.35 : 0
+                opacity: rowMouse.containsMouse && win.pointerActive ? 0.35 : 0
             }
             Rectangle {
                 anchors.fill: parent
@@ -511,6 +584,11 @@ Item {
                 width: shelf.listCover
                 height: width
                 clip: true
+                readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
+                layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                layer.smooth: true
+                layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
+                Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, Qt.rgba(rowHover.color.r, rowHover.color.g, rowHover.color.b, rowHover.opacity)); z: -1 } // backing: follows the row background (hover, selection, highlight)
 
                 Image {
                     id: rowCover
@@ -665,12 +743,7 @@ Item {
             visible: shelf.coverMenuShow === 0
             height: visible ? implicitHeight : 0
         }
-        AppMenuItem {
-            text: "Add feed…"
-            visible: shelf.coverMenuShow === 0
-            height: visible ? implicitHeight : 0
-            onChosen: shelf.addRequested()
-        }
+        // Add feed… hidden for now: paste a feed URL on Find new podcasts instead.
         AppMenuItem {
             text: "Import OPML…"
             visible: shelf.coverMenuShow === 0
@@ -707,14 +780,12 @@ Item {
             onChosen: shelf.searchRequested()
         }
         AppMenuItem {
-            text: "Find new podcasts…"
-            onChosen: shelf.exploreRequested()
+            text: backend.queueCount > 0 ? "Queue (" + backend.queueCount + ")" : "Queue"
+            enabled: backend.showCount > 0
+            onChosen: shelf.queueRequested()
         }
         AppMenuSeparator {}
-        AppMenuItem {
-            text: "Add feed…"
-            onChosen: shelf.addRequested()
-        }
+        // Find new podcasts and Add feed moved to the + button (Add feed: paste a URL there).
         AppMenuItem {
             text: "Import OPML…"
             onChosen: shelf.importRequested()
@@ -723,6 +794,14 @@ Item {
             text: "Export OPML…"
             enabled: backend.showCount > 0
             onChosen: shelf.exportRequested()
+        }
+        AppMenuItem {
+            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            onChosen: backend.toggleMotionTryout()
+        }
+        AppMenuItem {
+            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}
         AppMenuItem {

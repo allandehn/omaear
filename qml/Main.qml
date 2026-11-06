@@ -76,7 +76,7 @@ ApplicationWindow {
     onYChanged: trackNormalGeometry()
     onWidthChanged: trackNormalGeometry()
     onHeightChanged: trackNormalGeometry()
-    onVisibilityChanged: {
+    onVisibilityChanged: function(visibility) {
         if (visibility === Window.Maximized || visibility === Window.FullScreen)
             wasMaximized = true
         else if (visibility === Window.Windowed)
@@ -160,7 +160,10 @@ ApplicationWindow {
             list.splice(1, 1)
         history = list
         historyIndex = list.length - 1
+        // A fresh visit (not Back/Forward) starts at the page's own start spot.
+        var states = navStates; delete states[entry.kind]; navStates = states
         applyPage()
+        Qt.callLater(navFreshEntry)
     }
 
     function closeModals() {
@@ -297,8 +300,9 @@ ApplicationWindow {
     }
     function openQueuePage() { navigate(makeEntry("queue", 0, 0)) }
     function openExplorePage() { navigate(makeEntry("explore", 0, 0)) }
-    function openSearchPage() {
-        navigate(makeEntry("search", 0, 0))
+    // showId: search only that podcast (Episodes page ⋯); none = whole library.
+    function openSearchPage(showId) {
+        navigate(makeEntry("search", showId || 0, 0))
         searchPage.focusSearch()
     }
     // From library search: Explore with the same words already searched.
@@ -373,6 +377,8 @@ ApplicationWindow {
             pruneHistory(function(e) { return !entryValid(e) })
             return
         }
+        pointerActive = false // new view: a resting pointer doesn't count as hover
+        navShown = keyboardMode // keyboard mode: ring shows at once; mouse mode: none until a key
         navGuard = true
         if (entry.kind === "shelf") {
             backend.closeShow()
@@ -385,6 +391,8 @@ ApplicationWindow {
             if (backend.openEpisodeId !== entry.episodeId)
                 backend.openEpisode(entry.episodeId)
         }
+        if (entry.kind === "search")
+            librarySearch.setScope(entry.showId)
         // queue / nowPlaying cover the content and leave the backend as is.
         navGuard = false
         focusPage()
@@ -459,7 +467,7 @@ ApplicationWindow {
         onActivated: back()
     }
     Shortcut {
-        sequence: StandardKey.Find
+        sequences: [StandardKey.Find]
         context: Qt.ApplicationShortcut
         enabled: !modalOpen
         onActivated: {
@@ -493,12 +501,22 @@ ApplicationWindow {
     }
 
     // ---- Keyboard navigation (main page, Explore, Now Playing) ---------------
-    // Each page is a stack of areas: a row of buttons, or a grid (podcasts,
-    // Explore results). Up/Down and Tab/Shift+Tab move between areas, Left/Right
-    // within one and run on into the next area at the ends; a grid moves by row
-    // and leaves at its top/bottom row. Enter activates. Areas that aren't
-    // showing are skipped. The ring appears after the first nav key and hides on
-    // mouse movement; each page remembers where it was.
+    // Navigation zones: top bar, content, bottom bar (PlayerBar), plus Explore's
+    // search field as its own stop. Tab / Shift+Tab move to the next / previous
+    // zone (wrapping; hidden or empty zones are skipped) and land where that zone
+    // was last left, or on its first item. Arrow keys never leave a zone: they
+    // wrap inside it. A zone is one or more areas (a row of buttons or a grid);
+    // Now Playing's content stacks transport / controls / seek / notes, and
+    // Up/Down step between those. Grid wrap (backend.gridWrapFull):
+    //   rows: absolute. Left/Right wrap within the row; Up/Down always stay in
+    //         the same column and wrap top<->bottom of that column (a short last
+    //         row that lacks the column is skipped, never clamped).
+    //   full: Left/Right walk the whole grid in reading order, wrapping at the
+    //         ends; Up/Down walk it column by column: past the bottom you land on
+    //         the top of the next column, past the top on the bottom of the
+    //         previous one (wrapping at the last/first column).
+    // Enter activates. The ring appears after the first nav key and hides on
+    // mouse movement; each page remembers its area and per-zone spots.
     readonly property var navPages: ["shelf", "explore", "nowPlaying", "show", "episode", "queue"]
     property string navArea: "grid"
     property var navIdx: ({})          // area name -> button index
@@ -507,14 +525,42 @@ ApplicationWindow {
     property bool navShown: false
     property var navPainted: []
     property point navMouseAt: Qt.point(-1, -1)
+    // Hover may steer focus only after a REAL pointer move since the last key press
+    // or view change. A resting pointer over a freshly shown view (Hyprland sends
+    // hover-enter then) must not steal keyboard focus or show hover rings.
+    property bool pointerActive: false
+    // Input mode: true after any key press, false after a real pointer move.
+    // Decides where focus lands when a page is entered (see navFreshEntry).
+    property bool keyboardMode: false
+    // Fresh page (not Back/Forward): the spot starts at the page's natural start;
+    // in keyboard mode the ring shows there at once, in mouse mode only after a key.
+    //   Shelf / Queue: first item. Episodes: first episode's cover, else Back.
+    //   Explore: search field. Episode: Play. Now playing: play/pause.
+    function navFreshEntry() {
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
+        navSwitchPage()
+        var g = pageKind === "shelf" ? shelfView : pageKind === "queue" ? queuePage
+              : pageKind === "show" ? activeShow() : null
+        if (g) {
+            if (g.kbdCol !== undefined) g.kbdCol = 0
+            if (g.kbdEpisodeId !== undefined) g.kbdEpisodeId = 0
+            if (g.navCount > 0) { g.setNavIndex(0); navArea = "grid" }
+            else { var m = navIdx; m.top = 0; navIdx = m; navArea = "top" }
+        }
+        if (!keyboardMode) { navRefreshRing(); return }
+        navShown = true
+        navApplyFocus()
+        navRefreshRing()
+    }
     readonly property bool navActive: navShown && navPages.indexOf(pageKind) >= 0
                                       && !modalOpen && !helpOpen && !explorePage.regionOpen
 
     function navDefaults(kind) {
-        if (kind === "explore") return { area: "top", idx: { top: 1, player: 1, preview: 0 } }
-        if (kind === "episode") return { area: "top", idx: { top: 1, player: 1 } }   // Play
-        if (kind === "nowPlaying") return { area: "transport", idx: { top: 0, transport: playerBar.prevId !== 0 ? 2 : 1, controls: 0, seek: 0, player: 1 } }
-        return { area: "grid", idx: { top: 0, player: 1 } }
+        // Unvisited zones start on their first item; the page's own start spot is kept.
+        if (kind === "explore") return { area: "search", idx: { preview: 0 } }
+        if (kind === "episode") return { area: "actions", idx: {} }   // Play
+        if (kind === "nowPlaying") return { area: "transport", idx: { transport: playerBar.prevId !== 0 ? 2 : 1 } }
+        return { area: "grid", idx: {} }
     }
     function navSwitchPage() {
         if (navKind === pageKind) return
@@ -535,7 +581,13 @@ ApplicationWindow {
         } else if (kind === "explore") {
             if (explore.previewOpen)
                 return [{ name: "preview", items: explorePage.previewItems() }]
-            list.push({ name: "top", items: explorePage.navItems() })
+            // Find: every header control is its own Tab stop, in reading order:
+            // back, search field, region, info, results, player (wrapping).
+            var ex = explorePage.navItems()   // [back, flag, help] (visible ones)
+            list.push({ name: "top", items: ex.filter(function(i) { return i === explorePage.backItem }) })
+            list.push({ name: "search", zone: "search", items: explorePage.searchItems() })
+            list.push({ name: "region", zone: "region", items: ex.filter(function(i) { return i === explorePage.regionItem }) })
+            list.push({ name: "info", zone: "info", items: ex.filter(function(i) { return i === explorePage.infoItem }) })
             list.push({ name: "grid", grid: explorePage })
         } else if (kind === "show") {
             var sp = activeShow()
@@ -547,17 +599,27 @@ ApplicationWindow {
             list.push({ name: "top", items: queuePage.navItems() })
             list.push({ name: "grid", grid: queuePage })
         } else if (kind === "episode") {
-            list.push({ name: "top", items: episodePage.navItems() })
+            var ep = episodePage.navItems()   // [back, actions...]
+            list.push({ name: "top", items: ep.slice(0, 1) })
+            list.push({ name: "actions", items: ep.slice(1) })
         } else if (kind === "nowPlaying") {
             list.push({ name: "top", items: nowPlayingPage.navTop() })
             list.push({ name: "transport", items: nowPlayingPage.navTransport() })
             list.push({ name: "controls", items: nowPlayingPage.navControls() })
             list.push({ name: "seek", items: nowPlayingPage.navSeek() })
+            list.push({ name: "notes", items: nowPlayingPage.navNotes() })
             player = playerBar.visible ? playerBar.navItems() : []
         }
         list.push({ name: "player", items: player })
+        list.forEach(function(a) {
+            if (!a.zone) a.zone = a.name === "top" || a.name === "player" ? a.name : "content"
+        })
         return list.filter(function(a) { return a.grid ? a.grid.navCount > 0 : a.items.length > 0 })
     }
+    function navZoneOf(name) {
+        return ["top", "player", "search", "region", "info"].indexOf(name) >= 0 ? name : "content"
+    }
+
     function navAreas() { return navAreasFor(pageKind) }
     function navFind(areas, name) {
         for (var i = 0; i < areas.length; ++i) if (areas[i].name === name) return areas[i]
@@ -583,17 +645,54 @@ ApplicationWindow {
         var i = edge === "first" ? 0 : edge === "last" ? n - 1 : navBarIndex(area.name)
         navSetBar(area.name, Math.max(0, Math.min(i, n - 1)))
     }
-    function navStep(step) {        // previous/next area, wrapping
+    // Tab / Shift+Tab: previous/next zone, wrapping; lands where that zone was left.
+    function navStep(step) {
         var areas = navAreas()
         if (areas.length === 0) return
-        var at = areas.indexOf(navFind(areas, navArea))
-        navEnter(areas[at < 0 ? 0 : (at + step + areas.length) % areas.length], "")
+        var zones = []
+        areas.forEach(function(a) { if (zones.indexOf(a.zone) < 0) zones.push(a.zone) })
+        var cur = navFind(areas, navArea)
+        if (zones.length === 1 && cur && !cur.grid) { navMove(step); return } // one zone (preview): Tab walks it
+        var at = cur ? zones.indexOf(cur.zone) : -1
+        var zone = zones[at < 0 ? 0 : (at + step + zones.length) % zones.length]
+        var target = navFind(areas, navIdx["@" + zone])
+        if (!target || target.zone !== zone)
+            target = areas.filter(function(a) { return a.zone === zone })[0]
+        navEnter(target, "")
     }
-    function navRun(step) {         // Left/Right past the end of an area
+    // Up/Down between the areas of one zone (Now Playing), wrapping; no-op if alone.
+    function navVert(step) {
         var areas = navAreas()
-        if (areas.length === 0) return
-        var at = Math.max(0, areas.indexOf(navFind(areas, navArea)))
-        navEnter(areas[(at + step + areas.length) % areas.length], step > 0 ? "first" : "last")
+        var cur = navFind(areas, navArea)
+        if (!cur) return
+        var same = areas.filter(function(a) { return a.zone === cur.zone })
+        if (same.length < 2) return
+        var at = same.indexOf(cur)
+        navEnter(same[(at + step + same.length) % same.length], "")
+    }
+    // Grid / list arrow moves with wrap (see the zone comment above).
+    function navGridKey(g, k) {
+        var n = g.navCount, c = Math.max(1, Math.min(g.navColumns, n)), i = g.kbdIndex
+        if (n <= 0) return
+        var col = i % c, row = Math.floor(i / c), rows = Math.ceil(n / c)
+        var dir = (k === Qt.Key_Left || k === Qt.Key_Up) ? -1 : 1
+        var horiz = k === Qt.Key_Left || k === Qt.Key_Right
+        var j = i
+        if (backend.gridWrapFull) {
+            if (horiz) j = (i + dir + n) % n
+            else if (dir > 0) j = i + c < n ? i + c : (col + 1) % c
+            else if (i - c >= 0) j = i - c
+            else { var pc = (col - 1 + c) % c; j = pc + Math.floor((n - 1 - pc) / c) * c }
+        } else if (horiz) {
+            var start = row * c, len = Math.min(c, n - start)
+            j = start + (col + dir + len) % len
+        } else {
+            // Absolute: stay in this column; past the end wrap to its far end
+            // (a short last row without this column is skipped, never clamped).
+            var colRows = Math.floor((n - 1 - col) / c) + 1
+            j = ((row + dir + colRows) % colRows) * c + col
+        }
+        if (j !== i) g.setNavIndex(j)
     }
     function navCurrent() {
         var areas = navAreas()
@@ -631,25 +730,21 @@ ApplicationWindow {
     }
     // Called by a field (Explore search) for keys it doesn't use itself.
     function navFromField(key) {
+        keyboardMode = true
         navShown = true
-        if (key === Qt.Key_Left) navMove(-1)
-        else if (key === Qt.Key_Right) navMove(1)
-        else if (key === Qt.Key_Up || key === Qt.Key_Backtab) navStep(-1)
-        else navStep(1)
+        // Only Tab leaves a field; arrows stay inside it.
+        if (key === Qt.Key_Backtab) navStep(-1)
+        else if (key === Qt.Key_Tab) navStep(1)
     }
     function navMove(dir) {
         var area = navCurrent()
         if (!area) return
-        if (area.grid) {
-            var idx = area.grid.kbdIndex
-            if (dir < 0 ? idx > 0 : idx < area.grid.navCount - 1) area.grid.setNavIndex(idx + dir)
-            else navRun(dir)
-            return
-        }
-        var bi = navBarIndex(area.name)
-        if (dir < 0 ? bi > 0 : bi < area.items.length - 1) navSetBar(area.name, bi + dir)
-        else navRun(dir)
+        if (area.grid) { navGridKey(area.grid, dir < 0 ? Qt.Key_Left : Qt.Key_Right); return }
+        var n = area.items.length
+        navSetBar(area.name, (navBarIndex(area.name) + dir + n) % n)
     }
+    // Navigation animation: true while a held key is auto-repeating (covers skip the lift).
+    property bool keyRepeating: false
     function shelfKey(event) {
         if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
         navSwitchPage()
@@ -660,11 +755,16 @@ ApplicationWindow {
         if (pageKind === "explore" && !explore.previewOpen && event.text.length === 1
                 && event.text.charCodeAt(0) > 32 && event.text.charCodeAt(0) !== 127) {
             event.accepted = true
-            var items = explorePage.navItems()
-            navArea = "top"
-            navSetBar("top", items.indexOf(explorePage.searchFieldItem))
+            navArea = "search"
+            navSetBar("search", 0)
             explorePage.typeIntoSearch(event.text)
             return
+        }
+        // Vim keys: h/j/k/l = Left/Down/Up/Right (plain only; never while typing).
+        if (!(event.modifiers & Qt.ShiftModifier) && !navIsField(activeFocusItem)) {
+            var vim = { [Qt.Key_H]: Qt.Key_Left, [Qt.Key_J]: Qt.Key_Down,
+                        [Qt.Key_K]: Qt.Key_Up, [Qt.Key_L]: Qt.Key_Right }
+            if (vim[k] !== undefined) k = vim[k]
         }
         // Menu key / Shift+F10: the ringed item's context menu.
         if (k === Qt.Key_Menu || (k === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
@@ -691,6 +791,17 @@ ApplicationWindow {
                        Qt.Key_Return, Qt.Key_Enter, Qt.Key_Home, Qt.Key_End, Qt.Key_Delete]
         if (navKeys.indexOf(k) < 0) return
         event.accepted = true
+        // Mouse resting on a cover/row: that already shows where you are, so the
+        // first key moves from there instead of only revealing the ring.
+        if (!navShown) {
+            var hg = navFind(navAreas(), "grid")
+            if (hg && hg.grid.hoverIndex !== undefined && hg.grid.hoverIndex >= 0) {
+                navArea = "grid"
+                navShown = true
+                navRefreshRing()
+            }
+        }
+        pointerActive = false // keys own focus until the pointer really moves
         var area = navCurrent()
         if (!area) return
         // First key only reveals where you are (no surprise jump).
@@ -708,15 +819,10 @@ ApplicationWindow {
             else if (k === Qt.Key_Delete) { if (g.navDelete !== undefined) g.navDelete() }
             else if (k === Qt.Key_Home) g.setNavIndex(0)
             else if (k === Qt.Key_End) g.setNavIndex(count - 1)
-            else if (k === Qt.Key_Left) navMove(-1)
-            else if (k === Qt.Key_Right) navMove(1)
-            else if (k === Qt.Key_Up) { if (idx - cols >= 0) g.setNavIndex(idx - cols); else navStep(-1) }
-            else if (k === Qt.Key_Down) {
-                if (idx + cols < count) g.setNavIndex(idx + cols)
-                // Last partial row below: land on the last item first.
-                else if (Math.floor(idx / cols) < Math.floor((count - 1) / cols)) g.setNavIndex(count - 1)
-                else navStep(1)
-            }
+            // Rows with parts (Episodes: cover | text): Left/Right switch parts.
+            else if ((k === Qt.Key_Left || k === Qt.Key_Right) && g.navSide !== undefined
+                     && g.navSide(k === Qt.Key_Left ? -1 : 1)) {}
+            else navGridKey(g, k)
             return
         }
         var bi = navBarIndex(area.name)
@@ -734,8 +840,11 @@ ApplicationWindow {
             item.navNudge(k === Qt.Key_Left ? -1 : 1)
         else if (k === Qt.Key_Left) navMove(-1)
         else if (k === Qt.Key_Right) navMove(1)
-        else if (k === Qt.Key_Up) navStep(-1)
-        else if (k === Qt.Key_Down) navStep(1)
+        // A scrolling box (Now Playing notes) scrolls first, then hands Up/Down on.
+        else if ((k === Qt.Key_Up || k === Qt.Key_Down) && item.navScroll !== undefined
+                 && item.navScroll(k === Qt.Key_Up ? -1 : 1)) {}
+        else if (k === Qt.Key_Up) navVert(-1)
+        else if (k === Qt.Key_Down) navVert(1)
     }
     // Paint the ring: clear what was lit, then light the current spot.
     function navRefreshRing() {
@@ -761,7 +870,11 @@ ApplicationWindow {
         navPainted = lit
     }
     onNavActiveChanged: navRefreshRing()
-    onNavAreaChanged: navRefreshRing()
+    // Also remember which area each zone was left in (per page, inside navIdx).
+    onNavAreaChanged: {
+        var m = navIdx; m["@" + navZoneOf(navArea)] = navArea; navIdx = m
+        navRefreshRing()
+    }
     onPageKindChanged: {
         navSwitchPage()
         var listPage = pageKind === "shelf" ? shelfView : pageKind === "explore" ? explorePage
@@ -881,7 +994,7 @@ ApplicationWindow {
         }
     }
     Shortcut {
-        sequence: StandardKey.ZoomOut
+        sequences: [StandardKey.ZoomOut]
         context: Qt.ApplicationShortcut
         enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
         onActivated: {
@@ -903,8 +1016,12 @@ ApplicationWindow {
         HoverHandler {
             onPointChanged: {
                 var p = point.scenePosition
-                if (win.navMouseAt.x >= 0 && (p.x !== win.navMouseAt.x || p.y !== win.navMouseAt.y))
+                // > 1.5px: synthetic re-hovers after a view change jitter by sub-pixels
+                if (win.navMouseAt.x >= 0 && Math.abs(p.x - win.navMouseAt.x) + Math.abs(p.y - win.navMouseAt.y) > 1.5) {
                     win.navShown = false
+                    win.pointerActive = true
+                    win.keyboardMode = false
+                }
                 win.navMouseAt = p
             }
         }
@@ -918,7 +1035,9 @@ ApplicationWindow {
             clip: true
             focus: true
             // Shelf keyboard navigation; other pages ignore these keys here.
-            Keys.onPressed: function(event) { win.shelfKey(event) }
+            Keys.onPressed: function(event) { win.keyboardMode = true; win.keyRepeating = event.isAutoRepeat; win.shelfKey(event) }
+            // Navigation animation: no cover lift while a key auto-repeats; back on release.
+            Keys.onReleased: function(event) { if (!event.isAutoRepeat) win.keyRepeating = false }
 
             ShelfView {
                 id: shelfView
@@ -1010,7 +1129,7 @@ ApplicationWindow {
                 width: Math.min(globalStatus.naturalWidth + 2 + padX * 2, parent.width * 0.8)
                 height: globalStatus.implicitHeight + 10
                 radius: theme.rButton
-                color: theme.darkMode ? Qt.darker(theme.background, 1.35) : Qt.lighter(theme.background, 1.12)
+                color: theme.pillBackground
                 border.width: 1
                 border.color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.25)
                 opacity: globalStatus.fade
@@ -1031,7 +1150,8 @@ ApplicationWindow {
         PlayerBar {
             id: playerBar
             Layout.fillWidth: true
-            visible: backend.playerEpisodeId !== 0
+            // Hidden on Now playing: that page has its own transport.
+            visible: backend.playerEpisodeId !== 0 && !win.nowPlayingOpen
             nowPlayingOpen: win.nowPlayingOpen
             onNowPlayingRequested: win.openNowPlayingPage()
             onNowPlayingCollapseRequested: win.collapseNowPlaying()
@@ -1054,7 +1174,10 @@ ApplicationWindow {
             id: dialog
             anchors.centerIn: parent
             visible: dialogScrim.visible
-            title: addOpen ? "Add a feed" : ""
+            title: addOpen ? "Add a feed"
+                   : confirmUnsubAll2 ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "?"
+                   : ""
+            detail: confirmUnsubAll2 ? "This can't be undone." : ""
             destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
             startOnCancel: confirmUnsubAll2
             initialFocusItem: addOpen ? feedField : null
@@ -1062,7 +1185,7 @@ ApplicationWindow {
                      : confirmUnsubAll
                      ? "Unsubscribe from all podcasts?"
                      : confirmUnsubAll2
-                     ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "? This can't be undone."
+                     ? ""
                      : confirmQueue
                      ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
                      : confirmRemove

@@ -29,7 +29,7 @@ Button {
     icon.color: glyph
     Material.foreground: glyph
     icon.width: 18 * theme.textScale
-    icon.height: icon.width
+    icon.height: 18 * theme.textScale
     spacing: 4
     leftPadding: caption.length > 0 ? 8 : 6
     rightPadding: leftPadding
@@ -41,8 +41,8 @@ Button {
     background: Rectangle {
         radius: theme.rButton
         color: !control.enabled ? "transparent"
-             : control.down ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.16)
-             : control.hovered || control.kbdFocus ? Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.10)
+             : control.down ? Qt.rgba(theme.selection.r, theme.selection.g, theme.selection.b, 0.65)
+             : control.hovered || control.kbdFocus ? Qt.rgba(theme.selection.r, theme.selection.g, theme.selection.b, 0.45)
              : "transparent"
         border.width: control.kbdFocus ? 1 : 0
         border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)

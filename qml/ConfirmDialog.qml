@@ -11,6 +11,8 @@ Rectangle {
     id: dialog
     property string title: ""
     property string message: ""
+    // Optional dimmed second line under the message (e.g. "This can't be undone.").
+    property string detail: ""
     property string actionLabel: ""
     property string cancelLabel: "Cancel"
     property bool destructive: false
@@ -82,6 +84,15 @@ Rectangle {
             font.pixelSize: theme.body
             font.weight: Font.Normal
         }
+        Text {
+            visible: dialog.detail.length > 0
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: dialog.detail
+            color: theme.dim
+            font.pixelSize: theme.body
+            font.weight: Font.Normal
+        }
         Column {
             id: extraColumn
             width: parent.width
@@ -92,6 +103,10 @@ Rectangle {
             id: keys
             width: parent.width
             height: buttons.implicitHeight
+            // A menu that opened this dialog hands focus back when it finishes closing;
+            // take it back so the selected button stays highlighted and keys work.
+            onActiveFocusChanged: if (!activeFocus && dialog.visible && !dialog.initialFocusItem)
+                Qt.callLater(function() { if (dialog.visible && !dialog.initialFocusItem) keys.forceActiveFocus() })
             Keys.onPressed: function(event) {
                 switch (event.key) {
                 case Qt.Key_Left:

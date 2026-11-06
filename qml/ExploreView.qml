@@ -18,9 +18,13 @@ Item {
     readonly property int navCount: grid.count
     readonly property int navColumns: columns
     readonly property Item searchFieldItem: searchField
+    readonly property Item backItem: back
+    readonly property Item regionItem: flagButton
+    readonly property Item infoItem: helpButton
     function navItems() {
-        return [back, searchField, flagButton, helpButton].filter(function(i) { return i.visible })
+        return [back, flagButton, helpButton].filter(function(i) { return i.visible })
     }
+    function searchItems() { return searchField.visible ? [searchField] : [] }
     function previewItems() {
         return [previewSubscribe, previewBrowser, previewClose].filter(function(i) { return i.visible && i.enabled })
     }
@@ -74,7 +78,7 @@ Item {
     onVisibleChanged: {
         if (visible) {
             explore.activate()
-            if (win.navShown && win.navArea !== "top")
+            if (win.navShown && win.navArea !== "search")
                 Qt.callLater(win.navRestoreFocus)
             else
                 focusSearch()
@@ -115,7 +119,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: page.dismissRequested()
         }
@@ -136,6 +140,7 @@ Item {
             leftPadding: 10
             // Room inside the box for the loading spinner and the clear button.
             rightPadding: 10 + clearButton.width + (spinner.visible ? spinner.width + 4 : 0)
+                          + (actionHint.visible ? actionHint.implicitWidth + 8 : 0)
             verticalAlignment: TextInput.AlignVCenter
             Material.accent: theme.accent
 
@@ -173,7 +178,7 @@ Item {
                 x: searchField.leftPadding
                 anchors.verticalCenter: parent.verticalCenter
                 visible: searchField.length === 0 && searchField.preeditText.length === 0
-                text: "Search podcasts"
+                text: "Search podcasts or paste a feed URL"
                 color: theme.dim
                 font: searchField.font
             }
@@ -187,10 +192,10 @@ Item {
             // Tab, and Left/Right at either end of the text.
             onActiveFocusChanged: if (activeFocus && win.pageKind === "explore") {
                 win.navSwitchPage()
-                if (win.navArea === "top" && win.navIdx.top === page.navItems().indexOf(searchField))
+                if (win.navArea === "search")
                     return
-                win.navArea = "top"
-                win.navSetBar("top", page.navItems().indexOf(searchField))
+                win.navArea = "search"
+                win.navSetBar("search", 0)
             }
             Keys.onPressed: function(event) {
                 if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
@@ -198,15 +203,36 @@ Item {
                 var k = event.key
                 var atStart = cursorPosition === 0 && selectedText.length === 0
                 var atEnd = cursorPosition === length && selectedText.length === 0
-                if (k === Qt.Key_Up || k === Qt.Key_Down || k === Qt.Key_Tab || k === Qt.Key_Backtab
-                        || (k === Qt.Key_Left && atStart) || (k === Qt.Key_Right && atEnd)) {
+                // Tab / Shift+Tab leave the field (its own zone); arrows stay in the text.
+                if (k === Qt.Key_Tab || k === Qt.Key_Backtab) {
                     event.accepted = true
                     win.navSwitchPage()
-                    win.navArea = "top"
+                    win.navArea = "search"
                     win.navFromField(k)
                 }
             }
-            onAccepted: explore.searchNow()
+            // A pasted feed URL subscribes directly (same path as the old Add feed dialog).
+            readonly property bool looksLikeUrl: /^(https?|feed):\/\/\S+$/i.test(text.trim())
+            onAccepted: {
+                if (looksLikeUrl) {
+                    backend.addFeed(text.trim())
+                    clear()
+                    explore.setQuery("")
+                } else {
+                    explore.searchNow()
+                }
+            }
+            Text {
+                id: actionHint
+                // Action hint: what Enter does.
+                anchors.right: spinner.visible ? spinner.left : clearButton.left
+                anchors.rightMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                visible: searchField.length > 0
+                text: searchField.looksLikeUrl ? "↵ Add feed" : "↵ Search"
+                color: theme.dim
+                font.pixelSize: theme.caption
+            }
         }
 
         IconButton {
@@ -215,7 +241,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/info-symbolic.svg"
+            icon.source: theme.iconBase + "info-symbolic.svg"
             dot: backend.updatePhase === "available"
             tip: "Info"
             onClicked: win.helpOpen = true
@@ -247,12 +273,15 @@ Item {
                     font.family: "Noto Color Emoji"
                     font.pixelSize: theme.heading
                 }
-                Image {
+                IconImage {
+                    // Symbolic: tinted like the caret beside it.
                     anchors.verticalCenter: parent.verticalCenter
                     visible: flagButton.flag.length === 0
-                    source: "qrc:/icons/globe-symbolic.svg"
-                    sourceSize.width: 18 * theme.textScale
-                    sourceSize.height: 18 * theme.textScale
+                    source: theme.iconBase + "globe-symbolic.svg"
+                    width: 18 * theme.textScale
+                    height: width
+                    sourceSize: Qt.size(width, height)
+                    color: regionPopup.opened ? theme.foreground : theme.dim
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -330,6 +359,96 @@ Item {
         Material.accent: theme.accent
     }
 
+    // Region / search switches reset the results model, which destroys every tile and
+    // its cover Image. Qt Quick keeps only ~2 MB of unreferenced decoded images, so
+    // coming back meant re-decoding everything from the disk cache. Keep the covers of
+    // the list we just left referenced (one list only: potato RAM), so DK -> US -> DK
+    // paints straight from memory.
+    property var heldCovers: []
+    // Budget = clamp(2 % of MemAvailable, 8 MB, 32 MB), read at start-up and on each
+    // switch; 0 when MemAvailable < 10 % of MemTotal (drop the kept covers at once).
+    property double heldBudget: coverBudget()
+    function coverBudget() {
+        var avail = backend.memAvailable(), total = backend.memTotal()
+        if (avail <= 0 || total <= 0)
+            return 8 * 1048576
+        if (avail < total * 0.10)
+            return 0
+        return Math.min(32 * 1048576, Math.max(8 * 1048576, avail * 0.02))
+    }
+    function holdCurrentCovers() {
+        heldBudget = coverBudget()
+        if (heldBudget <= 0) {
+            heldTrim.stop()
+            heldCovers = []
+            return
+        }
+        // Nearest the view first: on-screen tiles, then the cache-buffer rows.
+        var tiles = []
+        for (var i = 0; i < grid.count; ++i) {
+            var t = grid.itemAtIndex(i)
+            if (t && t.coverArt && t.coverArt.status === Image.Ready && t.coverArt.source.toString() !== "") {
+                var mid = t.y + t.height / 2 - grid.contentY - grid.height / 2
+                tiles.push({ d: Math.abs(mid), a: t.coverArt })
+            }
+        }
+        tiles.sort(function(x, y) { return x.d - y.d })
+        var now = [], bytes = 0
+        for (var j = 0; j < tiles.length; ++j) {
+            var a = tiles[j].a
+            var w = a.sourceSize.width, h = a.sourceSize.height
+            var cost = w * h * 4
+            if (bytes + cost > heldBudget)
+                break
+            bytes += cost
+            now.push({ s: a.source, w: w, h: h })
+        }
+        heldBytes = bytes
+        if (now.length === 0) {
+            heldCovers = []
+            return
+        }
+        // Keep the older set alive until the new tiles have picked up their images.
+        heldCovers = heldCovers.concat(now)
+        heldKeep = now.length
+        heldTrim.restart()
+    }
+    property double heldBytes: 0
+    property int heldKeep: 0
+    Timer {
+        id: heldTrim
+        interval: 1500
+        onTriggered: if (page.heldCovers.length > page.heldKeep)
+                         page.heldCovers = page.heldCovers.slice(page.heldCovers.length - page.heldKeep)
+    }
+    // Force refresh: never let a kept cover show the old picture.
+    function dropHeldCovers() {
+        heldTrim.stop()
+        heldCovers = []
+        heldBytes = 0
+        heldKeep = 0
+    }
+    Connections {
+        target: backend
+        function onArtworkForced() { page.dropHeldCovers() }
+    }
+    Connections {
+        target: explore.results
+        function onModelAboutToBeReset() { page.holdCurrentCovers() }
+    }
+    Repeater {
+        model: page.heldCovers
+        delegate: Image {
+            required property var modelData
+            visible: false
+            asynchronous: true
+            cache: true
+            source: modelData.s
+            sourceSize.width: modelData.w
+            sourceSize.height: modelData.h
+        }
+    }
+
     GridView {
         id: grid
         anchors.top: subhead.bottom
@@ -345,12 +464,13 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: explore.results
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
 
         delegate: Item {
             id: tile
             required property int index
             required property var model
+            readonly property Item coverArt: art
             width: grid.cellWidth
             height: grid.cellHeight
 
@@ -363,6 +483,12 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    readonly property Image artRef: art // "art" inside CoverClip is its own property
+                    layer.effect: CoverClip { art: cover.artRef; radius: cover.coverRadius }
+                    Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                     Rectangle {
                         anchors.fill: parent
@@ -379,17 +505,20 @@ Item {
                     Image {
                         id: art
                         anchors.fill: parent
-                        source: tile.model.cover
+                        // Tiles ask Apple's CDN for 400px art (about half the bytes of 600px;
+                        // still ≥ 2× the tile). The preview keeps the 600px URL.
+                        source: (tile.model.cover || "").replace("/600x600bb.", "/400x400bb.")
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        sourceSize.width: Math.max(168, cover.width * 2)
-                        sourceSize.height: Math.max(168, cover.height * 2)
+                        // Decode at the on-screen size only (×DPR): a 2× decode cost 4× the RAM.
+                        sourceSize.width: Math.max(32, Math.ceil(cover.width * Screen.devicePixelRatio))
+                        sourceSize.height: Math.max(32, Math.ceil(cover.height * Screen.devicePixelRatio))
                     }
                     Rectangle {
                         anchors.fill: parent
                         color: theme.selection
-                        opacity: tileMouse.containsMouse ? 0.28 : 0
+                        opacity: tileMouse.containsMouse && win.pointerActive ? 0.28 : 0
                     }
                     Rectangle {
                         visible: page.kbdRing && tile.index === page.kbdIndex
@@ -410,7 +539,7 @@ Item {
                         height: width
                         radius: width / 2
                         color: tile.model.subscribed ? theme.accent : theme.background
-                        opacity: tile.model.subscribed || tile.model.adding || tileMouse.containsMouse
+                        opacity: tile.model.subscribed || tile.model.adding || (tileMouse.containsMouse && win.pointerActive)
                                  || subscribeButton.hovered ? 0.95 : 0.8
                         IconButton {
                             id: subscribeButton
@@ -532,6 +661,7 @@ Item {
             color: theme.background
             border.color: theme.selection
             border.width: 1
+            radius: theme.rCard
 
             MouseArea {
                 anchors.fill: parent
@@ -565,6 +695,10 @@ Item {
                             asynchronous: true
                             sourceSize.width: width * 2
                             sourceSize.height: height * 2
+                            readonly property real coverRadius: theme.rCard
+                            layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                            layer.smooth: true
+                            layer.effect: CoverClip { art: previewArt; radius: previewArt.coverRadius }
                             Rectangle {
                                 anchors.fill: parent
                                 color: theme.selection
@@ -903,7 +1037,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onEntered: regionList.currentIndex = row.index
+                        onEntered: if (win.pointerActive) regionList.currentIndex = row.index
                         onClicked: regionPopup.choose(row.modelData.code)
                     }
                 }

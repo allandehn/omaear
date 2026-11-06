@@ -59,6 +59,8 @@ Item {
         for (var i = 0; i < controls.children.length; ++i) list.push(controls.children[i])
         return shown(list) }
     function navSeek() { return shown([scrubber]) }
+    // The notes are a stop only when they scroll (Up/Down scroll them, then move on).
+    function navNotes() { return synopsisBox.visible && synopsisBox.interactive ? [synopsisBox] : [] }
 
     function nudge(seconds) {
         var next = backend.playerPosition + seconds
@@ -81,7 +83,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
-        icon.source: "qrc:/icons/back-symbolic.svg"
+        icon.source: theme.iconBase + "back-symbolic.svg"
         tip: "Back"
         onClicked: page.dismissRequested()
     }
@@ -92,7 +94,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
-        icon.source: "qrc:/icons/info-symbolic.svg"
+        icon.source: theme.iconBase + "info-symbolic.svg"
         dot: backend.updatePhase === "available"
         tip: "Info"
         onClicked: win.helpOpen = true
@@ -132,6 +134,11 @@ Item {
             // they shrink (and scroll) or step aside rather than run under the bar.
             readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
                                               - spacing * 4 - 120 * theme.textScale
+            // The notes get ~5 lines or 35% of the free height, whichever is more (the
+            // cover fits around that, so they grow/shrink with the window); any
+            // height still free under the cover goes to the notes too (notesLeft).
+            readonly property real notesReserve: Math.max(0, Math.min(synopsis.implicitHeight, Math.max(theme.bodySmall * 1.4 * 5, notesRoom * 0.35), notesRoom))
+            readonly property real notesLeft: page.height - topPad - bottomPad - coverBlock.height - baseChrome - spacing * 4
             readonly property real chromeBelow: {
                 var gaps = 3
                 var h = baseChrome
@@ -139,7 +146,7 @@ Item {
                 // room without squeezing the cover to a thumbnail; nothing sits
                 // hidden below the fold above the player bar any more.
                 if (synopsisBox.visible) {
-                    h += synopsisBox.height
+                    h += notesReserve
                     gaps += 1
                 }
                 return h + spacing * gaps + bottomPad
@@ -155,6 +162,7 @@ Item {
 
             // Compact: small art beside title/show. Full: large centered cover above titles.
             Item {
+                id: coverBlock
                 width: parent.width
                 height: coverFrame.height
                 visible: !page.compact
@@ -165,11 +173,16 @@ Item {
                     width: body.coverSide
                     height: width
                     radius: theme.rCard
-                    color: theme.selection
+                    color: backend.playerArt !== "" ? theme.background : theme.selection // backing: page surface; placeholder keeps its look
                     clip: true
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: fullImage; radius: coverFrame.coverRadius }
 
                     // backend.playerArt already prefers episode art over the show cover.
                     Image {
+                        id: fullImage
                         anchors.fill: parent
                         source: backend.playerArt
                         fillMode: Image.PreserveAspectCrop
@@ -218,11 +231,16 @@ Item {
                     width: 56 * theme.textScale
                     height: width
                     radius: theme.rCard
-                    color: theme.selection
+                    color: backend.playerArt !== "" ? theme.background : theme.selection // backing: page surface; placeholder keeps its look
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
+                    readonly property real coverRadius: theme.rCard
+                    layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
+                    layer.smooth: true
+                    layer.effect: CoverClip { art: compactImage; radius: compactArt.coverRadius }
 
                     Image {
+                        id: compactImage
                         anchors.fill: parent
                         source: backend.playerArt
                         fillMode: Image.PreserveAspectCrop
@@ -323,6 +341,7 @@ Item {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 17 * theme.textScale
+                        icon.height: 17 * theme.textScale
                         implicitWidth: 34 * theme.textScale
                         implicitHeight: 34 * theme.textScale
                         icon.name: "media-skip-backward-symbolic"
@@ -334,6 +353,7 @@ Item {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 26 * theme.textScale
+                        icon.height: 26 * theme.textScale
                         implicitWidth: 48 * theme.textScale
                         implicitHeight: 48 * theme.textScale
                         icon.name: "media-seek-backward-symbolic"
@@ -344,6 +364,7 @@ Item {
                         // Size tier (play): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 34 * theme.textScale
+                        icon.height: 34 * theme.textScale
                         implicitWidth: 56 * theme.textScale
                         implicitHeight: 56 * theme.textScale
                         icon.name: backend.playerStatus === "playing"
@@ -356,6 +377,7 @@ Item {
                         // Size tier (seek): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 26 * theme.textScale
+                        icon.height: 26 * theme.textScale
                         implicitWidth: 48 * theme.textScale
                         implicitHeight: 48 * theme.textScale
                         icon.name: "media-seek-forward-symbolic"
@@ -366,6 +388,7 @@ Item {
                         // Size tier (queue): shared centre line.
                         anchors.verticalCenter: parent.verticalCenter
                         icon.width: 17 * theme.textScale
+                        icon.height: 17 * theme.textScale
                         implicitWidth: 34 * theme.textScale
                         implicitHeight: 34 * theme.textScale
                         icon.name: "media-skip-forward-symbolic"
@@ -414,17 +437,18 @@ Item {
                     // Autoplay queue (same setting as the player bar and Queue page).
                     IconButton {
                         id: autoplayToggle
-                        icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
-                        glyph: backend.queueAutoplay ? theme.accent : Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.45)
+                        icon.source: backend.queueAutoplay ? theme.iconBase + "autoplay-b-on-symbolic.svg" : theme.iconBase + "autoplay-b-off-symbolic.svg"
+                        glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
                     }
-                    // Mono downmix: bright when on, dimmed when off (shared with the player bar).
+                    // Mono/Stereo switch (shared with the player bar).
                     IconButton {
                         id: monoToggle
-                        icon.source: "qrc:/icons/mono-symbolic.svg"
-                        glyph: backend.playerMono ? theme.foreground : theme.muted
-                        tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
+                        // A Mono/Stereo switch, never "off": the icon shows the current mode.
+                        icon.source: theme.iconBase + (backend.playerMono ? "mono-symbolic.svg" : "stereo-symbolic.svg")
+                        tip: backend.playerMono ? "Mono (left and right mixed)  ·  click for stereo"
+                                                : "Stereo (left and right separate)  ·  click for mono"
                         onClicked: backend.toggleMono()
                     }
                 }
@@ -470,24 +494,43 @@ Item {
                 }
             }
 
-            // Notes: up to about five lines on show; longer notes scroll in place.
+            // Notes: fill the height left under the cover (at least ~5 lines when
+            // there is room); longer notes scroll in place, with a fade while clipped.
             Flickable {
                 id: synopsisBox
                 width: Math.min(parent.width, 560 * theme.textScale)
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !page.compact && backend.playerDescription.length > 0
                          && body.notesRoom >= theme.bodySmall * 1.4 * 2
-                height: Math.max(0, Math.min(synopsis.implicitHeight, theme.bodySmall * 1.4 * 5, body.notesRoom))
+                height: Math.max(body.notesReserve, Math.min(synopsis.implicitHeight, body.notesLeft))
                 contentWidth: width
                 contentHeight: synopsis.implicitHeight
                 interactive: contentHeight > height
                 clip: true
+                property bool kbdFocus: false
+                // Up/Down from the keyboard: ~3 lines; false at the end so focus moves on.
+                function navScroll(dir) {
+                    var max = Math.max(0, contentHeight - height)
+                    if ((dir < 0 && contentY <= 0) || (dir > 0 && contentY >= max - 0.5)) return false
+                    contentY = Math.max(0, Math.min(max, contentY + dir * theme.bodySmall * 1.4 * 3))
+                    return true
+                }
+                Rectangle {   // keyboard ring
+                    parent: synopsisBox
+                    anchors.fill: parent
+                    z: 3
+                    color: "transparent"
+                    radius: theme.rButton
+                    border.width: 2
+                    border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
+                    visible: synopsisBox.kbdFocus
+                }
                 boundsBehavior: Flickable.StopAtBounds
                 FastWheel { }
                 SelectableText {
                     id: synopsis
                     width: synopsisBox.width
-                    horizontalAlignment: TextEdit.AlignHCenter
+                    horizontalAlignment: TextEdit.AlignLeft
                     // Links and timestamps as on episode details (same linkify).
                     text: episodePage.linkify(backend.playerDescription, theme.blue)
                     textFormat: TextEdit.RichText
@@ -498,6 +541,20 @@ Item {
                     font.family: "monospace"
                     wrapMode: TextEdit.Wrap
                     opacity: 0.9
+                }
+                // "More below": soft fade at the bottom edge while the text is clipped.
+                Rectangle {
+                    parent: synopsisBox
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Math.min(28 * theme.textScale, synopsisBox.height / 2)
+                    visible: synopsisBox.contentHeight > synopsisBox.height + 1
+                             && synopsisBox.contentY + synopsisBox.height < synopsisBox.contentHeight - 1
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: Qt.rgba(theme.background.r, theme.background.g, theme.background.b, 0) }
+                        GradientStop { position: 1; color: theme.background }
+                    }
                 }
             }
         }

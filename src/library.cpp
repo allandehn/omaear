@@ -9,6 +9,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <sys/stat.h>
 #include <QVariant>
 
 namespace {
@@ -111,6 +112,14 @@ bool Library::migrateLegacyLocations(QString *message)
     if (message)
         *message = log.join(QLatin1Char('\n'));
     return true;
+}
+
+QString Library::fileIdentity(const QString &path)
+{
+    struct stat st;
+    if (::stat(QFile::encodeName(path).constData(), &st) != 0)
+        return {};
+    return QStringLiteral("%1:%2").arg(qulonglong(st.st_dev)).arg(qulonglong(st.st_ino));
 }
 
 QString Library::settingsPath()
@@ -748,6 +757,26 @@ bool Library::queueAutoplay() const
 void Library::setQueueAutoplay(bool on)
 {
     setSetting(QStringLiteral("queue.autoplay"), on ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
+bool Library::motionTryout() const
+{
+    return setting(QStringLiteral("ui.motionTryout"), QStringLiteral("1")) == QStringLiteral("1");
+}
+
+void Library::setMotionTryout(bool on)
+{
+    setSetting(QStringLiteral("ui.motionTryout"), on ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
+bool Library::gridWrapFull() const
+{
+    return setting(QStringLiteral("ui.gridWrap"), QStringLiteral("rows")) == QStringLiteral("full");
+}
+
+void Library::setGridWrapFull(bool on)
+{
+    setSetting(QStringLiteral("ui.gridWrap"), on ? QStringLiteral("full") : QStringLiteral("rows"));
 }
 
 bool Library::mono() const

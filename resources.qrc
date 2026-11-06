@@ -1,6 +1,7 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/">
+        <file alias="cover-shadow.png">assets/cover-shadow.png</file>
         <file alias="Main.qml">qml/Main.qml</file>
         <file alias="HelpOverlay.qml">qml/HelpOverlay.qml</file>
         <file alias="ShelfView.qml">qml/ShelfView.qml</file>
@@ -15,6 +16,7 @@
         <file alias="ArtMenu.qml">qml/ArtMenu.qml</file>
         <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
         <file alias="ConfirmDialog.qml">qml/ConfirmDialog.qml</file>
+        <file alias="CoverClip.qml">qml/CoverClip.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>
@@ -30,9 +32,10 @@
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
         <file alias="icons/more-symbolic.svg">qml/icons/more-symbolic.svg</file>
-        <file alias="icons/autoplay-queue-symbolic.svg">qml/icons/autoplay-queue-symbolic.svg</file>
+        <file alias="icons/add-symbolic.svg">qml/icons/add-symbolic.svg</file>
         <file alias="icons/queued-symbolic.svg">qml/icons/queued-symbolic.svg</file>
         <file alias="icons/mono-symbolic.svg">qml/icons/mono-symbolic.svg</file>
+        <file alias="icons/stereo-symbolic.svg">qml/icons/stereo-symbolic.svg</file>
         <file alias="icons/back-symbolic.svg">qml/icons/back-symbolic.svg</file>
         <file alias="icons/info-symbolic.svg">qml/icons/info-symbolic.svg</file>
         <file alias="icons/autoplay-b-on-symbolic.svg">qml/icons/autoplay-b-on-symbolic.svg</file>

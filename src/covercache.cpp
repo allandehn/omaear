@@ -10,12 +10,19 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QCache>
+#include <QHash>
 #include <QAtomicInt>
 #include <QThreadPool>
 #include <QUrl>
 
 namespace {
 QMutex cacheMutex;
+// path -> pre-rounded flag, computed once per decoded image.
+QHash<QString, bool> &cornerFlags()
+{
+    static QHash<QString, bool> flags;
+    return flags;
+}
 
 // On-disk thumbnails at the requested display size. Originals are up to
 // 3000x3000, so decoding them on every launch made covers fill in one by one;
@@ -31,10 +38,19 @@ QString thumbDir()
     return dir;
 }
 
-QString thumbPath(const QString &key)
+// Thumb files are "<sha1(path)>-<sha1(key)>.jpg", so every thumb of one
+// cover file can be found (and dropped) by its path prefix.
+QString thumbPrefix(const QString &path)
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex().left(16));
+}
+
+QString thumbPath(const QString &path, const QString &key)
 {
     const QByteArray hash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha1).toHex();
-    return thumbDir() + QLatin1Char('/') + QString::fromLatin1(hash) + QStringLiteral(".jpg");
+    return thumbDir() + QLatin1Char('/') + thumbPrefix(path) + QLatin1Char('-')
+        + QString::fromLatin1(hash.left(24)) + QStringLiteral(".jpg");
 }
 
 QString absolutePath(const QString &id)
@@ -102,7 +118,7 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
         }
     }
     const bool sized = requestW > 0 && requestH > 0;
-    const QString thumb = sized ? thumbPath(key) : QString();
+    const QString thumb = sized ? thumbPath(path, key) : QString();
     QImage image;
     if (sized && QFileInfo::exists(thumb))
         image = QImage(thumb);
@@ -121,9 +137,11 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
         image = reader.read();
         if (image.isNull())
             return {};
-        if (shrunk && !image.hasAlphaChannel()) {
+        if (shrunk) {
+            // Transparent art keeps its alpha as PNG (content-sniffed on load).
             QSaveFile out(thumb);
-            if (out.open(QIODevice::WriteOnly) && image.save(&out, "JPG", 90))
+            if (out.open(QIODevice::WriteOnly)
+                && image.save(&out, image.hasAlphaChannel() ? "PNG" : "JPG", 90))
                 out.commit();
         }
     }
@@ -131,6 +149,12 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
     const int cost = qMax(1, int(image.sizeInBytes()));
     QMutexLocker lock(&cacheMutex);
     memoryCache().insert(key, new QImage(image), cost);
+    if (!cornerFlags().contains(path)) {
+        lock.unlock();
+        const bool flat = hasFlatRoundedCorners(image); // ~40 pixel reads
+        lock.relock();
+        cornerFlags().insert(path, flat);
+    }
     return image;
 }
 }
@@ -139,6 +163,7 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
 {
     if (startupTiming())
         fprintf(stderr, "timing: prewarm start %lld ms\n", qint64(startupTimer().elapsed()));
+    QThreadPool::globalInstance()->start([] { pruneLegacyThumbs(); }, -1);
     // One task per cover on the global pool (all cores), tile size first.
     auto *left = new QAtomicInt(int(paths.size() * sides.size()));
     for (int side : sides) {
@@ -153,6 +178,75 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
             }, side == sides.constFirst() ? 1 : 0);
         }
     }
+}
+
+bool hasFlatRoundedCorners(const QImage &image)
+{
+    const int w = image.width(), h = image.height();
+    if (w < 24 || h < 24)
+        return false;
+    // Small 2x2 average so JPEG noise does not decide alone.
+    auto at = [&](int x, int y) {
+        int r = 0, g = 0, b = 0, a = 0;
+        for (int dy = 0; dy < 2; ++dy)
+            for (int dx = 0; dx < 2; ++dx) {
+                const QRgb c = image.pixel(qBound(0, x + dx, w - 2), qBound(0, y + dy, h - 2));
+                r += qRed(c); g += qGreen(c); b += qBlue(c); a += qAlpha(c);
+            }
+        return qRgba(r / 4, g / 4, b / 4, a / 4);
+    };
+    auto same = [](QRgb p, QRgb q, int tol) {
+        if (qAlpha(p) < 16 && qAlpha(q) < 16)
+            return true; // both transparent
+        return qAbs(qRed(p) - qRed(q)) <= tol && qAbs(qGreen(p) - qGreen(q)) <= tol
+            && qAbs(qBlue(p) - qBlue(q)) <= tol && qAbs(qAlpha(p) - qAlpha(q)) <= tol;
+    };
+    const int side = qMin(w, h);
+    const int diag = qMax(2, int(side * 0.05));  // inside an arc of radius <= ~17%
+    const int edge = qMax(3, int(side * 0.20));  // past the arc, on the edge itself
+    struct Corner { int x, y, sx, sy; };
+    const Corner corners[4] = { {0, 0, 1, 1}, {w - 2, 0, -1, 1}, {0, h - 2, 1, -1}, {w - 2, h - 2, -1, -1} };
+    const QRgb ref = at(0, 0);
+    int artInside = 0;
+    for (const Corner &c : corners) {
+        const QRgb corner = at(c.x, c.y);
+        if (!same(corner, ref, 10))
+            return false; // corners must all be one flat colour
+        const bool diagArt = !same(corner, at(c.x + c.sx * diag, c.y + c.sy * diag), 24);
+        const bool edgeArt = !same(corner, at(c.x + c.sx * edge, c.y), 24)
+            && !same(corner, at(c.x, c.y + c.sy * edge), 24);
+        if (diagArt && edgeArt)
+            ++artInside;
+    }
+    // A plain border or white background fails here: the art must reach the
+    // edges and fill the corner just inside the cut-out at every corner.
+    return artInside == 4;
+}
+
+bool CoverCache::preRounded(const QString &source) const
+{
+    static const QString prefix = QStringLiteral("image://covers/");
+    QString path;
+    if (source.startsWith(prefix))
+        path = absolutePath(source.mid(prefix.size()));
+    else if (source.startsWith(QStringLiteral("file:")))
+        path = QUrl(source).toLocalFile();
+    else if (source.startsWith(QLatin1Char('/')))
+        path = source;
+    if (path.isEmpty())
+        return false;
+    {
+        QMutexLocker lock(&cacheMutex);
+        const auto it = cornerFlags().constFind(path);
+        if (it != cornerFlags().constEnd())
+            return it.value();
+    }
+    // Not decoded through the provider yet: one small decode, then cached.
+    const QImage image = loadCover(path, kCoverRowSide, kCoverRowSide);
+    const bool flat = hasFlatRoundedCorners(image);
+    QMutexLocker lock(&cacheMutex);
+    cornerFlags().insert(path, flat);
+    return flat;
 }
 
 bool CoverCache::ready(const QString &source, int side) const
@@ -193,4 +287,33 @@ QImage CoverImageProvider::requestImage(const QString &id, QSize *size, const QS
         fprintf(stderr, "timing: cover %lld ms %dx%d %s\n", qint64(startupTimer().elapsed()),
                 image.width(), image.height(), hit ? "memory" : "decoded");
     return image;
+}
+
+void dropCoverThumbs(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+    {
+        QMutexLocker lock(&cacheMutex);
+        const QString prefix = path + QLatin1Char('|');
+        const auto keys = memoryCache().keys();
+        for (const QString &key : keys)
+            if (key.startsWith(prefix))
+                memoryCache().remove(key);
+        cornerFlags().remove(path);
+    }
+    QDir dir(thumbDir());
+    const auto files = dir.entryList({thumbPrefix(path) + QStringLiteral("-*.jpg")}, QDir::Files);
+    for (const QString &name : files)
+        dir.remove(name);
+}
+
+void pruneLegacyThumbs()
+{
+    // Pre-prefix thumbs were "<40 hex>.jpg": unreachable now, so just delete them.
+    QDir dir(thumbDir());
+    const auto files = dir.entryList({QStringLiteral("*.jpg")}, QDir::Files);
+    for (const QString &name : files)
+        if (!name.contains(QLatin1Char('-')))
+            dir.remove(name);
 }

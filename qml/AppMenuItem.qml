@@ -28,6 +28,7 @@ MenuItem {
 
     background: Rectangle {
         color: item.highlighted && item.enabled ? theme.selection : "transparent"
+        radius: theme.rButton
     }
 
     HoverHandler {

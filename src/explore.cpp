@@ -172,6 +172,8 @@ Explore::Explore(Library &library, Backend &backend, QObject *parent)
     m_debounce->setInterval(300);
     connect(m_debounce, &QTimer::timeout, this, &Explore::startRequest);
 
+    // Force refresh (Ctrl+click): no cover Explore has listed may come back from disk.
+    connect(&m_backend, &Backend::artworkForced, this, [this]() { dropCoverUrlsFromDiskCache(knownCoverUrls()); });
     // A feed landed (or went): re-check Subscribed marks.
     connect(&m_backend, &Backend::showCountChanged, this, &Explore::refreshStates);
     // Subscribe that never landed (bad feed, offline): stop its spinner.
@@ -796,4 +798,16 @@ void Explore::setRegion(const QString &code)
     setError({});
     m_shownKey.clear();
     startRequest();
+}
+
+QStringList Explore::knownCoverUrls() const
+{
+    QStringList urls;
+    for (const auto &rows : m_cache)
+        for (const auto &r : rows)
+            urls << coverUrlVariants(r.cover);
+    for (int i = 0; i < m_model.rowCount(); ++i)
+        urls << coverUrlVariants(m_model.data(m_model.index(i), ExploreModel::CoverRole).toString());
+    urls.removeDuplicates();
+    return urls;
 }
