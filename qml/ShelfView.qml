@@ -84,6 +84,8 @@ Item {
     // UI self-test hooks (OMAEAR_UI_TEST).
     function coverItemAt(i) { return (backend.shelfView === "list" ? showList : grid).itemAtIndex(i) }
     readonly property bool coverMenuOpen: coverMenu.opened
+    // Scene point inside the open cover menu's panel (same test the window filter uses).
+    function coverMenuContains(x, y) { return win.popupContains(coverMenu, x, y) }
 
     function openNavMenu() {
         if (navCount === 0) { openEmptyMenu(); return }
