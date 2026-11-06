@@ -103,6 +103,10 @@ Rectangle {
             id: keys
             width: parent.width
             height: buttons.implicitHeight
+            // A menu that opened this dialog hands focus back when it finishes closing;
+            // take it back so the selected button stays highlighted and keys work.
+            onActiveFocusChanged: if (!activeFocus && dialog.visible && !dialog.initialFocusItem)
+                Qt.callLater(function() { if (dialog.visible && !dialog.initialFocusItem) keys.forceActiveFocus() })
             Keys.onPressed: function(event) {
                 switch (event.key) {
                 case Qt.Key_Left:

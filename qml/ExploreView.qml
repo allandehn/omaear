@@ -115,7 +115,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: page.dismissRequested()
         }
@@ -215,7 +215,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/info-symbolic.svg"
+            icon.source: theme.iconBase + "info-symbolic.svg"
             dot: backend.updatePhase === "available"
             tip: "Info"
             onClicked: win.helpOpen = true
@@ -247,12 +247,15 @@ Item {
                     font.family: "Noto Color Emoji"
                     font.pixelSize: theme.heading
                 }
-                Image {
+                IconImage {
+                    // Symbolic: tinted like the caret beside it.
                     anchors.verticalCenter: parent.verticalCenter
                     visible: flagButton.flag.length === 0
-                    source: "qrc:/icons/globe-symbolic.svg"
-                    sourceSize.width: 18 * theme.textScale
-                    sourceSize.height: 18 * theme.textScale
+                    source: theme.iconBase + "globe-symbolic.svg"
+                    width: 18 * theme.textScale
+                    height: width
+                    sourceSize: Qt.size(width, height)
+                    color: regionPopup.opened ? theme.foreground : theme.dim
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -345,7 +348,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         FastWheel { }
         model: explore.results
-        cacheBuffer: height
+        cacheBuffer: Math.max(0, height)
 
         delegate: Item {
             id: tile
@@ -366,8 +369,9 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: art; radius: cover.coverRadius }
-                    Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+                    readonly property Image artRef: art // "art" inside CoverClip is its own property
+                    layer.effect: CoverClip { art: cover.artRef; radius: cover.coverRadius }
+                    Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
                     Rectangle {
                         anchors.fill: parent
@@ -537,6 +541,7 @@ Item {
             color: theme.background
             border.color: theme.selection
             border.width: 1
+            radius: theme.rCard
 
             MouseArea {
                 anchors.fill: parent

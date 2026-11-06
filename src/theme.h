@@ -24,6 +24,8 @@ class Theme : public QObject {
     Q_PROPERTY(int rCard READ rounding NOTIFY roundingChanged)
     Q_PROPERTY(int rButton READ rButton NOTIFY roundingChanged)
     Q_PROPERTY(int rIcon READ rIcon NOTIFY roundingChanged)
+    // Prefix for the app's own icons: joins follow the live rounding.
+    Q_PROPERTY(QString iconBase READ iconBase NOTIFY roundingChanged)
     Q_PROPERTY(bool darkMode READ darkMode NOTIFY changed)
     Q_PROPERTY(qreal textScale READ textScale NOTIFY changed)
     Q_PROPERTY(int caption READ caption NOTIFY changed)
@@ -48,6 +50,7 @@ public:
     int rounding() const { return m_rounding; }
     int rButton() const { return qMin(m_rounding, 4); }
     int rIcon() const { return qMin(qRound(m_rounding / 4.0), 2); }
+    QString iconBase() const { return m_rounding > 0 ? QStringLiteral("image://icons/round/") : QStringLiteral("image://icons/square/"); }
     // Radius for an element inset by p inside a card: max(R - p, 0).
     Q_INVOKABLE int rInner(qreal p) const { return qMax(qRound(m_rounding - p), 0); }
     // Re-read rounding now (called on window focus; also polled every second).

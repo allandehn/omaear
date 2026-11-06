@@ -230,7 +230,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            icon.source: "qrc:/icons/back-symbolic.svg"
+            icon.source: theme.iconBase + "back-symbolic.svg"
             tip: "Back"
             onClicked: win.back()
         }
@@ -254,14 +254,14 @@ Item {
             IconButton {
                 // queueCount in the binding re-evaluates isQueued when the queue changes.
                 readonly property bool queued: backend.queueCount >= 0 && backend.isQueued(backend.openEpisodeId)
-                icon.source: queued ? "qrc:/icons/queue-remove-symbolic.svg"
-                                    : "qrc:/icons/queue-add-symbolic.svg"
+                icon.source: queued ? theme.iconBase + "queue-remove-symbolic.svg"
+                                    : theme.iconBase + "queue-add-symbolic.svg"
                 tip: queued ? "Remove from queue" : "Add to queue"
                 onClicked: queued ? backend.removeFromQueue(backend.openEpisodeId)
                                   : backend.addToQueue(backend.openEpisodeId)
             }
             IconButton {
-                icon.source: "qrc:/icons/info-symbolic.svg"
+                icon.source: theme.iconBase + "info-symbolic.svg"
                 dot: backend.updatePhase === "available"
                 tip: "Info"
                 onClicked: win.helpOpen = true
@@ -320,7 +320,7 @@ Item {
                     id: artFrame
                     width: 160 * theme.textScale
                     height: width
-                    color: theme.selection
+                    color: theme.background // backing: the page surface
                     visible: page.art !== ""
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
@@ -395,7 +395,7 @@ Item {
                             width: Math.round(theme.bodySmall * 1.1)
                             height: width
                             sourceSize: Qt.size(width, height)
-                            source: "qrc:/icons/queued-symbolic.svg"
+                            source: theme.iconBase + "queued-symbolic.svg"
                             color: theme.dim
                         }
                         Text {

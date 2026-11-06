@@ -175,7 +175,7 @@ Rectangle {
             layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
             layer.smooth: true
             layer.effect: CoverClip { art: barImage; radius: barArt.coverRadius }
-            Rectangle { anchors.fill: parent; color: theme.selection; z: -1 } // backing for transparent art
+            Rectangle { anchors.fill: parent; color: bar.color; z: -1 } // backing: the bar surface
 
             Image {
                 id: barImage
@@ -341,7 +341,7 @@ Rectangle {
                     IconButton {
                         id: autoplayButton
                         visible: !extras.dropAutoplay
-                        icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                        icon.source: backend.queueAutoplay ? theme.iconBase + "autoplay-b-on-symbolic.svg" : theme.iconBase + "autoplay-b-off-symbolic.svg"
                         glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
@@ -350,7 +350,7 @@ Rectangle {
                     IconButton {
                         id: monoButton
                         visible: !extras.dropMono
-                        icon.source: "qrc:/icons/mono-symbolic.svg"
+                        icon.source: theme.iconBase + "mono-symbolic.svg"
                         glyph: backend.playerMono ? theme.foreground : theme.muted
                         tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
                         onClicked: backend.toggleMono()
@@ -387,8 +387,12 @@ Rectangle {
                     // Full title on hover when it's cut off.
                     HoverHandler { id: titleHover }
                     AppTip {
+                        id: titleTip
                         text: backend.playerTitle
-                        visible: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
+                        // Drive open/close imperatively: binding a Popup's visible
+                        // loops when the popup changes visible itself on close.
+                        readonly property bool wanted: titleHover.hovered && titleText.implicitWidth > titleText.width + 1
+                        onWantedChanged: wanted ? open() : close()
                     }
                 }
             }

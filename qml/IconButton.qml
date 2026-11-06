@@ -29,7 +29,7 @@ Button {
     icon.color: glyph
     Material.foreground: glyph
     icon.width: 18 * theme.textScale
-    icon.height: icon.width
+    icon.height: 18 * theme.textScale
     spacing: 4
     leftPadding: caption.length > 0 ? 8 : 6
     rightPadding: leftPadding

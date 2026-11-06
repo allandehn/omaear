@@ -1,3 +1,6 @@
+#include "iconprovider.h"
+#include <QBuffer>
+#include <QImageReader>
 #include <QElapsedTimer>
 #include <QDir>
 #include "covercache.h"
@@ -524,6 +527,25 @@ int runSelfTest(int argc, char **argv)
             }
             fprintf(stderr, "covers: %d scanned, %d pre-rounded, %.2f ms total (decode + check)\n", n, hits, t.nsecsElapsed() / 1e6);
         }
+    }
+
+    {
+        // App icons: currentColor, 1.5 stroke, square joins in source; round at runtime.
+        const QStringList icons = QDir(QStringLiteral(":/icons")).entryList({QStringLiteral("*-symbolic.svg")});
+        check(icons.size() >= 12, "icons: found in qrc");
+        for (const QString &name : icons) {
+            const QByteArray sq = iconSvg(name, false), rd = iconSvg(name, true);
+            const QByteArray what = name.toUtf8();
+            check(!sq.contains("#2e3436") && sq.contains("currentColor"), ("icon currentColor: " + what).constData());
+            check(!sq.contains("stroke-width") || sq.contains("stroke-width=\"1.5\""), ("icon 1.5 stroke: " + what).constData());
+            check(!sq.contains("linejoin=\"round\"") && !rd.contains("linejoin=\"miter\""), ("icon joins: " + what).constData());
+            QBuffer buf; buf.setData(rd); QImageReader reader(&buf, "svg"); reader.setScaledSize(QSize(32, 32));
+            const QImage img = reader.read();
+            int ink = 0;
+            for (int y = 0; y < img.height(); ++y) for (int x = 0; x < img.width(); ++x) ink += qAlpha(img.pixel(x, y)) > 0;
+            check(ink > 20, ("icon renders: " + what).constData());
+        }
+        check(iconSvg(QStringLiteral("../x.svg"), false).isEmpty(), "icons: no path escape");
     }
 
     if (g_fails == 0) {

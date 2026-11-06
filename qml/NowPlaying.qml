@@ -81,7 +81,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
-        icon.source: "qrc:/icons/back-symbolic.svg"
+        icon.source: theme.iconBase + "back-symbolic.svg"
         tip: "Back"
         onClicked: page.dismissRequested()
     }
@@ -92,7 +92,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: page.compact ? 8 : 16
         z: 2
-        icon.source: "qrc:/icons/info-symbolic.svg"
+        icon.source: theme.iconBase + "info-symbolic.svg"
         dot: backend.updatePhase === "available"
         tip: "Info"
         onClicked: win.helpOpen = true
@@ -165,7 +165,7 @@ Item {
                     width: body.coverSide
                     height: width
                     radius: theme.rCard
-                    color: theme.selection
+                    color: backend.playerArt !== "" ? theme.background : theme.selection // backing: page surface; placeholder keeps its look
                     clip: true
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
@@ -223,7 +223,7 @@ Item {
                     width: 56 * theme.textScale
                     height: width
                     radius: theme.rCard
-                    color: theme.selection
+                    color: backend.playerArt !== "" ? theme.background : theme.selection // backing: page surface; placeholder keeps its look
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
                     readonly property real coverRadius: theme.rCard
@@ -424,7 +424,7 @@ Item {
                     // Autoplay queue (same setting as the player bar and Queue page).
                     IconButton {
                         id: autoplayToggle
-                        icon.source: backend.queueAutoplay ? "qrc:/icons/autoplay-b-on-symbolic.svg" : "qrc:/icons/autoplay-b-off-symbolic.svg"
+                        icon.source: backend.queueAutoplay ? theme.iconBase + "autoplay-b-on-symbolic.svg" : theme.iconBase + "autoplay-b-off-symbolic.svg"
                         glyph: backend.queueAutoplay ? theme.accent : theme.foreground
                         tip: backend.queueAutoplay ? "Autoplay: on" : "Autoplay: off"
                         onClicked: backend.toggleQueueAutoplay()
@@ -432,7 +432,7 @@ Item {
                     // Mono downmix: bright when on, dimmed when off (shared with the player bar).
                     IconButton {
                         id: monoToggle
-                        icon.source: "qrc:/icons/mono-symbolic.svg"
+                        icon.source: theme.iconBase + "mono-symbolic.svg"
                         glyph: backend.playerMono ? theme.foreground : theme.muted
                         tip: backend.playerMono ? "Mono: left and right mixed" : "Stereo: left and right separate"
                         onClicked: backend.toggleMono()
