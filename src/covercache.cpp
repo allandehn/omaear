@@ -38,10 +38,19 @@ QString thumbDir()
     return dir;
 }
 
-QString thumbPath(const QString &key)
+// Thumb files are "<sha1(path)>-<sha1(key)>.jpg", so every thumb of one
+// cover file can be found (and dropped) by its path prefix.
+QString thumbPrefix(const QString &path)
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex().left(16));
+}
+
+QString thumbPath(const QString &path, const QString &key)
 {
     const QByteArray hash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha1).toHex();
-    return thumbDir() + QLatin1Char('/') + QString::fromLatin1(hash) + QStringLiteral(".jpg");
+    return thumbDir() + QLatin1Char('/') + thumbPrefix(path) + QLatin1Char('-')
+        + QString::fromLatin1(hash.left(24)) + QStringLiteral(".jpg");
 }
 
 QString absolutePath(const QString &id)
@@ -109,7 +118,7 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
         }
     }
     const bool sized = requestW > 0 && requestH > 0;
-    const QString thumb = sized ? thumbPath(key) : QString();
+    const QString thumb = sized ? thumbPath(path, key) : QString();
     QImage image;
     if (sized && QFileInfo::exists(thumb))
         image = QImage(thumb);
@@ -128,9 +137,11 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
         image = reader.read();
         if (image.isNull())
             return {};
-        if (shrunk && !image.hasAlphaChannel()) {
+        if (shrunk) {
+            // Transparent art keeps its alpha as PNG (content-sniffed on load).
             QSaveFile out(thumb);
-            if (out.open(QIODevice::WriteOnly) && image.save(&out, "JPG", 90))
+            if (out.open(QIODevice::WriteOnly)
+                && image.save(&out, image.hasAlphaChannel() ? "PNG" : "JPG", 90))
                 out.commit();
         }
     }
@@ -152,6 +163,7 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
 {
     if (startupTiming())
         fprintf(stderr, "timing: prewarm start %lld ms\n", qint64(startupTimer().elapsed()));
+    QThreadPool::globalInstance()->start([] { pruneLegacyThumbs(); }, -1);
     // One task per cover on the global pool (all cores), tile size first.
     auto *left = new QAtomicInt(int(paths.size() * sides.size()));
     for (int side : sides) {
@@ -275,4 +287,33 @@ QImage CoverImageProvider::requestImage(const QString &id, QSize *size, const QS
         fprintf(stderr, "timing: cover %lld ms %dx%d %s\n", qint64(startupTimer().elapsed()),
                 image.width(), image.height(), hit ? "memory" : "decoded");
     return image;
+}
+
+void dropCoverThumbs(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+    {
+        QMutexLocker lock(&cacheMutex);
+        const QString prefix = path + QLatin1Char('|');
+        const auto keys = memoryCache().keys();
+        for (const QString &key : keys)
+            if (key.startsWith(prefix))
+                memoryCache().remove(key);
+        cornerFlags().remove(path);
+    }
+    QDir dir(thumbDir());
+    const auto files = dir.entryList({thumbPrefix(path) + QStringLiteral("-*.jpg")}, QDir::Files);
+    for (const QString &name : files)
+        dir.remove(name);
+}
+
+void pruneLegacyThumbs()
+{
+    // Pre-prefix thumbs were "<40 hex>.jpg": unreachable now, so just delete them.
+    QDir dir(thumbDir());
+    const auto files = dir.entryList({QStringLiteral("*.jpg")}, QDir::Files);
+    for (const QString &name : files)
+        if (!name.contains(QLatin1Char('-')))
+            dir.remove(name);
 }

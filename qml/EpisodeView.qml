@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.impl
+import QtQuick.Window
 
 Item {
     id: page
@@ -332,6 +333,11 @@ Item {
                         source: page.art
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
+                        // Display size x devicePixelRatio in 128px buckets (was a full decode).
+                        readonly property int decodeSide: Math.max(128, Math.ceil(artFrame.width * Screen.devicePixelRatio / 128) * 128)
+                        sourceSize.width: decodeSide
+                        sourceSize.height: decodeSide
+                        smooth: true
                     }
                     // Right-click: the same art menu as Now Playing.
                     TapHandler {

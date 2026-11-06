@@ -25,6 +25,12 @@ constexpr int kCoverRowSide = 256;
 // diagonal and along both edges). Pure; used once per image (cached by path).
 bool hasFlatRoundedCorners(const QImage &image);
 
+// Forced cover update: forget every memory/disk thumb of this cover file so
+// the next request re-decodes it once, straight to display size.
+void dropCoverThumbs(const QString &path);
+// Delete thumbs written by older builds (old file naming).
+void pruneLegacyThumbs();
+
 // Background thread: decode these covers into the memory cache (startup).
 void prewarmCovers(const QStringList &paths, const QList<int> &sides);
 

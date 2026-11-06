@@ -1,3 +1,4 @@
+#include "covercache.h"
 #include "backend.h"
 
 #include <cmath>
@@ -705,6 +706,12 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl)
             return;
         }
         const QString previous = m_library.showImage(showId);
+        if (fresh) {
+            // Force update: regenerate thumbs at display size from the new file;
+            // the full-size original is never kept decoded.
+            dropCoverThumbs(previous);
+            dropCoverThumbs(path);
+        }
         if (!previous.isEmpty() && previous != path)
             QFile::remove(previous);
         m_library.setShowImage(showId, imageUrl, path);
