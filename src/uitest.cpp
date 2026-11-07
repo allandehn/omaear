@@ -373,6 +373,13 @@ void startUiTest(QQmlApplicationEngine &engine)
     t->steps = {
         {1500, [t]() {
             t->expect(t->eval("pageKind").toString() == "shelf", "starts on shelf");
+            // The copied library keeps the user's shelf view and column count.
+            // Menu.popup() anchors its top-left at the cursor, so in list view
+            // (and in a dense gallery) the center of cover 1 lies inside the
+            // menu opened on cover 0. closePopupsAt only click-throughs a
+            // press that misses the panel. Pin a wide gallery before any click.
+            t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
+            t->expect(t->eval("shelfView.navCount >= 2").toBool(), "shelf shows at least 2 covers");
             t->eval("win.openShowPage(backend.shows.showIdAt(0))");
         }},
         {1300 + t->dwellMs, [t]() {
@@ -392,7 +399,14 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval("shelfView.coverMenuOpen").toBool()
                       && t->eval("shelfView.coverMenuShow").toDouble() == t->eval("backend.shows.showIdAt(0)").toDouble(),
                       "cover menu open on cover 0");
-            t->click(t->centerOf("shelfView.coverItemAt(1)"), Qt::RightButton);
+            const QPointF cover1 = t->centerOf("shelfView.coverItemAt(1)");
+            const bool outside = !t->eval(QStringLiteral("shelfView.coverMenuContains(%1, %2)")
+                                               .arg(cover1.x(), 0, 'f', 1)
+                                               .arg(cover1.y(), 0, 'f', 1)).toBool();
+            fprintf(stderr, "[uitest] cover 1 center %.1f,%.1f is %s the open menu\n",
+                    cover1.x(), cover1.y(), outside ? "outside" : "INSIDE");
+            t->expect(outside, "cover 1 center is outside the menu opened for cover 0");
+            t->click(cover1, Qt::RightButton);
         }},
         {1000 + t->dwellMs, [t]() {
             t->expect(t->eval("shelfView.coverMenuOpen").toBool()
