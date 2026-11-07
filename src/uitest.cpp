@@ -2,6 +2,7 @@
 // Drives the real window with synthetic mouse events delivered to THIS
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
 #include <QDir>
+#include <QElapsedTimer>
 #include <QCursor>
 #include <QGuiApplication>
 #include <QImage>
@@ -24,6 +25,8 @@ struct UiTest {
     int fails = 0;
     int dwellMs = qEnvironmentVariableIntValue("OMAEAR_UI_TEST_DWELL");
     QList<std::pair<int, std::function<void()>>> steps;
+    QElapsedTimer settleClock;
+    bool sawBusy = false;
 
     QVariant eval(const QString &js)
     {
@@ -103,21 +106,80 @@ struct UiTest {
         if (!ok)
             ++fails;
     }
-    // Wait for the launch refresh to finish: a shelf reload mid-click recreates
-    // the cover delegates and cancels the press (test noise, not a menu bug).
-    void waitIdle(std::function<void()> then, int triesLeft = 120)
+    // Launch refresh is a singleShot(0) from the Backend constructor, and the
+    // release dry-run's empty XDG_CONFIG_HOME has no refresh stamp, so that
+    // callback always calls refreshAll(). Sampling busy before the event loop
+    // sees that callback reports idle, then the refresh reorders the shelf
+    // under the clicks. A 30s cap that continues anyway does the same once a
+    // real library outlasts it. Wait until busy is false and the visible show
+    // ids plus the first two cover delegates have stayed put for one poll, or
+    // fail. Do not start the script either way.
+    QString shelfSignature(bool busy, int count)
     {
-        if (triesLeft <= 0 || !eval("backend.busy").toBool()) {
-            fprintf(stderr, "[uitest] library idle (busy=%d)\n", eval("backend.busy").toBool());
-            QTimer::singleShot(800, win, then);
+        QString sig = QString::number(busy) + QLatin1Char('|') + QString::number(count);
+        if (busy || count <= 0)
+            return sig;
+        sig += QLatin1Char('|');
+        sig += eval(QStringLiteral(
+            "(function(){"
+            " var ids = [];"
+            " for (var i = 0; i < shelfView.navCount; ++i) ids.push(backend.shows.showIdAt(i));"
+            " function box(i) {"
+            "   var it = shelfView.coverItemAt(i);"
+            "   if (!it || it.width < 1 || it.height < 1) return 'missing';"
+            "   return Math.round(it.x) + ',' + Math.round(it.y) + ',' + Math.round(it.width) + ',' + Math.round(it.height);"
+            " }"
+            " return ids.join(',') + '|' + box(0) + '|' + (shelfView.navCount > 1 ? box(1) : '-');"
+            " })()")).toString();
+        return sig;
+    }
+    void failUnsettled(bool busy, int count)
+    {
+        fprintf(stderr, "[uitest] FAIL shelf did not settle within 150s (busy=%d shows=%d)\n",
+                busy, count);
+        ++fails;
+        fprintf(stderr, "[uitest] FAILED\n");
+        QCoreApplication::exit(1);
+    }
+    // stable counts consecutive matching quiet observations. previous is the last signature.
+    void waitSettled(int stable = 0, const QString &previous = QString())
+    {
+        if (!settleClock.isValid())
+            settleClock.start();
+        const bool busy = eval("backend.busy").toBool();
+        const int count = eval("shelfView.navCount").toInt();
+        if (busy && !sawBusy) {
+            sawBusy = true;
+            fprintf(stderr, "[uitest] launch refresh running (shows=%d)\n", count);
+        }
+        const QString sig = shelfSignature(busy, count);
+        const bool quiet = !busy && !sig.contains(QLatin1String("missing"));
+        if (quiet && sig == previous)
+            ++stable;
+        else
+            stable = quiet ? 1 : 0;
+        if (stable >= 2) {
+            fprintf(stderr, "[uitest] shelf settled (busy=0 shows=%d)%s\n", count,
+                    sawBusy ? " after launch refresh" : "");
+            runFrom(0);
             return;
         }
-        QTimer::singleShot(250, win, [this, then, triesLeft]() { waitIdle(then, triesLeft - 1); });
+        if (settleClock.elapsed() > 150000) {
+            failUnsettled(busy, count);
+            return;
+        }
+        // While feeds are in flight, wake sparingly so their replies run. Once
+        // busy drops, poll often enough to see the post-reset layout, and
+        // start the script on the next unchanged sample rather than after a
+        // fixed pause.
+        const int delay = busy ? 200 : 50;
+        QTimer::singleShot(delay, win, [this, stable, sig]() { waitSettled(stable, sig); });
     }
     void run(int i)
     {
         if (i == 0) {
-            waitIdle([this]() { runFrom(0); });
+            // Queued behind Backend's own singleShot(0) launch refresh.
+            QTimer::singleShot(0, win, [this]() { waitSettled(); });
             return;
         }
         runFrom(i);
