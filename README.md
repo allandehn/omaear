@@ -22,15 +22,15 @@ Prefer to do it by hand? Read [install.sh](install.sh). It's a handful of lines.
 
 ## Getting started
 
-Paste a feed URL with **Add feed**, find shows with **Find new podcasts**, or bring your whole library over from another podcast app with **Import OPML**. All three live in the shelf's **⋯** menu, next to **Export OPML…**, which saves your shows as an OPML file for another app or a backup.
+Click **+** (Add a podcast) in the shelf's top bar to open **Find new podcasts**. Search the directory there, or paste a feed URL to subscribe to it directly. To bring your whole library over from another podcast app, use **Import OPML…** in the shelf's **⋯** menu, next to **Export OPML…**, which saves your shows as an OPML file for another app or a backup.
 
 ## Features
 
-**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only; gallery or list is in the ⋯ menu. The top bar keeps just the eye, Refresh and Queue, and the ⋯ menu holds the rest.
+**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only. The top bar keeps the eye, Refresh and **+**, and the ⋯ menu holds the rest: gallery or list, Search episodes, Queue, Import and Export OPML, the two navigation settings (see Keyboard), and Info.
 
-**Search.** Ctrl+F (or Search episodes in the ⋯ menu) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. The globe button sends the same words to Find new podcasts.
+**Search.** Ctrl+F (or Search episodes in the ⋯ menu) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. Search episodes in a show's own ⋯ menu searches just that show. The globe button sends the same words to Find new podcasts.
 
-**Find new podcasts.** Search the podcast directory or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
+**Find new podcasts.** Search the podcast directory, paste a feed URL to subscribe to it directly, or browse the top charts for any region (the flag picks it, and the choice is remembered). Preview a show before you subscribe. Click a publisher name to see all of that publisher's shows, newest first.
 
 **Episodes.** Play straight from the episode art. Open an episode for its full notes, where links open in your browser and timestamps jump the player to that point.
 
@@ -40,11 +40,11 @@ Paste a feed URL with **Add feed**, find shows with **Find new podcasts**, or br
 
 **Status.** Refresh progress ("Updating 3 of 16 feeds: …") and short messages such as "Added to queue." show in a small pill just above the player bar, so nothing on the page moves.
 
-**Keyboard.** Every page works from the keyboard: arrows and Tab move a quiet focus ring through the buttons, podcasts, episodes and player bar, Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from.
+**Keyboard.** Every page works from the keyboard. Arrows (or h, j, k, l, except while you are typing in a text field) move a quiet focus ring through the buttons, podcasts, episodes and player bar. Tab and Shift+Tab jump between the top bar, the page and the player bar, and each area remembers where you left it. Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from. A key press switches to keyboard mode and moving the mouse switches back, so the ring only shows while you use the keys. Two settings in the ⋯ menu: **Grid wrap** is *rows* (Up and Down stay in their column, Left and Right wrap within a row) or *full* (the arrows walk the whole grid, wrapping at the ends), and **Navigation animation** turns the gliding ring and the spinning Refresh icon on or off.
 
 **Keeps playing.** Close the window and the episode carries on, with controls in the Omarchy bar and media keys. Open OmaEar again and the same window comes back.
 
-**Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Text size follows your display scale.
+**Fits your theme.** Colors and fonts come from the current Omarchy theme and change live when you switch themes, logo included. Corner rounding follows your Hyprland `decoration:rounding`, and text size follows your display scale.
 
 **Info.** Info in the ⋯ menu (or `?`) is a short page of the shortcuts and hidden tricks the tooltips don't cover (keys, search, artwork sizing), shows the version, and tells you when an update is available (a small dot on ⋯ says so too). Click "run omarchy update" and it does just that.
 
@@ -53,8 +53,11 @@ Paste a feed URL with **Add feed**, find shows with **Find new podcasts**, or br
 | Key / mouse | Action |
 | --- | --- |
 | Space | Play / pause |
-| Arrows | Move through buttons, podcasts, episodes and the player bar; Enter opens or presses |
-| Tab / Shift+Tab | Jump between areas (top bar, list, player bar) |
+| Arrows, h / j / k / l | Move through buttons, podcasts, episodes and the player bar; Enter opens or presses (h/j/k/l not while typing) |
+| Home / End | First / last item in the list |
+| Page Up / Page Down | Scroll an episode's details |
+| Left / Right on the Now Playing scrubber | Seek 10 s |
+| Tab / Shift+Tab | Jump between areas (top bar, page, player bar) |
 | Menu / Shift+F10 | Right-click menu for the highlighted item |
 | Delete (queue) | Remove the highlighted episode from the queue |
 | Ctrl+F | Search your episodes (Enter opens the top result) |
@@ -104,7 +107,7 @@ make install    # installs to ~/.local, no root needed
 
 To build the Arch package yourself, use `packaging/PKGBUILD`, or run `packaging/build-local.sh` to build one from this checkout.
 
-Releases are made with `scripts/release.sh X.Y.Z` (try `--dry-run` first); see `AGENTS.md`.
+Releases are made from an exact commit that is already merged to `main` and already carries the version: `scripts/release.sh --preview --sha <40-hex> --version X.Y.Z` (read only; `--dry-run` is the same), then `--validate` (build and test a temporary archive of that commit), then `--publish --notes FILE --repo-db MODE`, where `MODE` is `replace-with-only-this-package` (the new pacman database lists only this package) or `add-to-existing` (keeps the entries already in the database). It never commits or pushes `main`; see `AGENTS.md`. `scripts/release-flow-test.sh` tests the release script with mocked tools, and `--real-tools` adds real `makepkg`, `repo-add` and `gpg` with a throwaway key.
 
 ## License
 

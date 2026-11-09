@@ -4,7 +4,7 @@ CONFIG -= app_bundle
 
 TARGET = omaear
 # Single source of the app version (--version, User-Agent strings, package).
-VERSION = 0.2.0
+VERSION = 0.3.1
 DEFINES += OMAEAR_VERSION=\\\"$$VERSION\\\"
 TEMPLATE = app
 

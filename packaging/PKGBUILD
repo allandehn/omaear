@@ -1,6 +1,6 @@
 # Maintainer: Allan Dehn <allandehn@proton.me>
 pkgname=omaear
-pkgver=0.2.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="A shelf of podcasts for Omarchy, with playback that keeps going"
 arch=('x86_64')
@@ -19,8 +19,10 @@ depends=(
 makedepends=() # qmake6, moc, rcc ship with qt6-base
 options=('!debug')
 optdepends=('libnotify: notice when an old pre-rename instance must be quit first')
-# Release: the GitHub tag tarball. packaging/build-local.sh drops a tarball of
-# the local checkout under the same name, so makepkg uses it instead.
+# Hand builds and build-local.sh may drop a tarball of this name beside this
+# file. scripts/release.sh does not run makepkg in the repo: it archives the
+# reviewed commit, writes that checksum into a scratch copy of this file, and
+# refuses to package the copy if the checksum line is still a placeholder.
 source=("$pkgname-$pkgver.tar.gz::https://github.com/allandehn/omaear/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 install=omaear.install
