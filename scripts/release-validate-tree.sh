@@ -27,12 +27,33 @@ for t in qmake6 make sqlite3 dbus-run-session timeout; do
   command -v "$t" >/dev/null || die "missing tool: $t"
 done
 
+# The desktop's theme variables are dropped too: with QT_QPA_PLATFORMTHEME=gtk3
+# (or a desktop that picks it) Qt loads GTK, which has no display here and
+# breaks the run. The private bus has no service directories, so nothing on it
+# can activate desktop services such as xdg-desktop-portal.
+DBUS_CONF=$WORK/dbus-session.conf
+cat >"$DBUS_CONF" <<'CONF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+CONF
+
 # One isolated run of the app. $1 = home dir (made fresh by the caller), the
 # rest is the command inside dbus-run-session.
 run_app() {
   local home=$1; shift
   ( cd "$SRC" && env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK -u NIRI_SOCKET \
-      -u DBUS_SESSION_BUS_ADDRESS \
+      -u DBUS_SESSION_BUS_ADDRESS -u QT_QPA_PLATFORMTHEME -u QT_STYLE_OVERRIDE -u QT_QUICK_CONTROLS_STYLE \
+      -u XDG_CURRENT_DESKTOP -u XDG_SESSION_DESKTOP -u DESKTOP_SESSION -u XDG_SESSION_TYPE -u GTK_MODULES -u GDK_BACKEND \
       HOME="$home/home" XDG_DATA_HOME="$home/data" XDG_CONFIG_HOME="$home/config" XDG_CACHE_HOME="$home/cache" XDG_RUNTIME_DIR="$home/run" \
       QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 "$@" )
 }
@@ -92,7 +113,7 @@ SQL
 ui_run() {
   local name=$1 home=$2 limit=$3; shift 3
   local log=$WORK/uitest-$name.log
-  if ! run_app "$home" "$@" timeout "$limit" dbus-run-session -- ./omaear >"$log" 2>&1; then
+  if ! run_app "$home" "$@" timeout "$limit" dbus-run-session --config-file="$DBUS_CONF" -- ./omaear >"$log" 2>&1; then
     grep -E 'FAIL' "$log" >&2 || tail -15 "$log" >&2
     die "UI test '$name' failed (log: $log)"
   fi
@@ -107,7 +128,7 @@ reported=$(cd "$SRC" && ./omaear --version)
 [[ $reported == "omaear $VER" ]] || die "built binary reports '$reported', not 'omaear $VER'"
 
 H=$(new_home self)
-run_app "$H" timeout 180 dbus-run-session -- ./omaear --self-test >"$WORK/selftest.log" 2>&1 \
+run_app "$H" timeout 180 dbus-run-session --config-file="$DBUS_CONF" -- ./omaear --self-test >"$WORK/selftest.log" 2>&1 \
   || { tail -15 "$WORK/selftest.log" >&2; die "self-test failed (log: $WORK/selftest.log)"; }
 echo "Self-test: ok"
 
