@@ -27,7 +27,7 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1" >&2; }
 skip() { SKIP=$((SKIP + 1)); printf 'SKIP %s\n' "$1"; }
 
 REAL_GIT=$(command -v git)
-REAL_SQLITE3=$(command -v sqlite3 || true)
+REAL_SQLITE3_BIN=$(command -v sqlite3 || true)
 ORIG_PATH=$PATH
 PKGNAME=omaear-0.3.1-1-x86_64.pkg.tar.zst
 CLEANUP_DIRS=()
@@ -196,7 +196,7 @@ EOF2
   cat >"$MOCK/bin/sqlite3" <<'EOF2'
 #!/bin/bash
 printf '%s\n' "$*" >> "$MOCK_LOG/sqlite3"
-if [[ -n ${REAL_SQLITE3:-} ]]; then exec "$REAL_SQLITE3" "$@"; fi
+if [[ -n ${MOCK_USE_REAL_SQLITE3:-} ]]; then exec "$REAL_SQLITE3_BIN" "$@"; fi
 cat >/dev/null
 printf 'FIXTURE-LIBRARY' > "$1"
 exit 0
@@ -318,7 +318,8 @@ new_case() {
   printf 'CANARY-REAL-LIBRARY' >"$REALHOME/share/omaear/library.db"
   CANARY_SUM=$(sha256sum "$REALHOME/share/omaear/library.db" | awk '{print $1}')
   chmod 000 "$REALHOME/share/omaear/library.db"
-  export MOCK_DIR=$MOCK MOCK_LOG=$LOG REMOTE_MAIN=$SHA MOCK_VER=0.3.1 REAL_GIT REAL_SQLITE3=
+  export MOCK_DIR=$MOCK MOCK_LOG=$LOG REMOTE_MAIN=$SHA MOCK_VER=0.3.1 REAL_GIT REAL_SQLITE3_BIN
+  unset MOCK_USE_REAL_SQLITE3
   unset MOCK_NO_KEY MOCK_BAD_SIG MOCK_BAD_LATEST REAL_GIT_FOR_PUSH
   export HOME=$REALHOME XDG_DATA_HOME=$REALHOME/share
   export DISPLAY=:99 WAYLAND_DISPLAY=wayland-canary
@@ -641,9 +642,9 @@ else
   bad "validate failed"; cat "$BASE/err" >&2
 fi
 
-if [[ -n $REAL_SQLITE3 ]]; then
+if [[ -n $REAL_SQLITE3_BIN ]]; then
   new_case validate-real-sqlite
-  export REAL_SQLITE3
+  export MOCK_USE_REAL_SQLITE3=1
   touch "$MOCK/dump_library"
   if run_rel --validate --sha "$SHA" --version 0.3.1 \
       && [[ $(wc -l <"$LOG/library-dump") -eq 2 ]] && ! grep -v '^file://.*/tests/nav-feeds/[ab]\.xml$' "$LOG/library-dump" >/dev/null; then
@@ -756,8 +757,11 @@ real_tools() {
     return 0
   fi
 
-  local H G KEY FPR
+  local H G FPR
   H=$(mktemp -d /tmp/omaear-realtools.XXXX); CLEANUP_DIRS+=("$H")
+  # Leave the mocked environment of the cases above: real tools, throwaway HOME.
+  export PATH=$ORIG_PATH HOME=$H
+  unset DISPLAY WAYLAND_DISPLAY XDG_DATA_HOME MOCK_DIR MOCK_LOG MOCK_VER REMOTE_MAIN
   G=$(mktemp -d /tmp/omaear-gnupg.XXXX); CLEANUP_DIRS+=("$G"); chmod 700 "$G"
   export GNUPGHOME=$G
   gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
@@ -781,7 +785,7 @@ real_tools() {
   cp "$d/PKGBUILD" "$d/PKGBUILD.orig"
   ( dest=$d; eval "$line" )
   if [[ -n $line && $(bash -c "source '$d/PKGBUILD'; echo \${sha256sums[0]}") == "$sum" && $(bash -c "source '$d/PKGBUILD'; echo \${#sha256sums[@]}") == 1 ]] \
-      && ! grep -q SKIP "$d/PKGBUILD" && ! diff -q "$d/PKGBUILD" "$d/PKGBUILD.orig" >/dev/null \
+      && ! grep -q SKIP "$d/PKGBUILD" && [[ $(cat "$d/PKGBUILD") != "$(cat "$d/PKGBUILD.orig")" ]] \
       && [[ $(grep -c . "$d/PKGBUILD") == $(grep -c . "$d/PKGBUILD.orig") ]]; then
     ok "real-tools: the checksum sed one-liner pins exactly the archive hash in the real PKGBUILD (one line, no SKIP)"
   else
@@ -854,21 +858,37 @@ real_tools() {
   if rel_run 0.3.1 "$SHA1" replace-with-only-this-package; then bad "real-tools: a second publish of the same version was accepted"
   else grep -q 'already exists\|already on the' "$H/pub.err" && ok "real-tools: publishing the same version again is refused before any write" || bad "real-tools: second publish failed for another reason"; fi
 
-  # add-to-existing: a 0.3.2 commit with a mocked compile but real makepkg/repo-add/gpg.
+  # add-to-existing: put a second package into the published db, then publish a
+  # 0.3.2 commit (mocked compile, but real makepkg, repo-add -s and gpg).
+  local dd=$H/dummy
+  mkdir -p "$dd"
+  cat >"$dd/PKGBUILD" <<'EOF2'
+pkgname=omaear-dummy
+pkgver=1
+pkgrel=1
+arch=('any')
+options=('!debug')
+package() { install -Dm644 /dev/null "$pkgdir/usr/share/omaear-dummy"; }
+EOF2
+  ( cd "$dd" && env PATH="$keep:$ORIG_PATH" makepkg -f --nodeps >"$dd/mk.log" 2>&1 ) || { bad "real-tools: could not build the dummy package"; return 0; }
+  cp "$R/omaear.db" "$dd/omaear.db.tar.gz"
+  ( cd "$dd" && repo-add -q -s -k "$FPR" omaear.db.tar.gz omaear-dummy-1-1-any.pkg.tar.zst ) || { bad "real-tools: could not add the dummy to the db"; return 0; }
+  cp "$dd/omaear.db.tar.gz" "$R/omaear.db"; cp "$dd/omaear.db.tar.gz.sig" "$R/omaear.db.sig"
+  cp "$dd/omaear.files.tar.gz" "$R/omaear.files"; cp "$dd/omaear.files.tar.gz.sig" "$R/omaear.files.sig"
   sed -i 's/^VERSION = .*/VERSION = 0.3.2/' "$SRC/omaear.pro"
   sed -i 's/^pkgver=.*/pkgver=0.3.2/' "$SRC/packaging/PKGBUILD"
   "$REAL_GIT" -C "$SRC" commit -q -am 'bump to 0.3.2' && "$REAL_GIT" -C "$SRC" push -q origin main
   local SHA2; SHA2=$("$REAL_GIT" -C "$SRC" rev-parse HEAD)
   cp "$MOCKD/bin/qmake6" "$MOCKD/bin/make" "$MOCKD/bin/dbus-run-session" "$keep/"
-  # make mock writes an `omaear` that passes the UI test; sqlite3 is the real one.
   if rel_run 0.3.2 "$SHA2" add-to-existing; then
     ok "real-tools: add-to-existing publish of 0.3.2 with the real repo-add -s"
-    if bsdtar -tf "$R/omaear.db" | grep -q '^omaear-0.3.1-1/' && bsdtar -tf "$R/omaear.db" | grep -q '^omaear-0.3.2-1/' \
+    local dbl; dbl=$(bsdtar -tf "$R/omaear.db")
+    if grep -q '^omaear-dummy-1-1/' <<<"$dbl" && grep -q '^omaear-0.3.2-1/' <<<"$dbl" && ! grep -q '^omaear-0.3.1-1/' <<<"$dbl" \
         && [[ -f $R/$PKGNAME && -f $R/omaear-0.3.2-1-x86_64.pkg.tar.zst ]] \
-        && gpg --verify "$R/omaear.db.sig" "$R/omaear.db" >/dev/null 2>&1; then
-      ok "real-tools: the updated db lists both 0.3.1 and 0.3.2, the 0.3.1 package is still there, and the db signature verifies"
+        && gpg --verify "$R/omaear.db.sig" "$R/omaear.db" >/dev/null 2>&1 && gpg --verify "$R/omaear.files.sig" "$R/omaear.files" >/dev/null 2>&1; then
+      ok "real-tools: add-to-existing keeps the other db entries, updates omaear to 0.3.2, keeps the 0.3.1 package file, and both db signatures verify"
     else
-      bad "real-tools: add-to-existing result is wrong: $(ls "$R" | tr '\n' ' ')"
+      bad "real-tools: add-to-existing result is wrong. db: $(tr '\n' ' ' <<<"$dbl") assets: $(ls "$R" | tr '\n' ' ')"
     fi
   else
     bad "real-tools: add-to-existing failed: $(tail -5 "$H/pub.err" | tr '\n' ' ')"
