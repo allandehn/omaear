@@ -133,6 +133,8 @@ public:
     // Parsers, public for the self-test.
     static QList<ExploreResult> parseSearch(const QByteArray &json);
     static QList<ExploreResult> parseTopChart(const QByteArray &json);
+    // Fold lookup fields into chart rows. A cover the chart already has stays.
+    static void mergeLookup(QList<ExploreResult> &rows, const QList<ExploreResult> &lookup);
 
 signals:
     void queryChanged();

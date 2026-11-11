@@ -18,6 +18,15 @@
 #include <QUrlQuery>
 
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QHostAddress>
+#include <QImage>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTimer>
 #include <QDateTime>
 #include <QEventLoop>
 #include <QFile>
@@ -530,6 +539,363 @@ int runSelfTest(int argc, char **argv)
         for (const QString &code : Explore::storefronts())
             unknown += QLocale::codeToTerritory(code) == QLocale::AnyTerritory ? 1 : 0;
         check(unknown == 0 && Explore::storefronts().size() >= 40, "explore storefront codes map to territories");
+    }
+
+    {
+        // Region swap: visit 1 shows the chart cover; visit 2 reads the cache
+        // after lookup. The lookup URL must not replace a cover already shown.
+        const QByteArray top = R"({"feed":{"entry":[
+            {"im:name":{"label":"One"},"im:artist":{"label":"A"},
+             "im:image":[{"label":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/55x55bb.png"},
+                         {"label":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/170x170bb.png"}],
+             "id":{"label":"https://podcasts.apple.com/sg/podcast/id11","attributes":{"im:id":"11"}},
+             "category":{"attributes":{"label":"Society"}}},
+            {"im:name":{"label":"Two"},"im:artist":{"label":"B"},
+             "im:image":[{"label":"https://feeds.example.com/covers/two.png"}],
+             "id":{"label":"https://podcasts.apple.com/sg/podcast/id12","attributes":{"im:id":"12"}}},
+            {"im:name":{"label":"Three"},"im:artist":{"label":"C"},
+             "id":{"label":"https://podcasts.apple.com/sg/podcast/id13","attributes":{"im:id":"13"}}},
+            {"im:name":{"label":"Four"},"im:artist":{"label":"D"},
+             "im:image":[{"label":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/cd/mza_4.jpg/170x170bb.png"}],
+             "id":{"label":"https://podcasts.apple.com/sg/podcast/id14","attributes":{"im:id":"14"}},
+             "category":{"attributes":{"label":"News"}}},
+            {"im:name":{"label":"Five"},"im:artist":{"label":"E"},
+             "im:image":[{"label":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ef/mza_5.jpg/170x170bb.png"}],
+             "im:releaseDate":{"label":"2020-01-01T00:00:00Z"},
+             "id":{"label":"https://podcasts.apple.com/sg/podcast/id15","attributes":{"im:id":"15"}},
+             "category":{"attributes":{"label":"History"}}}
+        ]}})";
+        const QByteArray lookup = R"({"resultCount":5,"results":[
+            {"wrapperType":"track","kind":"podcast","collectionId":11,"artistName":"A","collectionName":"One",
+             "artworkUrl600":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/600x600bb.jpg",
+             "feedUrl":"https://feeds.example.com/one","trackCount":40,
+             "releaseDate":"2026-07-31T18:02:00Z","primaryGenreName":"News"},
+            {"wrapperType":"track","kind":"podcast","collectionId":12,"artistName":"B","collectionName":"Two",
+             "artworkUrl600":"https://cdn.example.com/two-art.jpg",
+             "feedUrl":"https://feeds.example.com/two","trackCount":2,"primaryGenreName":"Comedy"},
+            {"wrapperType":"track","kind":"podcast","collectionId":13,"artistName":"C","collectionName":"Three",
+             "artworkUrl600":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/gh/mza_3.jpg/600x600bb.jpg",
+             "feedUrl":"https://feeds.example.com/three","trackCount":7,"primaryGenreName":"Business"},
+            {"wrapperType":"track","kind":"podcast","collectionId":15,"artistName":"E","collectionName":"Five",
+             "artworkUrl600":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ef/mza_5.jpg/600x600bb.jpg",
+             "feedUrl":"https://feeds.example.com/five","trackCount":9,
+             "releaseDate":"2026-08-01T00:00:00Z","primaryGenreName":"Society"},
+            {"wrapperType":"track","kind":"podcast","collectionId":99,"artistName":"Z","collectionName":"Extra",
+             "artworkUrl600":"https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/zz/mza_9.jpg/600x600bb.jpg",
+             "feedUrl":"https://feeds.example.com/extra","trackCount":1}
+        ]})";
+        auto chart = Explore::parseTopChart(top);
+        const auto looked = Explore::parseSearch(lookup);
+        check(chart.size() == 5 && looked.size() == 5, "cover identity fixture parses");
+        if (chart.size() == 5 && looked.size() == 5) {
+            auto byId = [](const QList<ExploreResult> &rows, qint64 id) {
+                for (const auto &r : rows)
+                    if (r.id == id)
+                        return r;
+                return ExploreResult{};
+            };
+            chart[4].feedUrl = QStringLiteral("https://old.example/five.xml");
+            const QString applePng = QStringLiteral(
+                "https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/600x600bb.png");
+            const QString appleJpg = QStringLiteral(
+                "https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/600x600bb.jpg");
+            check(chart.at(0).cover == applePng && byId(looked, 11).cover == appleJpg
+                      && applePng.left(applePng.size() - 3) == appleJpg.left(appleJpg.size() - 3),
+                  "fixture: Apple chart png and lookup jpg differ only by extension");
+            auto merged = chart;
+            Explore::mergeLookup(merged, looked);
+            int shownChanged = 0, emptyFilled = 0;
+            bool sameRows = merged.size() == chart.size();
+            for (int i = 0; i < chart.size() && i < merged.size(); ++i) {
+                sameRows = sameRows && merged.at(i).id == chart.at(i).id && merged.at(i).title == chart.at(i).title;
+                if (chart.at(i).cover.isEmpty())
+                    emptyFilled += merged.at(i).cover.isEmpty() ? 0 : 1;
+                else if (merged.at(i).cover != chart.at(i).cover)
+                    ++shownChanged;
+            }
+            check(sameRows && shownChanged == 0 && emptyFilled == 1,
+                  "second visit reuses every cover the first visit showed");
+            check(merged.at(0).cover == applePng && merged.at(0).feedUrl == QStringLiteral("https://feeds.example.com/one")
+                      && merged.at(0).trackCount == 40 && merged.at(0).genre == QStringLiteral("Society")
+                      && merged.at(0).released == byId(looked, 11).released && merged.at(0).released > 0,
+                  "lookup fills feed, count and date and leaves the chart cover and genre");
+            check(merged.at(1).cover == QStringLiteral("https://feeds.example.com/covers/two.png")
+                      && byId(looked, 12).cover == QStringLiteral("https://cdn.example.com/two-art.jpg")
+                      && merged.at(1).genre == QStringLiteral("Comedy")
+                      && merged.at(1).feedUrl == QStringLiteral("https://feeds.example.com/two")
+                      && merged.at(1).trackCount == 2,
+                  "a non-Apple cover is not replaced by the lookup URL");
+            check(chart.at(2).cover.isEmpty() && merged.at(2).cover == byId(looked, 13).cover
+                      && merged.at(2).feedUrl == QStringLiteral("https://feeds.example.com/three")
+                      && merged.at(2).genre == QStringLiteral("Business") && merged.at(2).trackCount == 7,
+                  "a chart row with no art takes the lookup cover");
+            check(merged.at(3).cover == chart.at(3).cover && merged.at(3).feedUrl.isEmpty()
+                      && merged.at(3).trackCount == 0 && merged.at(3).genre == QStringLiteral("News"),
+                  "a chart row the lookup missed is unchanged");
+            check(merged.at(4).cover == chart.at(4).cover
+                      && merged.at(4).feedUrl == QStringLiteral("https://feeds.example.com/five")
+                      && merged.at(4).trackCount == 9 && merged.at(4).genre == QStringLiteral("History")
+                      && chart.at(4).released > 0 && merged.at(4).released == byId(looked, 15).released
+                      && merged.at(4).released != chart.at(4).released,
+                  "lookup replaces feed and date; chart cover and genre stay");
+            {
+                QList<ExploreResult> clearFeed = chart.mid(0, 1);
+                QList<ExploreResult> emptyLookup = QList<ExploreResult>{byId(looked, 11)};
+                clearFeed[0].feedUrl = QStringLiteral("https://old.example/feed");
+                emptyLookup[0].feedUrl.clear();
+                Explore::mergeLookup(clearFeed, emptyLookup);
+                check(clearFeed.at(0).feedUrl.isEmpty() && clearFeed.at(0).cover == applePng,
+                      "an empty lookup feed still clears, and the cover stays");
+            }
+            // Force refresh drops the URL on screen (600 and the 400px tile rewrite),
+            // not a sibling extension and not some other host's file.
+            const QString shown = merged.at(0).cover;
+            QString tile = shown;
+            tile.replace(QStringLiteral("/600x600bb."), QStringLiteral("/400x400bb."));
+            const QStringList variants = coverUrlVariants(shown);
+            const QString plain = merged.at(1).cover;
+            check(tile == QStringLiteral("https://is1-ssl.mzstatic.com/image/thumb/Podcasts/v4/ab/mza_1.jpg/400x400bb.png")
+                      && variants.contains(shown) && variants.contains(tile) && !variants.contains(appleJpg)
+                      && coverUrlVariants(plain) == QStringList{plain},
+                  "cover variants follow the shown extension and do not invent another");
+            QTemporaryDir dir;
+            QNetworkDiskCache cache;
+            cache.setCacheDirectory(dir.path());
+            auto put = [&cache](const QString &u) {
+                QNetworkCacheMetaData md;
+                md.setUrl(QUrl(u));
+                md.setSaveToDisk(true);
+                md.setExpirationDate(QDateTime::currentDateTimeUtc().addDays(30));
+                md.setLastModified(QDateTime::currentDateTimeUtc().addDays(-1));
+                md.setRawHeaders({{"Content-Type", "image/jpeg"}, {"Cache-Control", "max-age=14204435"}});
+                if (QIODevice *d = cache.prepare(md)) { d->write("jpeg"); cache.insert(d); }
+            };
+            const QString other = QStringLiteral("https://is1-ssl.mzstatic.com/image/thumb/c/d/400x400bb.jpg");
+            put(tile);
+            put(shown);
+            put(appleJpg);
+            put(other);
+            put(plain);
+            const bool stored = cache.metaData(QUrl(tile)).isValid() && cache.metaData(QUrl(shown)).isValid()
+                && cache.metaData(QUrl(appleJpg)).isValid() && cache.metaData(QUrl(plain)).isValid();
+            const int removed = removeFromCache(&cache, variants);
+            const int removedPlain = removeFromCache(&cache, coverUrlVariants(plain));
+            check(stored && removed == 2 && removedPlain == 1
+                      && !cache.metaData(QUrl(tile)).isValid() && !cache.metaData(QUrl(shown)).isValid()
+                      && !cache.metaData(QUrl(plain)).isValid()
+                      && cache.metaData(QUrl(appleJpg)).isValid() && cache.metaData(QUrl(other)).isValid(),
+                  "force refresh drops the shown cover URLs and leaves other ones");
+        }
+    }
+
+    {
+        // Cover fetches: a local mock counts HTTP requests. Tiles use the 400px
+        // rewrite of the cover URL, the same way ExploreView does. No real network.
+        QByteArray jpeg;
+        {
+            QImage img(8, 8, QImage::Format_RGB32);
+            img.fill(Qt::red);
+            QBuffer buf(&jpeg);
+            check(buf.open(QIODevice::WriteOnly) && img.save(&buf, "JPEG", 90) && jpeg.size() > 32,
+                  "cover probe jpeg encodes");
+        }
+        struct CoverProbeServer : QTcpServer {
+            QByteArray body;
+            int hits = 0;
+            QStringList paths;
+            QByteArray leftover;
+            CoverProbeServer()
+            {
+                connect(this, &QTcpServer::newConnection, this, [this]() {
+                    while (QTcpSocket *s = nextPendingConnection()) {
+                        connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                            leftover += s->readAll();
+                            const int end = leftover.indexOf("\r\n\r\n") >= 0 ? leftover.indexOf("\r\n\r\n")
+                                                                               : leftover.indexOf("\n\n");
+                            if (end < 0)
+                                return;
+                            const QByteArray req = leftover;
+                            leftover.clear();
+                            const QString first = QString::fromLatin1(req.split('\n').value(0)).trimmed();
+                            const QString path = first.section(QLatin1Char(' '), 1, 1);
+                            ++hits;
+                            paths << path;
+                            const QString now = QLocale::c().toString(QDateTime::currentDateTimeUtc(),
+                                                                     QStringLiteral("ddd, dd MMM yyyy hh:mm:ss"))
+                                + QStringLiteral(" GMT");
+                            const QString exp = QLocale::c().toString(QDateTime::currentDateTimeUtc().addDays(30),
+                                                                     QStringLiteral("ddd, dd MMM yyyy hh:mm:ss"))
+                                + QStringLiteral(" GMT");
+                            QByteArray resp = "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nCache-Control: public, max-age=14204435\r\nDate: ";
+                            resp += now.toLatin1();
+                            resp += "\r\nExpires: ";
+                            resp += exp.toLatin1();
+                            resp += "\r\nLast-Modified: Thu, 01 Jan 2026 00:00:00 GMT\r\nETag: \"cover-probe\"\r\nConnection: close\r\nContent-Length: ";
+                            resp += QByteArray::number(body.size());
+                            resp += "\r\n\r\n";
+                            resp += body;
+                            s->write(resp);
+                            s->flush();
+                            s->disconnectFromHost();
+                        });
+                        connect(s, &QTcpSocket::disconnected, s, &QObject::deleteLater);
+                    }
+                });
+            }
+        };
+        CoverProbeServer server;
+        server.body = jpeg;
+        check(server.listen(QHostAddress::LocalHost, 0), "cover probe server listens");
+        const QString origin = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        auto art = [&](const char *id, const char *ext) {
+            return origin + QStringLiteral("/image/thumb/%1/600x600bb.%2").arg(QLatin1String(id), QLatin1String(ext));
+        };
+        auto tileOf = [](QString cover) {
+            cover.replace(QStringLiteral("/600x600bb."), QStringLiteral("/400x400bb."));
+            return cover;
+        };
+        auto tilesOf = [&](const QList<ExploreResult> &rows) {
+            QStringList urls;
+            for (const auto &r : rows)
+                if (!r.cover.isEmpty())
+                    urls << tileOf(r.cover);
+            return urls;
+        };
+        auto overwriteCovers = [](QList<ExploreResult> rows, const QList<ExploreResult> &lookup) {
+            QHash<qint64, QString> cover;
+            for (const auto &r : lookup)
+                if (!r.cover.isEmpty())
+                    cover.insert(r.id, r.cover);
+            for (auto &r : rows) {
+                const auto it = cover.constFind(r.id);
+                if (it != cover.constEnd())
+                    r.cover = it.value();
+            }
+            return rows;
+        };
+        auto fetchAll = [](QNetworkAccessManager &nam, const QStringList &urls) {
+            int ok = 0;
+            for (const QString &u : urls) {
+                QNetworkRequest req{QUrl(u)};
+                QNetworkReply *reply = nam.get(req);
+                QEventLoop loop;
+                QTimer::singleShot(4000, &loop, &QEventLoop::quit);
+                QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+                loop.exec();
+                const QByteArray body = reply->readAll();
+                if (reply->isFinished() && reply->error() == QNetworkReply::NoError
+                    && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200
+                    && !body.isEmpty())
+                    ++ok;
+                reply->deleteLater();
+                QCoreApplication::processEvents();
+            }
+            return ok;
+        };
+        auto attachCache = [](QNetworkAccessManager &nam, const QString &path) {
+            auto *cache = new QNetworkDiskCache(&nam);
+            cache->setCacheDirectory(path);
+            cache->setMaximumCacheSize(64LL * 1024 * 1024);
+            nam.setCache(cache);
+        };
+        auto takeHits = [&]() {
+            const int n = server.hits;
+            server.hits = 0;
+            server.paths.clear();
+            return n;
+        };
+        takeHits();
+
+        auto chartA = Explore::parseTopChart(QStringLiteral(R"({"feed":{"entry":[
+            {"im:name":{"label":"A1"},"im:artist":{"label":"A"},
+             "im:image":[{"label":"%1"}],
+             "id":{"label":"u","attributes":{"im:id":"11"}}},
+            {"im:name":{"label":"A2"},"im:artist":{"label":"A"},
+             "im:image":[{"label":"%2"}],
+             "id":{"label":"u","attributes":{"im:id":"12"}}},
+            {"im:name":{"label":"A3"},"im:artist":{"label":"A"},
+             "im:image":[{"label":"%3"}],
+             "id":{"label":"u","attributes":{"im:id":"13"}}},
+            {"im:name":{"label":"A4"},"im:artist":{"label":"A"},
+             "im:image":[{"label":"%4"}],
+             "id":{"label":"u","attributes":{"im:id":"14"}}}
+        ]}})").arg(art("a1", "png"), art("a2", "png"), art("a3", "png"), art("a4", "png")).toUtf8());
+        const auto lookA = Explore::parseSearch(QStringLiteral(R"({"results":[
+            {"wrapperType":"track","kind":"podcast","collectionId":11,"collectionName":"A1","artistName":"A","artworkUrl600":"%1"},
+            {"wrapperType":"track","kind":"podcast","collectionId":12,"collectionName":"A2","artistName":"A","artworkUrl600":"%2"},
+            {"wrapperType":"track","kind":"podcast","collectionId":13,"collectionName":"A3","artistName":"A","artworkUrl600":"%3"},
+            {"wrapperType":"track","kind":"podcast","collectionId":14,"collectionName":"A4","artistName":"A","artworkUrl600":"%4"}
+        ]})").arg(art("a1", "jpg"), art("a2", "jpg"), art("a3", "jpg"), art("a4", "jpg")).toUtf8());
+        auto chartB = Explore::parseTopChart(QStringLiteral(R"({"feed":{"entry":[
+            {"im:name":{"label":"B1"},"im:artist":{"label":"B"},
+             "im:image":[{"label":"%1"}],
+             "id":{"label":"u","attributes":{"im:id":"21"}}},
+            {"im:name":{"label":"B2"},"im:artist":{"label":"B"},
+             "im:image":[{"label":"%2"}],
+             "id":{"label":"u","attributes":{"im:id":"22"}}},
+            {"im:name":{"label":"B3"},"im:artist":{"label":"B"},
+             "im:image":[{"label":"%3"}],
+             "id":{"label":"u","attributes":{"im:id":"23"}}}
+        ]}})").arg(art("b1", "png"), art("b2", "png"), art("b3", "png")).toUtf8());
+        const auto lookB = Explore::parseSearch(QStringLiteral(R"({"results":[
+            {"wrapperType":"track","kind":"podcast","collectionId":21,"collectionName":"B1","artistName":"B","artworkUrl600":"%1"},
+            {"wrapperType":"track","kind":"podcast","collectionId":22,"collectionName":"B2","artistName":"B","artworkUrl600":"%2"},
+            {"wrapperType":"track","kind":"podcast","collectionId":23,"collectionName":"B3","artistName":"B","artworkUrl600":"%3"}
+        ]})").arg(art("b1", "jpg"), art("b2", "jpg"), art("b3", "jpg")).toUtf8());
+        check(chartA.size() == 4 && lookA.size() == 4 && chartB.size() == 3 && lookB.size() == 3,
+              "cover probe charts parse");
+
+        int beforeFirst = -1, beforeSecond = -1, afterFirst = -1, afterSecond = -1;
+        int abaFirst = -1, abaSecond = -1, abaRevisit = -1;
+        if (chartA.size() == 4 && lookA.size() == 4 && chartB.size() == 3 && lookB.size() == 3) {
+            {
+                QTemporaryDir dir;
+                QNetworkAccessManager nam;
+                attachCache(nam, dir.filePath(QStringLiteral("http")));
+                const int got = fetchAll(nam, tilesOf(chartA));
+                beforeFirst = takeHits();
+                const auto overwritten = overwriteCovers(chartA, lookA);
+                const int got2 = fetchAll(nam, tilesOf(overwritten));
+                beforeSecond = takeHits();
+                check(got == 4 && got2 == 4 && beforeFirst == 4 && beforeSecond == 4,
+                      "before: overwriting the cover refetches every tile on the second visit");
+            }
+            {
+                QTemporaryDir dir;
+                QNetworkAccessManager nam;
+                attachCache(nam, dir.filePath(QStringLiteral("http")));
+                const int got = fetchAll(nam, tilesOf(chartA));
+                afterFirst = takeHits();
+                auto merged = chartA;
+                Explore::mergeLookup(merged, lookA);
+                const int got2 = fetchAll(nam, tilesOf(merged));
+                afterSecond = takeHits();
+                check(got == 4 && got2 == 4 && afterFirst == 4 && afterSecond == 0
+                          && tilesOf(merged) == tilesOf(chartA),
+                      "after: mergeLookup reuses the chart tiles, second visit is a cache hit");
+            }
+            {
+                QTemporaryDir dir;
+                QNetworkAccessManager nam;
+                attachCache(nam, dir.filePath(QStringLiteral("http")));
+                auto mergedA = chartA, mergedB = chartB;
+                Explore::mergeLookup(mergedA, lookA);
+                Explore::mergeLookup(mergedB, lookB);
+                const int gotA = fetchAll(nam, tilesOf(mergedA));
+                abaFirst = takeHits();
+                const int gotB = fetchAll(nam, tilesOf(mergedB));
+                abaSecond = takeHits();
+                const int gotA2 = fetchAll(nam, tilesOf(mergedA));
+                abaRevisit = takeHits();
+                check(gotA == 4 && gotB == 3 && gotA2 == 4
+                          && abaFirst == 4 && abaSecond == 3 && abaRevisit == 0,
+                      "region A then B then A: revisit fetches no covers");
+            }
+        }
+        fprintf(stderr,
+                "cover cache requests: before A=%d A2=%d; after A=%d A2=%d; A/B/A=%d/%d/%d\n",
+                beforeFirst, beforeSecond, afterFirst, afterSecond, abaFirst, abaSecond, abaRevisit);
+        server.close();
     }
 
     check(versionIsNewer(QStringLiteral("v0.2.0"), QStringLiteral("0.1.0")), "0.2.0 is newer than 0.1.0");

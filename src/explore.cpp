@@ -264,6 +264,34 @@ QList<ExploreResult> Explore::parseTopChart(const QByteArray &json)
     return rows;
 }
 
+void Explore::mergeLookup(QList<ExploreResult> &rows, const QList<ExploreResult> &lookup)
+{
+    QHash<qint64, int> at;
+    for (int i = 0; i < lookup.size(); ++i)
+        at.insert(lookup.at(i).id, i);
+    for (auto &r : rows) {
+        const auto it = at.constFind(r.id);
+        if (it == at.constEnd())
+            continue;
+        const ExploreResult &got = lookup.at(it.value());
+        r.feedUrl = got.feedUrl;
+        r.trackCount = got.trackCount;
+        if (got.released)
+            r.released = got.released;
+        // Keep a cover the chart already showed. Apple's chart RSS and the
+        // lookup API name one artwork with two URLs (…/600x600bb.png and
+        // …/600x600bb.jpg). Tiles load the chart URL, and that URL is the
+        // memory and disk cache key, so replacing it makes the next visit
+        // download every cover again. A non-Apple URL is kept too: nothing
+        // here knows that some other host serves the same file under a
+        // different extension.
+        if (r.cover.isEmpty())
+            r.cover = got.cover;
+        if (r.genre.isEmpty())
+            r.genre = got.genre;
+    }
+}
+
 QNetworkReply *Explore::get(const QString &url)
 {
     QNetworkRequest request{QUrl(url)};
@@ -454,23 +482,8 @@ void Explore::lookupFeeds(const QList<qint64> &ids, const QString &cacheKey)
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError)
             return; // feed URLs then come from a per-item lookup on subscribe
-        QHash<qint64, ExploreResult> found;
-        for (const auto &r : parseSearch(reply->readAll()))
-            found.insert(r.id, r);
         QList<ExploreResult> rows = m_cache.value(cacheKey);
-        for (auto &r : rows) {
-            const auto it = found.constFind(r.id);
-            if (it == found.constEnd())
-                continue;
-            r.feedUrl = it->feedUrl;
-            r.trackCount = it->trackCount;
-            if (it->released)
-                r.released = it->released;
-            if (!it->cover.isEmpty())
-                r.cover = it->cover;
-            if (r.genre.isEmpty())
-                r.genre = it->genre;
-        }
+        mergeLookup(rows, parseSearch(reply->readAll()));
         m_cache.insert(cacheKey, rows);
         if (m_shownKey == cacheKey) {
             // Same ids and order: update feed URLs in place (no reset, covers stay).

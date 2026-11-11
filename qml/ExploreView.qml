@@ -361,10 +361,14 @@ Item {
 
     // Region / search switches reset the results model, which destroys every tile and
     // its cover Image. Qt Quick keeps only ~2 MB of unreferenced decoded images, so
-    // coming back meant re-decoding everything from the disk cache. Keep the covers of
-    // the list we just left referenced (one list only: potato RAM), so DK -> US -> DK
-    // paints straight from memory.
+    // coming back meant re-decoding everything from the disk cache. Keep the last
+    // six lists' covers referenced, split across the RAM budget, so switching back
+    // through a handful of countries paints straight from memory.
     property var heldCovers: []
+    property var heldRegions: [] // [{ key, covers, bytes }], oldest first
+    property string coversKey: ""
+    property var cachedSources: ({})
+    readonly property int heldRegionLimit: 6
     // Budget = clamp(2 % of MemAvailable, 8 MB, 32 MB), read at start-up and on each
     // switch; 0 when MemAvailable < 10 % of MemTotal (drop the kept covers at once).
     property double heldBudget: coverBudget()
@@ -376,11 +380,34 @@ Item {
             return 0
         return Math.min(32 * 1048576, Math.max(8 * 1048576, avail * 0.02))
     }
+    function isCoverCached(src) {
+        if (!src)
+            return false
+        var k = src.toString ? src.toString() : ("" + src)
+        return !!cachedSources[k]
+    }
+    function markCoverCached(src) {
+        if (!src)
+            return
+        var k = src.toString ? src.toString() : ("" + src)
+        if (k === "" || cachedSources[k])
+            return
+        var next = Object.assign({}, cachedSources)
+        next[k] = true
+        cachedSources = next
+    }
+    function flattenHeldCovers(regions) {
+        var out = []
+        for (var i = 0; i < regions.length; ++i)
+            out = out.concat(regions[i].covers)
+        return out
+    }
     function holdCurrentCovers() {
         heldBudget = coverBudget()
         if (heldBudget <= 0) {
-            heldTrim.stop()
+            heldRegions = []
             heldCovers = []
+            heldBytes = 0
             return
         }
         // Nearest the view first: on-screen tiles, then the cache-buffer rows.
@@ -393,40 +420,43 @@ Item {
             }
         }
         tiles.sort(function(x, y) { return x.d - y.d })
+        // Cap this list at 1/6 of the budget so six regions can stay in memory.
+        var share = heldBudget / heldRegionLimit
         var now = [], bytes = 0
         for (var j = 0; j < tiles.length; ++j) {
             var a = tiles[j].a
             var w = a.sourceSize.width, h = a.sourceSize.height
             var cost = w * h * 4
-            if (bytes + cost > heldBudget)
+            if (bytes + cost > share)
                 break
             bytes += cost
             now.push({ s: a.source, w: w, h: h })
+            markCoverCached(a.source)
         }
-        heldBytes = bytes
-        if (now.length === 0) {
-            heldCovers = []
-            return
+        var key = coversKey
+        var regions = heldRegions.filter(function(r) { return r.key !== key })
+        if (key !== "" && now.length > 0)
+            regions.push({ key: key, covers: now, bytes: bytes })
+        while (regions.length > heldRegionLimit)
+            regions.shift()
+        var total = 0
+        for (var k = 0; k < regions.length; ++k)
+            total += regions[k].bytes
+        while (regions.length > 0 && total > heldBudget) {
+            total -= regions[0].bytes
+            regions.shift()
         }
-        // Keep the older set alive until the new tiles have picked up their images.
-        heldCovers = heldCovers.concat(now)
-        heldKeep = now.length
-        heldTrim.restart()
+        heldRegions = regions
+        heldCovers = flattenHeldCovers(regions)
+        heldBytes = total
     }
     property double heldBytes: 0
-    property int heldKeep: 0
-    Timer {
-        id: heldTrim
-        interval: 1500
-        onTriggered: if (page.heldCovers.length > page.heldKeep)
-                         page.heldCovers = page.heldCovers.slice(page.heldCovers.length - page.heldKeep)
-    }
     // Force refresh: never let a kept cover show the old picture.
     function dropHeldCovers() {
-        heldTrim.stop()
+        heldRegions = []
         heldCovers = []
         heldBytes = 0
-        heldKeep = 0
+        cachedSources = ({})
     }
     Connections {
         target: backend
@@ -435,6 +465,9 @@ Item {
     Connections {
         target: explore.results
         function onModelAboutToBeReset() { page.holdCurrentCovers() }
+        function onModelReset() {
+            page.coversKey = explore.countryCode + "|" + explore.query + "|" + (explore.publisherSearch ? "1" : "0")
+        }
     }
     Repeater {
         model: page.heldCovers
@@ -514,6 +547,16 @@ Item {
                         // Decode at the on-screen size only (×DPR): a 2× decode cost 4× the RAM.
                         sourceSize.width: Math.max(32, Math.ceil(cover.width * Screen.devicePixelRatio))
                         sourceSize.height: Math.max(32, Math.ceil(cover.height * Screen.devicePixelRatio))
+                        // Cached covers (this session, or still held) appear at once.
+                        // Only a first fetch fades in over the letter placeholder.
+                        property bool fadeIn: false
+                        opacity: status === Image.Ready ? 1 : 0
+                        Behavior on opacity {
+                            enabled: art.fadeIn
+                            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                        }
+                        onSourceChanged: fadeIn = !page.isCoverCached(source)
+                        onStatusChanged: if (status === Image.Ready) page.markCoverCached(source)
                     }
                     Rectangle {
                         anchors.fill: parent
