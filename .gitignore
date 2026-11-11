@@ -16,3 +16,9 @@ packaging/omaear-*/
 packaging/*.tar.gz
 *.moc
 qrc_*.cpp
+
+# Local secrets and per-user agent settings (never commit)
+.env
+.env.*
+.envrc
+.claude/settings.local.json
