@@ -4,7 +4,16 @@ Planned work and ideas for OmaEar.
 
 ## Open
 
-Nothing open right now.
+- [ ] **Cheaper feed refresh** — Send the stored ETag and Last-Modified back (If-None-Match / If-Modified-Since) and skip a feed entirely on 304; when it changed, stream-parse with QXmlStreamReader and stop at the first episode guid we already have; do the work off the UI thread and insert new episodes in one SQLite transaction; back off on feeds that rarely change. Measure about 20 real feeds before and after (bytes, CPU time, peak RSS, disk writes), plus one command for checking scroll smoothness on the Beelink.
+- [ ] **Shelf right-click menu** — The menu stays where it opened, shows the podcast's name as a title, and every action stays tied to that podcast even if the Shelf reorders underneath; it closes if that podcast disappears.
+- [ ] **Fewer idle wakeups** — Measure how often OmaEar wakes up when nothing is happening, and cut timers and redraws that aren't needed.
+- [ ] **Right-click menus like Omarchy 4.5** — Redesign the look of every right-click menu to match Omarchy Stable 4.5, including pill-style toggles if 4.5 has them. Consult Design Champ. (Priority: first, together with dialogs.)
+- [ ] **Dialogs like Omarchy 4.5** — Redesign all dialogs to match Omarchy Stable 4.5: button look, placement and default action. Consult Design Champ. (Priority: first, together with menus.)
+- [ ] **Mark all podcasts played** — Mark every episode in every podcast as played, from the Shelf empty-space menu, a podcast's right-click menu and the top-right ⋯ menu.
+- [ ] **Explore behaves like the Shelf** — Explore adopts the Shelf's lifts, animations, shades and keys, and responds to the same toggles and settings.
+- [ ] **Explore cover cache, done right** — Switching regions (e.g. Poland, Switzerland, Poland…) is slow the first time, still not fast the second, and only good the third. Find why, make the second visit as fast as the third (or faster), consider drawing the page only once its covers are ready, and decide how many regions to keep cached (5–6 regions should work, even if rare), and keep each cover's identity stable across searches and regions so covers stay put instead of reloading. Consult Gonzales. Very important; next after the 4.5 look.
+- [ ] **Smaller binary** — Strip the release binary.
+- [ ] **SQLite tuning** — Tune the library database (pragmas, indexes, batched writes) for faster loads and fewer disk writes. Do it together with the cheaper feed refresh, which shares the batched-insert work; Explore covers don't use SQLite (they use Qt's network disk cache), so it won't help that item.
 
 ## Nice to have
 
