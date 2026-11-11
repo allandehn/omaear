@@ -7,9 +7,11 @@
 #include <QDBusPendingReply>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QVariant>
 #include <QtMath>
@@ -88,6 +90,83 @@ QColor Theme::oklchNudge(const QColor &c, qreal dL, qreal cScale)
     }
     return QColor::fromRgbF(qBound<qreal>(0, toSrgb(r), 1), qBound<qreal>(0, toSrgb(g), 1),
                             qBound<qreal>(0, toSrgb(bl), 1), c.alphaF());
+}
+
+QColor Theme::parseShellColor(const QString &token)
+{
+    // Only RGB is kept: popups apply their own *-alpha (default 1.0), as Color.qml does.
+    static const QRegularExpression colorToken(
+        QStringLiteral("^\\s*(?:(?:rgba?\\(\\s*([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?\\s*\\))|(?:#([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?)|(?:0x(?:[0-9a-fA-F]{2})?([0-9a-fA-F]{6})))\\s*$"));
+    const QRegularExpressionMatch m = colorToken.match(token);
+    if (!m.hasMatch())
+        return QColor();
+    for (int i = 1; i <= 3; ++i) {
+        if (!m.captured(i).isEmpty())
+            return QColor(QLatin1Char('#') + m.captured(i));
+    }
+    return QColor();
+}
+
+namespace {
+bool isAngle(const QString &s)
+{
+    static const QRegularExpression angle(QStringLiteral("^-?\\d+(?:\\.\\d+)?deg$"));
+    return angle.match(s).hasMatch();
+}
+QString firstColorToken(const QString &value)
+{
+    const QStringList parts = value.trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    for (const QString &p : parts) {
+        if (!isAngle(p))
+            return p;
+    }
+    return value.trimmed();
+}
+}
+
+QColor Theme::resolveShellColor(const QString &value, const QHash<QString, QString> &shell,
+                                const QHash<QString, QColor> &palette)
+{
+    QString token = firstColorToken(value);
+    QString role = token.toLower();
+    for (int hops = 0; hops < 8 && shell.contains(role) && shell.value(role) != token; ++hops) {
+        token = firstColorToken(shell.value(role));
+        role = token.toLower();
+    }
+    if (role == QLatin1String("text"))
+        role = QStringLiteral("foreground");
+    if (palette.contains(role))
+        return palette.value(role);
+    if (role == QLatin1String("transparent"))
+        return QColor(0, 0, 0, 0);
+    return parseShellColor(token);
+}
+
+QHash<QString, QString> Theme::parseShellToml(const QString &text)
+{
+    static const QRegularExpression sectionRe(QStringLiteral("^\\[([A-Za-z0-9_-]+)\\]\\s*(#.*)?$"));
+    static const QRegularExpression quotedRe(QStringLiteral("^([A-Za-z0-9_-]+)\\s*=\\s*[\"']([^\"']+)[\"']\\s*(#.*)?$"));
+    static const QRegularExpression bareRe(QStringLiteral("^([A-Za-z0-9_-]+)\\s*=\\s*([^#\\s][^#]*?)\\s*(#.*)?$"));
+    QHash<QString, QString> out;
+    QString section;
+    for (const QString &raw : text.split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+            continue;
+        const QRegularExpressionMatch sec = sectionRe.match(line);
+        if (sec.hasMatch()) {
+            section = sec.captured(1);
+            continue;
+        }
+        if (section.isEmpty())
+            continue;
+        QRegularExpressionMatch kv = quotedRe.match(line);
+        if (!kv.hasMatch())
+            kv = bareRe.match(line);
+        if (kv.hasMatch())
+            out.insert(section + QLatin1Char('.') + kv.captured(1), kv.captured(2));
+    }
+    return out;
 }
 
 Theme::Theme(QObject *parent)
@@ -238,6 +317,35 @@ void Theme::loadColors()
         urgent = color1;
     if (!urgent.isValid())
         urgent = QColor(dark ? QStringLiteral("#e06c75") : QStringLiteral("#c0392b"));
+    // Popup surfaces from shell.toml, as Color.qml reads them: the theme's generated file,
+    // then the user's ~/.config/omarchy/shell.toml on top. A missing file means defaults.
+    QHash<QString, QString> shell;
+    for (const QString &p : {QDir::homePath() + QStringLiteral("/.local/state/omarchy/current/theme/shell.toml"),
+                             QDir::homePath() + QStringLiteral("/.config/omarchy/shell.toml")}) {
+        QFile sf(p);
+        if (!sf.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+        const QHash<QString, QString> layer = parseShellToml(QString::fromUtf8(sf.readAll()));
+        for (auto it = layer.constBegin(); it != layer.constEnd(); ++it)
+            shell.insert(it.key(), it.value());
+    }
+    const QHash<QString, QColor> palette{{QStringLiteral("foreground"), foreground},
+                                         {QStringLiteral("background"), background},
+                                         {QStringLiteral("accent"), accent},
+                                         {QStringLiteral("urgent"), urgent},
+                                         {QStringLiteral("muted"), muted}};
+    const auto popupColor = [&](const char *key, const char *alphaKey, const QColor &fallback, qreal fallbackAlpha) {
+        QColor c = shell.contains(QLatin1String(key)) ? resolveShellColor(shell.value(QLatin1String(key)), shell, palette) : QColor();
+        if (!c.isValid())
+            c = fallback;
+        bool ok = false;
+        qreal a = shell.value(QLatin1String(alphaKey)).toDouble(&ok);
+        c.setAlphaF(qBound<qreal>(0, ok ? a : fallbackAlpha, 1));
+        return c;
+    };
+    const QColor popupBackground = popupColor("popups.background", "popups.background-alpha", background, 1.0);
+    const QColor popupText = popupColor("popups.text", "popups.text-alpha", foreground, 1.0);
+    const QColor border = popupColor("popups.border", "popups.border-alpha", accent, 1.0);
     // Derived tints: OKLCH lightness nudges of the live colours, so hue and
     // perceived lightness stay put (blues don't drift purple, yellows don't glow).
     // Computed once per theme load, never per frame.
@@ -246,11 +354,15 @@ void Theme::loadColors()
     const QColor pillBackground = oklchNudge(background, dark ? -0.05 : 0.035);
     const bool changedColors = background != m_background || foreground != m_foreground
         || accent != m_accent || blue != m_blue || selection != m_selection || muted != m_muted
-        || dim != m_dim || dark != m_darkMode || urgent != m_urgent
+        || dim != m_dim || dark != m_darkMode || urgent != m_urgent || border != m_border
+        || popupBackground != m_popupBackground || popupText != m_popupText
         || barBackground != m_barBackground || pillBackground != m_pillBackground;
     m_barBackground = barBackground;
     m_pillBackground = pillBackground;
     m_urgent = urgent;
+    m_border = border;
+    m_popupBackground = popupBackground;
+    m_popupText = popupText;
     m_background = background;
     m_foreground = foreground;
     m_accent = accent;
@@ -341,8 +453,17 @@ void Theme::watchColors()
     const QString themeShell = theme + QStringLiteral("/shell.toml");
     const QString userConfig = QDir::homePath() + QStringLiteral("/.config/omarchy");
     const QString userShell = userConfig + QStringLiteral("/shell.toml");
-    if (QDir(current).exists())
+    if (QDir(current).exists()) {
         m_watcher.addPath(current);
+    } else {
+        // No Omarchy theme dir yet (first run, or it is being created): watch the nearest
+        // existing parent, so its arrival is noticed and the real paths get watched then.
+        QString up = QFileInfo(current).absolutePath();
+        while (up.size() > 1 && !QDir(up).exists())
+            up = QFileInfo(up).absolutePath();
+        if (QDir(up).exists())
+            m_watcher.addPath(up);
+    }
     if (QDir(theme).exists())
         m_watcher.addPath(theme);
     if (QFile::exists(colors))

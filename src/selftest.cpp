@@ -56,6 +56,36 @@ int runSelfTest(int argc, char **argv)
         const QColor yd = Theme::oklchNudge(yellow, -0.1);
         check(yd.value() < yellow.value() && qAbs(yd.hsvHue() - yellow.hsvHue()) <= 6, "oklch yellow darkens in hue");
     }
+    {
+        // Popup colours, read the way Omarchy's Color.qml reads shell.toml.
+        check(Theme::parseShellColor(QStringLiteral("rgba(33ccffee)")) == QColor(QStringLiteral("#33ccff")), "shell colour: rgba()");
+        check(Theme::parseShellColor(QStringLiteral("rgb(7aa2f7)")) == QColor(QStringLiteral("#7aa2f7")), "shell colour: rgb()");
+        check(Theme::parseShellColor(QStringLiteral("#7aa2f7")) == QColor(QStringLiteral("#7aa2f7")), "shell colour: #hex");
+        check(Theme::parseShellColor(QStringLiteral("0xee33ccff")) == QColor(QStringLiteral("#33ccff")), "shell colour: 0xAARRGGBB");
+        check(!Theme::parseShellColor(QStringLiteral("")).isValid() && !Theme::parseShellColor(QStringLiteral("45deg")).isValid()
+                  && !Theme::parseShellColor(QStringLiteral("hyprland.active-border")).isValid(),
+              "shell colour: nothing usable is invalid");
+        const QHash<QString, QString> sh = Theme::parseShellToml(QStringLiteral(
+            "# comment\n[hyprland]\nactive-border            = \"rgba(33ccffee) rgba(00ff99ee) 45deg\"  # gradient\n"
+            "[popups]\nbackground = \"#1a1b26\"\nbackground-alpha = 1.0\nborder = \"hyprland.active-border\"\nborder-alpha = 0.5\n"
+            "# border-width = 2\n[font]\nbase-size = 12\n"));
+        check(sh.value(QStringLiteral("popups.border")) == QLatin1String("hyprland.active-border")
+                  && sh.value(QStringLiteral("hyprland.active-border")) == QLatin1String("rgba(33ccffee) rgba(00ff99ee) 45deg")
+                  && sh.value(QStringLiteral("popups.border-alpha")) == QLatin1String("0.5")
+                  && sh.value(QStringLiteral("font.base-size")) == QLatin1String("12")
+                  && !sh.contains(QStringLiteral("popups.border-width")),
+              "shell.toml parser: sections, quoted and bare values, comments");
+        const QHash<QString, QColor> pal{{QStringLiteral("foreground"), QColor(QStringLiteral("#a9b1d6"))},
+                                         {QStringLiteral("accent"), QColor(QStringLiteral("#7aa2f7"))},
+                                         {QStringLiteral("background"), QColor(QStringLiteral("#1a1b26"))}};
+        check(Theme::resolveShellColor(QStringLiteral("hyprland.active-border"), sh, pal) == QColor(QStringLiteral("#33ccff")),
+              "shell colour: popups.border -> hyprland.active-border -> first gradient stop");
+        check(Theme::resolveShellColor(QStringLiteral("accent"), sh, pal) == QColor(QStringLiteral("#7aa2f7"))
+                  && Theme::resolveShellColor(QStringLiteral("text"), sh, pal) == QColor(QStringLiteral("#a9b1d6")),
+              "shell colour: palette roles (accent, text = foreground)");
+        const QHash<QString, QString> loop{{QStringLiteral("a.x"), QStringLiteral("b.y")}, {QStringLiteral("b.y"), QStringLiteral("a.x")}};
+        check(!Theme::resolveShellColor(QStringLiteral("a.x"), loop, pal).isValid(), "shell colour: a role loop ends instead of hanging");
+    }
     check(parseDuration(QStringLiteral("90")) == 90, "duration seconds");
     check(parseDuration(QStringLiteral("1:02:03")) == 3723, "duration hms");
     check(parseDuration(QStringLiteral("12:34")) == 754, "duration ms");

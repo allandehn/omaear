@@ -891,7 +891,7 @@ Item {
         width: Math.min(page.width - 16, 300 * theme.textScale)
         height: Math.min(page.height - y - 12,
                          filterField.implicitHeight + 8 + Math.max(1, entries.length) * rowHeight + 10)
-        padding: 1
+        padding: 4
         topPadding: 4
         bottomPadding: 4
         focus: true
@@ -907,12 +907,7 @@ Item {
         }
         exit: null
 
-        background: Rectangle {
-            color: theme.background
-            border.color: theme.foreground
-            border.width: 1
-            radius: theme.rButton
-        }
+        background: AppPopupBackground {}
 
         onAboutToShow: {
             filter = ""
@@ -994,7 +989,12 @@ Item {
                     readonly property bool chosen: modelData.code === explore.regionOverride
                     width: ListView.view.width
                     height: regionPopup.rowHeight
-                    color: index === regionList.currentIndex ? theme.selection : "transparent"
+                    // Same look as the menus: the mouse row is foreground at 8% with its text
+                    // unchanged; the keyboard cursor row is the same fill with accent text.
+                    readonly property bool mouseOver: rowMouse.containsMouse
+                    readonly property bool cursor: index === regionList.currentIndex && !mouseOver
+                    radius: theme.rounding
+                    color: mouseOver || index === regionList.currentIndex ? Qt.alpha(theme.foreground, 0.08) : "transparent"
 
                     Text {
                         anchors.left: parent.left
@@ -1003,7 +1003,7 @@ Item {
                         anchors.rightMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
                         text: row.modelData.name
-                        color: theme.foreground
+                        color: row.cursor ? theme.accent : theme.popupText
                         font.family: "monospace"
                         font.pixelSize: theme.titleSize
                         font.weight: Font.Normal
@@ -1016,7 +1016,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         display: AbstractButton.IconOnly
                         icon.name: "check-plain-symbolic"
-                        icon.color: theme.foreground
+                        icon.color: theme.accent
                         icon.width: 16 * theme.textScale
                         icon.height: 16 * theme.textScale
                         visible: row.chosen
@@ -1034,6 +1034,7 @@ Item {
                         opacity: 0.4
                     }
                     MouseArea {
+                        id: rowMouse
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor

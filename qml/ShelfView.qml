@@ -86,6 +86,7 @@ Item {
     readonly property bool coverMenuOpen: coverMenu.opened
     // Scene point inside the open cover menu's panel (same test the window filter uses).
     function coverMenuContains(x, y) { return win.popupContains(coverMenu, x, y) }
+    readonly property var coverMenuObject: coverMenu
 
     function openNavMenu() {
         if (navCount === 0) { openEmptyMenu(); return }
@@ -770,10 +771,20 @@ Item {
     // Shelf top bar overflow.
     AppMenu {
         id: moreMenu
+        // The current view carries the check mark (any value other than "list" is the gallery).
         AppMenuItem {
-            text: backend.shelfView === "list" ? "Show as gallery" : "Show as list"
+            text: "Gallery"
+            markable: true
+            marked: backend.shelfView !== "list"
             enabled: backend.showCount > 0
-            onChosen: backend.setShelfView(backend.shelfView === "list" ? "gallery" : "list")
+            onChosen: backend.setShelfView("gallery")
+        }
+        AppMenuItem {
+            text: "List"
+            markable: true
+            marked: backend.shelfView === "list"
+            enabled: backend.showCount > 0
+            onChosen: backend.setShelfView("list")
         }
         AppMenuSeparator {}
         AppMenuItem {
@@ -798,11 +809,15 @@ Item {
             onChosen: shelf.exportRequested()
         }
         AppMenuItem {
-            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            text: "Navigation animation"
+            markable: true
+            marked: backend.motionTryout
             onChosen: backend.toggleMotionTryout()
         }
         AppMenuItem {
-            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            text: "Grid wrap: full"
+            markable: true
+            marked: backend.gridWrapFull
             onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}

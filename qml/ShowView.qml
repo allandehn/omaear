@@ -545,11 +545,15 @@ Item {
             onChosen: page.queueRequested()
         }
         AppMenuItem {
-            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            text: "Navigation animation"
+            markable: true
+            marked: backend.motionTryout
             onChosen: backend.toggleMotionTryout()
         }
         AppMenuItem {
-            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
+            text: "Grid wrap: full"
+            markable: true
+            marked: backend.gridWrapFull
             onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}

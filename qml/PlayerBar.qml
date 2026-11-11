@@ -656,14 +656,16 @@ Rectangle {
 
                         Rectangle {
                             anchors.fill: parent
-                            // Same highlight as AppMenuItem: square, theme.selection.
-                            color: rateRow.current || rateMouse.containsMouse ? theme.selection : "transparent"
+                            // Same hover as the menus: foreground at 8%, rows rounded like the card.
+                            // The current rate is the accent text (below), no fill.
+                            radius: theme.rounding
+                            color: rateMouse.containsMouse ? Qt.alpha(theme.foreground, 0.08) : "transparent"
                         }
 
                         Text {
                             anchors.centerIn: parent
                             text: bar.rateLabel(rateRow.rateValue)
-                            color: rateRow.current ? theme.accent : theme.foreground
+                            color: rateRow.current ? theme.accent : theme.popupText
                             font.features: { "tnum": 1 }
                             font.pixelSize: theme.body
                             font.weight: Font.Normal

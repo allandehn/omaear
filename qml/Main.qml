@@ -50,6 +50,14 @@ ApplicationWindow {
     property string markAllTitle: ""
     property bool confirmRemove: false
     property bool confirmQueue: false
+    // ALLAN'S DECISIONS: which dialogs start with Cancel selected (so Enter cancels) and
+    // which start on the confirm button, which is Omarchy Stable 4.5's default for all of them.
+    // Flip a line to change one dialog.
+    readonly property bool unsubscribeStartsOnCancel: false      // one podcast: starts on Unsubscribe
+    readonly property bool unsubscribeAllStartsOnCancel: true    // Unsubscribe from all, both steps
+    readonly property bool markAllStartsOnCancel: true           // Mark all as played (one podcast)
+    readonly property bool markEverythingStartsOnCancel: true    // every episode of every podcast (not built yet)
+    readonly property bool clearQueueStartsOnCancel: false       // starts on Clear queue
     // Unsubscribe from all: two steps, both must be confirmed.
     property bool confirmUnsubAll: false
     property bool confirmUnsubAll2: false
@@ -1162,7 +1170,8 @@ ApplicationWindow {
         anchors.fill: parent
         id: dialogScrim
         visible: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
-        color: Qt.rgba(0, 0, 0, 0.45)
+        // Omarchy Stable 4.5 scrim: the theme background at 70%. A click on it cancels.
+        color: Qt.alpha(theme.background, 0.7)
         PopupFadeIn { host: dialogScrim }
 
         MouseArea {
@@ -1174,28 +1183,34 @@ ApplicationWindow {
             id: dialog
             anchors.centerIn: parent
             visible: dialogScrim.visible
-            title: addOpen ? "Add a feed"
-                   : confirmUnsubAll2 ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "?"
-                   : ""
-            detail: confirmUnsubAll2 ? "This can't be undone." : ""
-            destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
-            startOnCancel: confirmUnsubAll2
-            initialFocusItem: addOpen ? feedField : null
-            message: addOpen ? ""
+            // Messages are questions that name the thing; the button carries the verb.
+            message: addOpen ? "Which feed do you want to add?"
                      : confirmUnsubAll
                      ? "Unsubscribe from all podcasts?"
                      : confirmUnsubAll2
-                     ? ""
+                     ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast?" : " podcasts?")
                      : confirmQueue
-                     ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
+                     ? "Clear the queue (" + backend.queueCount + (backend.queueCount === 1 ? " episode)?" : " episodes)?")
                      : confirmRemove
-                     ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
+                     ? "Unsubscribe from " + unsubscribeTitle + "?"
                      : "Mark every episode of " + markAllTitle + " as played?"
+            detail: confirmUnsubAll2 ? "This can't be undone."
+                    : confirmRemove ? "Playback history for this show goes with it."
+                    : ""
+            // Adding is not destructive: the confirm button takes the accent, not the urgent colour.
+            destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
+            // Per-dialog start (see the decisions above); 4.5's own default is the confirm button.
+            startOnCancel: addOpen ? false
+                           : (confirmUnsubAll || confirmUnsubAll2) ? unsubscribeAllStartsOnCancel
+                           : confirmQueue ? clearQueueStartsOnCancel
+                           : confirmRemove ? unsubscribeStartsOnCancel
+                           : markAllStartsOnCancel
+            initialFocusItem: addOpen ? feedField : null
             // Step 1 of Unsubscribe from all only leads to step 2, which shows the
-            // podcast count and the final, destructive button.
+            // podcast count (in the question and on the final, destructive button).
             actionLabel: addOpen ? "Add"
                          : confirmUnsubAll ? "Unsubscribe from all\u2026"
-                         : confirmUnsubAll2 ? "Unsubscribe from all"
+                         : confirmUnsubAll2 ? "Unsubscribe from all (" + unsubAllCount + ")"
                          : confirmQueue ? "Clear queue"
                          : confirmRemove ? "Unsubscribe" : "Mark all as played"
             onCanceled: closeModals()
