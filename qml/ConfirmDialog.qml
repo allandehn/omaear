@@ -29,7 +29,8 @@ Rectangle {
     property Item initialFocusItem: null
     default property alias extra: extraColumn.data
     readonly property color actionTone: destructive ? theme.urgent : theme.accent
-    readonly property int buttonRadius: 0
+    // Buttons follow the theme corners (Hyprland decoration:rounding), like the dialog itself (Allan, 2026-11-12).
+    readonly property int buttonRadius: theme.rounding
     readonly property Item cancelButton: cancelBtn
     readonly property Item actionButton: actionBtn
 
@@ -167,7 +168,7 @@ Rectangle {
         }
     }
 
-    // Outlined, square (radius 0 on every theme, as in 4.5), at least 88x34.
+    // Outlined, theme corners, at least 88x34.
     component DialogButton: Rectangle {
         id: button
         property string label: ""
@@ -183,8 +184,8 @@ Rectangle {
         signal entered()
         implicitWidth: Math.max(Math.round(88 * theme.textScale), text.implicitWidth + 24)
         implicitHeight: Math.round(34 * theme.textScale)
-        // Omarchy's ConfirmDialog hard-codes square buttons (shell/Ui/ConfirmDialog.qml:107), on
-        // every theme. Set this to theme.rounding to make them follow the window corners instead.
+        // Omarchy 4.5's ConfirmDialog has square buttons (shell/Ui/ConfirmDialog.qml:107); OmaEar
+        // rounds them with the theme corners instead, so they match the dialog border.
         radius: cornerRadius
         color: selected ? selectedFill : "transparent"
         border.width: 1

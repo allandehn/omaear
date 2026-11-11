@@ -592,6 +592,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         }},
         {500, [t]() {
             t->expect(t->eval("confirmUnsubAll && dialog.selectedIndex === 0 && dialog.startOnCancel").toBool(), "start: Unsubscribe from all step 1 starts on Cancel");
+            t->expect(t->eval("!dialog.destructive && dialog.actionTone.toString() === theme.accent.toString()").toBool(), "non-destructive confirm uses the accent");
             t->eval("dialog.accepted()");   // Enter would only move to step 2
         }},
         {500, [t]() {
@@ -605,7 +606,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         }},
         {500, [t]() {
             t->expect(t->eval("confirmAll && dialog.selectedIndex === 0 && dialog.startOnCancel").toBool(), "start: Mark all as played starts on Cancel");
-            t->expect(t->eval("!dialog.destructive && dialog.actionTone.toString() === theme.accent.toString()").toBool(), "non-destructive confirm uses the accent");
+            t->expect(t->eval("dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()").toBool(), "Mark all as played confirm uses the urgent colour");
             t->key(Qt::Key_Escape);
         }},
         {400, [t]() {

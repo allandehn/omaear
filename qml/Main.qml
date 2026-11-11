@@ -1198,7 +1198,8 @@ ApplicationWindow {
                     : confirmRemove ? "Playback history for this show goes with it."
                     : ""
             // Adding is not destructive: the confirm button takes the accent, not the urgent colour.
-            destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
+            // Mark all as played can't be undone in one step, so it is destructive too.
+            destructive: !addOpen && !confirmUnsubAll
             // Per-dialog start (see the decisions above); 4.5's own default is the confirm button.
             startOnCancel: addOpen ? false
                            : (confirmUnsubAll || confirmUnsubAll2) ? unsubscribeAllStartsOnCancel
