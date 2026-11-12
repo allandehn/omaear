@@ -98,6 +98,8 @@ Backend::Backend(Library &library, QObject *parent)
     : QObject(parent)
     , m_library(library)
 {
+    m_refresher = new FeedRefresher(m_library, m_network, this);
+    connect(m_refresher, &FeedRefresher::finished, this, &Backend::feedRefreshed);
     m_playerRate = m_library.rate(); // already snapped to a preset
     // Migrate a speed saved before the quarter presets (0.5, 0.8, 1.2, 1.8…).
     if (qAbs(m_library.storedRate() - m_playerRate) > 0.001)
@@ -275,7 +277,7 @@ void Backend::addFeed(const QString &url)
     const QString trimmed = url.trimmed();
     if (trimmed.isEmpty())
         return;
-    enqueue({trimmed});
+    enqueue({trimmed}, true);
 }
 
 void Backend::importOpml(const QString &fileUrl)
@@ -292,7 +294,7 @@ void Backend::importOpml(const QString &fileUrl)
         setStatus(error.isEmpty() ? QStringLiteral("That OPML file has no feeds.") : error);
         return;
     }
-    enqueue(urls);
+    enqueue(urls, true);
 }
 
 void Backend::exportOpml(const QString &fileUrl)
@@ -342,7 +344,7 @@ void Backend::refreshAll(bool forceArtwork)
     }
     for (const QString &url : urls)
         m_shelfRefreshUrls.insert(url);
-    enqueue(urls);
+    enqueue(urls, forceArtwork);
 }
 
 void Backend::refreshOpenShow(bool forceArtwork)
@@ -356,7 +358,7 @@ void Backend::refreshOpenShow(bool forceArtwork)
     const auto rows = m_library.shows();
     for (const auto &row : rows) {
         if (row.id == m_openShowId) {
-            enqueue({row.feedUrl});
+            enqueue({row.feedUrl}, true);
             return;
         }
     }
@@ -543,26 +545,40 @@ void Backend::removeOpenShow()
     removeShow(m_openShowId);
 }
 
-void Backend::enqueue(const QStringList &urls)
+void Backend::enqueue(const QStringList &urls, bool manual)
 {
     for (const QString &url : urls) {
         bool queued = false;
-        for (const auto &job : m_queue) {
+        for (auto &job : m_queue) {
             if (job.url == url) {
                 queued = true;
+                job.manual = job.manual || manual;
                 break;
             }
         }
         if (!queued)
-            m_queue.append({url});
+            m_queue.append(Job{url, false, manual});
     }
     fetchNext();
 }
 
 void Backend::fetchNext()
 {
-    if (m_active)
+    if (m_refresher->busy())
         return;
+    // Automatic and refresh-all runs leave a feed alone that rarely changes and was
+    // checked recently (FeedRefresher::backedOff). It counts as done and fine.
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    while (!m_queue.isEmpty() && !m_queue.first().manual) {
+        const FeedState state = m_library.feedState(m_queue.first().url);
+        if (!FeedRefresher::backedOff(state, now))
+            break;
+        const Job skipped = m_queue.takeFirst();
+        ++m_fetchDone;
+        noteShelfFeedResult(skipped.url, true);
+        qInfo().noquote() << "[omaear-refresh] skipped (rarely changes, checked recently):" << skipped.url;
+        downloadCover(state.showId, state.imageUrl); // no-op unless the cover file is missing
+    }
     if (m_queue.isEmpty()) {
         m_fetchDone = 0;
         // Single completion point: runs whether the last feed succeeded or failed.
@@ -571,76 +587,59 @@ void Backend::fetchNext()
         setBusy(false);
         return;
     }
-    const Job job = m_queue.takeFirst();
+    m_current = m_queue.takeFirst();
     setBusy(true);
     // Feeds fetch one at a time: "Updating 3 of 40 feeds: Show name".
     const int total = m_fetchDone + m_queue.size() + 1;
-    QString name;
-    for (const auto &row : m_library.shows()) {
-        if (row.feedUrl == job.url) {
-            name = row.title;
-            break;
-        }
-    }
+    QString name = m_library.feedState(m_current.url).title;
     if (name.isEmpty())
-        name = QUrl(job.url).host();
+        name = QUrl(m_current.url).host();
     setStatus(total > 1 ? QStringLiteral("Updating %1 of %2 feeds: %3").arg(m_fetchDone + 1).arg(total).arg(name)
                         : QStringLiteral("Updating %1…").arg(name));
+    m_refresher->start(m_current.url, m_current.manual, m_current.plainEncoding);
+}
 
-    QNetworkRequest request{QUrl(job.url)};
-    request.setHeader(QNetworkRequest::UserAgentHeader,
-                      QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy; +https://github.com/allandehn/omaear)"));
-    request.setTransferTimeout(20000);
-    if (job.plainEncoding)
-        request.setRawHeader("Accept-Encoding", "identity");
-    QNetworkReply *reply = m_network.get(request);
-    m_active = reply;
-    connect(reply, &QNetworkReply::finished, this, [this, reply, job]() {
-        reply->deleteLater();
-        m_active = nullptr;
-        if (reply->error() != QNetworkReply::NoError) {
-            // Not a feed failure. Retry once uncompressed so one bad gzip
-            // cannot keep the launch-refresh timestamp from ever advancing.
-            if (!job.plainEncoding
-                && reply->errorString().startsWith(QStringLiteral("Decompression failed"))) {
-                m_queue.prepend(Job{job.url, true});
-                fetchNext();
-                return;
-            }
-            ++m_fetchDone;
-            noteShelfFeedResult(job.url, false, reply->errorString());
-            setStatus(reply->errorString());
+void Backend::feedRefreshed(const QString &url, const FeedRefreshResult &r)
+{
+    const Job job = m_current;
+    if (r.status == FeedRefreshResult::NetworkError) {
+        // Not a feed failure. Retry once uncompressed so one bad gzip
+        // cannot keep the launch-refresh timestamp from ever advancing.
+        if (!job.plainEncoding && r.decompressionFailed) {
+            m_queue.prepend(Job{url, true, job.manual});
             fetchNext();
             return;
         }
         ++m_fetchDone;
-        QString error;
-        const auto parsed = parseFeed(reply->readAll(), reply->url(), &error);
-        if (!parsed) {
-            noteShelfFeedResult(job.url, false,
-                                error.isEmpty() ? QStringLiteral("unparseable feed") : error);
-            setStatus(error.isEmpty() ? QStringLiteral("Could not read that feed.") : error);
-            fetchNext();
-            return;
-        }
-        const qint64 showId = m_library.upsertShow(job.url, *parsed);
-        if (showId == 0) {
-            noteShelfFeedResult(job.url, false, QStringLiteral("could not save show"));
-            setStatus(QStringLiteral("Could not save that show."));
-            fetchNext();
-            return;
-        }
-        noteShelfFeedResult(job.url, true);
-        if (!parsed->imageUrl.isEmpty())
-            downloadCover(showId, parsed->imageUrl);
-        reloadShows();
-        if (m_openShowId == showId)
-            openShow(showId);
-        const QString title = parsed->title;
-        if (m_queue.isEmpty() && !m_shelfRefresh)
-            setStatus(QStringLiteral("Updated %1.").arg(title));
+        noteShelfFeedResult(url, false, r.error);
+        setStatus(r.error);
         fetchNext();
-    });
+        return;
+    }
+    ++m_fetchDone;
+    if (r.status == FeedRefreshResult::ParseError) {
+        noteShelfFeedResult(url, false, r.error.isEmpty() ? QStringLiteral("unparseable feed") : r.error);
+        setStatus(r.error.isEmpty() ? QStringLiteral("Could not read that feed.") : r.error);
+        fetchNext();
+        return;
+    }
+    if (r.status == FeedRefreshResult::SaveError) {
+        noteShelfFeedResult(url, false, QStringLiteral("could not save show"));
+        setStatus(QStringLiteral("Could not save that show."));
+        fetchNext();
+        return;
+    }
+    noteShelfFeedResult(url, true);
+    if (!r.imageUrl.isEmpty())
+        downloadCover(r.showId, r.imageUrl);
+    if (r.status == FeedRefreshResult::Updated) {
+        reloadShows();
+        if (m_openShowId == r.showId)
+            openShow(r.showId);
+    }
+    if (m_queue.isEmpty() && !m_shelfRefresh)
+        setStatus(QStringLiteral("Updated %1.").arg(r.title));
+    fetchNext();
 }
 
 void Backend::downloadCover(qint64 showId, const QString &imageUrl)

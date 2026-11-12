@@ -53,6 +53,8 @@ void check(bool ok, const char *what)
 }
 }
 
+int runRefreshSelfTest(); // refreshtest.cpp
+
 int runSelfTest(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -1323,6 +1325,8 @@ int runSelfTest(int argc, char **argv)
         qputenv("XDG_CACHE_HOME", oldCache);
         server.close();
     }
+
+    g_fails += runRefreshSelfTest();
 
     if (g_fails == 0) {
         printf("ok\n");

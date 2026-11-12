@@ -12,6 +12,7 @@ SOURCES += \
     src/main.cpp \
     src/library.cpp \
     src/feed.cpp \
+    src/feedrefresh.cpp \
     src/theme.cpp \
     src/models.cpp \
     src/covercache.cpp \
@@ -20,6 +21,7 @@ SOURCES += \
     src/player.cpp \
     src/growingmediadevice.cpp \
     src/selftest.cpp \
+    src/refreshtest.cpp \
     src/explore.cpp \
     src/updates.cpp \
     src/search.cpp \
@@ -28,6 +30,7 @@ SOURCES += \
 HEADERS += \
     src/library.h \
     src/feed.h \
+    src/feedrefresh.h \
     src/theme.h \
     src/models.h \
     src/covercache.h \

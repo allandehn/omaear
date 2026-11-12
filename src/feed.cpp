@@ -169,8 +169,11 @@ int parseDuration(const QString &text)
     return 0;
 }
 
-std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QString *error)
+std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QString *error,
+                                    const FeedParseOptions *options, bool *stoppedEarly)
 {
+    if (stoppedEarly)
+        *stoppedEarly = false;
     const QByteArray trimmed = xml.trimmed();
     if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")
         || trimmed.startsWith("<HTML") || trimmed.startsWith("<!doctype")) {
@@ -185,6 +188,12 @@ std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QSt
     QStringList stack;
     QString text;
     bool sawFeed = false;
+    // Early stop bookkeeping (see FeedParseOptions).
+    const bool canStop = options && options->knownGuids && options->stopAfterKnown > 0;
+    bool newestFirst = true;
+    qint64 lastPublished = 0;
+    int knownRun = 0;
+    bool stopped = false;
 
     auto inEpisode = [&stack]() {
         return stack.contains(QStringLiteral("item")) || stack.contains(QStringLiteral("entry"));
@@ -281,14 +290,27 @@ std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QSt
                     if (current.title.isEmpty())
                         current.title = QStringLiteral("Untitled");
                     show.episodes.append(current);
+                    if (canStop) {
+                        if (current.published == 0
+                            || (lastPublished != 0 && current.published > lastPublished))
+                            newestFirst = false;
+                        lastPublished = current.published;
+                        knownRun = options->knownGuids->contains(current.guid) ? knownRun + 1 : 0;
+                        stopped = newestFirst && knownRun >= options->stopAfterKnown
+                            && !show.title.isEmpty() && !show.imageUrl.isEmpty();
+                    }
                 }
                 current = {};
             }
             if (!stack.isEmpty())
                 stack.removeLast();
             text.clear();
+            if (stopped)
+                break;
         }
     }
+    if (stoppedEarly)
+        *stoppedEarly = stopped;
 
     if (reader.hasError() && show.episodes.isEmpty() && show.title.isEmpty()) {
         if (error)

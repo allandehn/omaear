@@ -4,20 +4,21 @@ Planned work and ideas for OmaEar.
 
 ## Open
 
-- [ ] **Cheaper feed refresh** — Send the stored ETag and Last-Modified back (If-None-Match / If-Modified-Since) and skip a feed entirely on 304; when it changed, stream-parse with QXmlStreamReader and stop at the first episode guid we already have; do the work off the UI thread and insert new episodes in one SQLite transaction; back off on feeds that rarely change. Measure about 20 real feeds before and after (bytes, CPU time, peak RSS, disk writes), plus one command for checking scroll smoothness on the Beelink.
 - [ ] **Shelf right-click menu** — The menu stays where it opened, shows the podcast's name as a title, and every action stays tied to that podcast even if the Shelf reorders underneath; it closes if that podcast disappears.
 - [ ] **Fewer idle wakeups** — Measure how often OmaEar wakes up when nothing is happening, and cut timers and redraws that aren't needed.
 - [ ] **Mark all podcasts played** — Mark every episode in every podcast as played, from the Shelf empty-space menu, a podcast's right-click menu and the top-right ⋯ menu.
 - [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
 - [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
-- [ ] **SQLite tuning** — Tune the library database (pragmas, indexes, batched writes) for faster loads and fewer disk writes. Do it together with the cheaper feed refresh, which shares the batched-insert work; Explore covers don't use SQLite (they use Qt's network disk cache), so it won't help that item.
+- [ ] **SQLite tuning** — What is left of it after the cheaper feed refresh, which already batched feed writes (one transaction per feed, unchanged rows not rewritten): pragmas (e.g. `synchronous=NORMAL` with WAL, cache size) and indexes for the Shelf load query, plus batching the other multi-row writes (mark all as played, OPML import). Measure first. A refresh still reloads the whole Shelf query after every changed feed (about 50 ms each at 13,000 episodes); coalescing that is the next cheap win. Explore covers don't use SQLite (they use Qt's network disk cache), so none of this helps that item.
 
 ## Nice to have
 
 - [ ] **Fisheye by folding** — In long episode lists, episodes near the playing one stay full rows; older ones fold into month headers that open step by step as you scroll toward them (title, then title + date, then full row); positions never jump, so clicks stay instant. From Design Champ's design wander #22 (Furnas 1986 fisheye views, Cockburn 2008 review): fold distant detail in fixed places rather than magnify Dock-style.
 
 ## Done
+
+- [x] **Cheaper feed refresh** — Each feed's ETag and Last-Modified are stored and sent back, and a 304 ends that feed's refresh (one tiny write). A changed feed is parsed on a worker thread and stops after 20 known episodes in a row, but only for a newest-first, fully dated feed; undated, oldest-first or oddly ordered feeds are read whole. New and changed episodes go in with one SQLite transaction per feed; unchanged rows are not rewritten. Feeds with no new episode for 14+ days are skipped for 6 h to 3 days after a check (refresh all and launch only). Refreshing one show, adding a feed, importing and Ctrl+click always fetch and parse everything, and so does the first refresh after a week.
 
 - [x] **Explore behaves like the Shelf** — Find new podcasts uses the Shelf's cover lift with soft shadow, the same keyboard ring (gliding with Navigation animation on, static with it off) and hover = key focus with no shade on the art. Its gallery follows the Shelf's column setting, so covers have the Shelf's size, and Ctrl+wheel, Ctrl+= / Ctrl+- and Ctrl+0 size it too. The ring, shadow and sizing code is shared (`CoverRing`, `CoverShadow`). Not carried over: the eye (nothing to filter), the list view (the Gallery/List switch lives in the Shelf's ⋯ menu and Explore has none), the caught-up veil.
 - [x] **Explore cover cache, done right (#17)** — Chart covers keep their URL when the feed lookup fills in the rest, so a second visit to a region hits the disk cache. The last six regions' decoded covers are kept within the RAM budget, covers seen this session appear at once, and only new ones fade in.

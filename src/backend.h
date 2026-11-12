@@ -1,5 +1,6 @@
 #pragma once
 
+#include "feedrefresh.h"
 #include "library.h"
 #include "models.h"
 #include "updates.h"
@@ -274,6 +275,9 @@ private:
         // Megaphone (and others) sometimes send a gzip body Qt cannot inflate.
         // One retry asks for identity so a full shelf refresh can still succeed.
         bool plainEncoding = false;
+        // Single-show refresh, add feed, import, forced artwork: always fetch and parse the
+        // whole feed. Automatic and refresh-all runs may skip or ask conditionally.
+        bool manual = false;
     };
 
     struct EpisodeCoverJob {
@@ -295,7 +299,8 @@ private:
     EpisodeModel *episodeModel(qint64 showId, bool create);
     void syncEpisodeModel(qint64 showId);
     void discardEpisodeModel(qint64 showId);
-    void enqueue(const QStringList &urls);
+    void enqueue(const QStringList &urls, bool manual = false);
+    void feedRefreshed(const QString &url, const FeedRefreshResult &r);
     void fetchNext();
     void downloadCover(qint64 showId, const QString &imageUrl);
     void downloadEpisodeCover(qint64 episodeId, const QString &imageUrl);
@@ -351,7 +356,8 @@ private:
     QHash<qint64, EpisodeModel *> m_episodeModels;
     AppNetworkAccessManager m_network; // HTTP/1.1 only, see netaccess.h
     QList<Job> m_queue;
-    QPointer<QNetworkReply> m_active;
+    FeedRefresher *m_refresher = nullptr;
+    Job m_current; // the feed being refreshed
     bool m_shelfRefresh = false;
     int m_fetchDone = 0; // feeds finished in the current run of the fetch queue
     QSet<QString> m_shelfRefreshUrls; // feeds belonging to the running shelf refresh

@@ -226,20 +226,30 @@ bool Library::migrate()
         QStringLiteral("image_url TEXT NOT NULL DEFAULT ''"),
         QStringLiteral("image_path TEXT NOT NULL DEFAULT ''"),
     };
-    QStringList existing;
-    if (!q.exec(QStringLiteral("PRAGMA table_info(episodes)"))) {
-        m_error = q.lastError().text();
-        return false;
-    }
-    while (q.next())
-        existing.append(q.value(1).toString());
-    for (const auto &column : episodeColumns) {
-        const QString name = column.section(QLatin1Char(' '), 0, 0);
-        if (existing.contains(name))
-            continue;
-        if (!q.exec(QStringLiteral("ALTER TABLE episodes ADD COLUMN %1").arg(column))) {
+    // Refresh bookkeeping per feed (conditional GET validators, backoff clocks).
+    const QStringList showColumns = {
+        QStringLiteral("etag TEXT NOT NULL DEFAULT ''"),
+        QStringLiteral("last_modified TEXT NOT NULL DEFAULT ''"),
+        QStringLiteral("checked_at INTEGER NOT NULL DEFAULT 0"),
+        QStringLiteral("full_at INTEGER NOT NULL DEFAULT 0"),
+    };
+    for (const auto &[table, columns] : {std::pair{QStringLiteral("episodes"), episodeColumns},
+                                         std::pair{QStringLiteral("shows"), showColumns}}) {
+        QStringList existing;
+        if (!q.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table))) {
             m_error = q.lastError().text();
             return false;
+        }
+        while (q.next())
+            existing.append(q.value(1).toString());
+        for (const auto &column : columns) {
+            const QString name = column.section(QLatin1Char(' '), 0, 0);
+            if (existing.contains(name))
+                continue;
+            if (!q.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2").arg(table, column))) {
+                m_error = q.lastError().text();
+                return false;
+            }
         }
     }
     return true;
@@ -369,14 +379,62 @@ qint64 Library::episodeByAudioUrl(const QString &audioUrl) const
     return q.next() ? q.value(0).toLongLong() : 0;
 }
 
-qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
+FeedState Library::feedState(const QString &feedUrl) const
+{
+    FeedState st;
+    QSqlQuery q(dbOf(m_connection));
+    q.prepare(QStringLiteral(
+        "SELECT id, title, image_url, etag, last_modified, checked_at, full_at,"
+        " COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = shows.id), 0)"
+        " FROM shows WHERE feed_url = ?"));
+    q.addBindValue(feedUrl);
+    if (q.exec() && q.next()) {
+        st.showId = q.value(0).toLongLong();
+        st.title = q.value(1).toString();
+        st.imageUrl = q.value(2).toString();
+        st.etag = q.value(3).toString();
+        st.lastModified = q.value(4).toString();
+        st.checkedAt = q.value(5).toLongLong();
+        st.fullAt = q.value(6).toLongLong();
+        st.newest = q.value(7).toLongLong();
+    }
+    return st;
+}
+
+QSet<QString> Library::knownGuids(qint64 showId) const
+{
+    QSet<QString> guids;
+    QSqlQuery q(dbOf(m_connection));
+    q.prepare(QStringLiteral("SELECT guid FROM episodes WHERE show_id = ?"));
+    q.addBindValue(showId);
+    if (q.exec())
+        while (q.next())
+            guids.insert(q.value(0).toString());
+    return guids;
+}
+
+void Library::noteFeedChecked(qint64 showId, qint64 now)
+{
+    QSqlQuery q(dbOf(m_connection));
+    // Not rewritten when the stamp is under 10 minutes old: a repeated refresh then writes nothing,
+    // and the backoff windows (6 h and more) don't care about ten minutes.
+    q.prepare(QStringLiteral("UPDATE shows SET checked_at = ? WHERE id = ? AND checked_at < ?"));
+    q.addBindValue(now);
+    q.addBindValue(showId);
+    q.addBindValue(now - 600);
+    q.exec();
+}
+
+qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, const FeedFetchMeta *meta)
 {
     auto db = dbOf(m_connection);
     if (!db.transaction())
         return 0;
 
+    // A parse that stopped early may not have seen the channel's author: keep the stored one.
+    QString author = parsed.author;
     QSqlQuery find(db);
-    find.prepare(QStringLiteral("SELECT id, image_url, image_path FROM shows WHERE feed_url = ?"));
+    find.prepare(QStringLiteral("SELECT id, image_url, image_path, author FROM shows WHERE feed_url = ?"));
     find.addBindValue(feedUrl);
     if (!find.exec()) {
         db.rollback();
@@ -390,13 +448,20 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
         showId = find.value(0).toLongLong();
         imageUrl = find.value(1).toString();
         imagePath = find.value(2).toString();
+        if (meta && meta->partial && author.isEmpty())
+            author = find.value(3).toString();
         QSqlQuery update(db);
+        // Only touches the row when something differs (no write for an unchanged show).
         update.prepare(QStringLiteral(
-            "UPDATE shows SET title = ?, author = ?, image_url = ? WHERE id = ?"));
+            "UPDATE shows SET title = ?, author = ?, image_url = ? WHERE id = ?"
+            " AND (title IS NOT ? OR author IS NOT ? OR image_url IS NOT ?)"));
         update.addBindValue(parsed.title);
-        update.addBindValue(parsed.author);
+        update.addBindValue(author);
         update.addBindValue(parsed.imageUrl);
         update.addBindValue(showId);
+        update.addBindValue(parsed.title);
+        update.addBindValue(author);
+        update.addBindValue(parsed.imageUrl);
         if (!update.exec()) {
             db.rollback();
             return 0;
@@ -420,7 +485,7 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
             "INSERT INTO shows (feed_url, title, author, image_url) VALUES (?, ?, ?, ?)"));
         insert.addBindValue(feedUrl);
         insert.addBindValue(parsed.title);
-        insert.addBindValue(parsed.author);
+        insert.addBindValue(author);
         insert.addBindValue(parsed.imageUrl);
         if (!insert.exec()) {
             db.rollback();
@@ -432,23 +497,20 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
     struct PreviousEpisodeImage {
         QString imageUrl;
         QString imagePath;
+        QString title;
+        QString description;
+        QString audioUrl;
+        qint64 published = 0;
+        int durationSecs = 0;
     };
-    QHash<QString, PreviousEpisodeImage> previousImages;
-    {
-        QSqlQuery existing(db);
-        existing.prepare(QStringLiteral(
-            "SELECT guid, image_url, image_path FROM episodes WHERE show_id = ?"));
-        existing.addBindValue(showId);
-        if (!existing.exec()) {
-            m_error = existing.lastError().text();
-            db.rollback();
-            return 0;
-        }
-        while (existing.next()) {
-            previousImages.insert(existing.value(0).toString(),
-                                  PreviousEpisodeImage{existing.value(1).toString(),
-                                                       existing.value(2).toString()});
-        }
+    // Looked up per parsed episode, so a refresh that parsed 20 items reads 20 rows, not the show's whole history.
+    QSqlQuery lookup(db);
+    if (!lookup.prepare(QStringLiteral(
+            "SELECT image_url, image_path, title, description, audio_url, published_at, duration_secs"
+            " FROM episodes WHERE show_id = ? AND guid = ?"))) {
+        m_error = lookup.lastError().text();
+        db.rollback();
+        return 0;
     }
 
     QSqlQuery upsert(db);
@@ -471,11 +533,26 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
         return 0;
     }
     for (const auto &ep : parsed.episodes) {
-        const auto previous = previousImages.constFind(ep.guid);
-        if (previous != previousImages.cend() && previous->imageUrl != ep.imageUrl
-            && !previous->imagePath.isEmpty()) {
-            QFile::remove(previous->imagePath);
+        lookup.addBindValue(showId);
+        lookup.addBindValue(ep.guid);
+        PreviousEpisodeImage previous;
+        bool known = false;
+        if (lookup.exec() && lookup.next()) {
+            known = true;
+            previous = PreviousEpisodeImage{lookup.value(0).toString(), lookup.value(1).toString(),
+                                            lookup.value(2).toString(), lookup.value(3).toString(),
+                                            lookup.value(4).toString(), lookup.value(5).toLongLong(),
+                                            lookup.value(6).toInt()};
         }
+        lookup.finish();
+        // Same as the stored row: nothing to write (the conflict update would be a no-op).
+        if (known && previous.title == ep.title && previous.description == ep.description
+            && previous.audioUrl == ep.audioUrl && previous.imageUrl == ep.imageUrl
+            && previous.published == ep.published
+            && (ep.durationSecs <= 0 || previous.durationSecs == ep.durationSecs))
+            continue;
+        if (known && previous.imageUrl != ep.imageUrl && !previous.imagePath.isEmpty())
+            QFile::remove(previous.imagePath);
         upsert.addBindValue(showId);
         upsert.addBindValue(ep.guid);
         upsert.addBindValue(ep.title);
@@ -498,6 +575,25 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed)
         keep.addBindValue(imagePath);
         keep.addBindValue(showId);
         keep.exec();
+    }
+
+    if (meta) {
+        QSqlQuery note(db);
+        note.prepare(QStringLiteral(
+            "UPDATE shows SET etag = ?, last_modified = ?, checked_at = ?,"
+            " full_at = CASE WHEN ? THEN ? ELSE full_at END WHERE id = ?"));
+        // Empty, never NULL: the columns are NOT NULL.
+        note.addBindValue(meta->etag.isNull() ? QStringLiteral("") : meta->etag);
+        note.addBindValue(meta->lastModified.isNull() ? QStringLiteral("") : meta->lastModified);
+        note.addBindValue(meta->now);
+        note.addBindValue(meta->full ? 1 : 0);
+        note.addBindValue(meta->now);
+        note.addBindValue(showId);
+        if (!note.exec()) {
+            m_error = note.lastError().text();
+            db.rollback();
+            return 0;
+        }
     }
 
     if (!db.commit())
