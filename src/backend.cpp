@@ -201,6 +201,27 @@ void Backend::syncEpisodeModel(qint64 showId, bool fetchCovers)
         ensureEpisodeCovers(rows);
 }
 
+QString Backend::coverForShow(qint64 showId) const
+{
+    if (showId == 0)
+        return {};
+    return localCoverSource(m_library.showImage(showId));
+}
+
+void Backend::setShowCoverPath(qint64 showId, const QString &path)
+{
+    if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST") != 1)
+        return;
+    if (showId == 0 || path.isEmpty() || !QFileInfo::exists(path) || !m_library.hasShow(showId))
+        return;
+    m_library.setShowImage(showId, m_library.showImageUrl(showId), path);
+    if (m_openShowId == showId) {
+        m_openShowCover = showCoverUrl(m_library, showId);
+        emit openShowChanged();
+    }
+    reloadShows();
+}
+
 void Backend::warmEpisodes(qint64 showId)
 {
     if (showId == 0 || !m_library.hasShow(showId))
@@ -290,6 +311,7 @@ void Backend::reloadShows()
         emit openShowChanged();
         refreshOpenEpisode();
     }
+    ++m_coverRevision;
     emit libraryChanged();
 }
 

@@ -8,6 +8,14 @@ Item {
     // Which show this page is holding. Main keeps one page per visited show.
     property double showId: 0
     property var episodeModel: null
+    // This show's cover through the memory-cached provider, not backend.openShowCover
+    // (a file URL that is empty on the shelf and is cleared on Back).
+    // coverRevision is notified from reloadShows, so a late download or a
+    // changed path re-evaluates (coverForShow is a Q_INVOKABLE with no notify).
+    readonly property string showArt: {
+        var _ = backend.coverRevision
+        return backend.coverForShow(showId)
+    }
     // Same five list-cover steps as ShelfView. 0 matches Shelf's original 44px.
     // New libraries start at index 2 (Library::listCoverSize, shared with Shelf list and Queue).
     readonly property var listCoverSteps: [44, 64, 88, 120, 160]
@@ -172,6 +180,44 @@ Item {
     readonly property Item backItem: back
     function rowItemAt(i) { return list.itemAtIndex(i) }
     readonly property bool episodeMenuOpen: episodeMenu.opened
+    // Probe a hidden pre-warm: realized rows, Image sources and status.
+    function coverProbe() {
+        var realized = 0
+        var ready = 0
+        var nonempty = 0
+        var firstArt = ""
+        var firstSrc = ""
+        var firstStatus = -1
+        var n = Math.min(list.count, 24)
+        for (var i = 0; i < n; ++i) {
+            var row = list.itemAtIndex(i)
+            if (!row)
+                continue
+            realized++
+            if (row.coverArt && row.coverArt !== "")
+                nonempty++
+            if (row.coverStatus === Image.Ready)
+                ready++
+            if (firstStatus < 0) {
+                firstArt = row.coverArt || ""
+                firstSrc = row.coverSource || ""
+                firstStatus = row.coverStatus
+            }
+        }
+        return "realized=" + realized
+            + " nonempty=" + nonempty
+            + " ready=" + ready
+            + " firstArt=" + firstArt
+            + " firstSrc=" + firstSrc
+            + " firstStatus=" + firstStatus
+            + " visible=" + visible
+            + " w=" + Math.round(width)
+            + " h=" + Math.round(height)
+            + " count=" + list.count
+            + " contentH=" + Math.round(list.contentHeight)
+            + " openCover=" + (backend.openShowCover || "")
+            + " gfx=" + GraphicsInfo.api
+    }
 
     function openMarkMenu(episodeId, played, anchor) {
         episodeMenu.openFor(episodeId, anchor)
@@ -296,6 +342,10 @@ Item {
             readonly property bool textFocus: focusedRow && page.kbdCol === 1
             // Cover lifts only when the cover has focus (always; the setting only affects ring glide).
             readonly property bool lifted: !win.keyRepeating && coverFocus
+            // UI-test / timing probes: art actually bound on a realized row.
+            readonly property string coverArt: playWell.art
+            readonly property string coverSource: wellImage.source.toString()
+            readonly property int coverStatus: wellImage.status
             HoverHandler {
                 id: rowHover
                 onHoveredChanged: {
@@ -357,7 +407,7 @@ Item {
                 // Episode art when the feed has it; otherwise the show cover.
                 readonly property string art: model.cover && model.cover !== ""
                                              ? model.cover
-                                             : backend.openShowCover
+                                             : page.showArt
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
