@@ -10,6 +10,8 @@
 #include <QVariant>
 #include <functional>
 
+class QDBusServiceWatcher;
+
 class Theme : public QObject {
     Q_OBJECT
     Q_PROPERTY(QColor background READ background NOTIFY changed)
@@ -114,6 +116,7 @@ private:
                               const std::function<void(const QVariant &)> &handler);
     void requestTextScale();
     void applyTextScale(qreal scale);
+    void watchPortal();
 
     QColor m_background = QColor("#101010");
     QColor m_foreground = QColor("#eeeeee");
@@ -142,4 +145,5 @@ private:
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
     QProcess m_roundingProc;
     QTimer m_roundingPoll;
+    QDBusServiceWatcher *m_portalWatcher = nullptr;
 };

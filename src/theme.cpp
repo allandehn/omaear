@@ -1,10 +1,12 @@
 #include "theme.h"
 
 #include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
+#include <QDBusServiceWatcher>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -18,6 +20,16 @@
 #include <cmath>
 
 namespace {
+const QString kPortalDesktop = QStringLiteral("org.freedesktop.portal.Desktop");
+const QString kPortalPath = QStringLiteral("/org/freedesktop/portal/desktop");
+const QString kPortalSettings = QStringLiteral("org.freedesktop.portal.Settings");
+
+bool portalIsRunning()
+{
+    auto *bus = QDBusConnection::sessionBus().interface();
+    return bus && bus->isServiceRegistered(kPortalDesktop);
+}
+
 qreal toLinear(qreal v) { return v <= 0.04045 ? v / 12.92 : qPow((v + 0.055) / 1.055, 2.4); }
 qreal toSrgb(qreal v) { return v <= 0.0031308 ? v * 12.92 : 1.055 * qPow(v, 1.0 / 2.4) - 0.055; }
 
@@ -186,13 +198,17 @@ Theme::Theme(QObject *parent)
         watchColors();
     });
 
+    // Subscribe by path only: AddMatch does not start a service. Watch for the
+    // portal appearing later (a real session may start it after we do) so the
+    // first Read still happens, and never D-Bus-activate it ourselves.
     QDBusConnection::sessionBus().connect(
         QString(),
-        QStringLiteral("/org/freedesktop/portal/desktop"),
-        QStringLiteral("org.freedesktop.portal.Settings"),
+        kPortalPath,
+        kPortalSettings,
         QStringLiteral("SettingChanged"),
         this,
         SLOT(handlePortalSettingChanged(QString,QString,QDBusVariant)));
+    watchPortal();
     requestTextScale();
 
     // Corner radius R follows Hyprland's decoration:rounding (see the shared
@@ -476,17 +492,26 @@ void Theme::watchColors()
         m_watcher.addPath(userShell);
 }
 
+void Theme::watchPortal()
+{
+    if (m_portalWatcher)
+        return;
+    m_portalWatcher = new QDBusServiceWatcher(
+        kPortalDesktop, QDBusConnection::sessionBus(),
+        QDBusServiceWatcher::WatchForRegistration, this);
+    connect(m_portalWatcher, &QDBusServiceWatcher::serviceRegistered,
+            this, [this]() { requestTextScale(); });
+}
+
 void Theme::requestPortalSetting(const QString &nameSpace, const QString &key,
                                  const std::function<void(const QVariant &)> &handler)
 {
     auto bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected())
+    if (!bus.isConnected() || !portalIsRunning())
         return;
     auto request = QDBusMessage::createMethodCall(
-        QStringLiteral("org.freedesktop.portal.Desktop"),
-        QStringLiteral("/org/freedesktop/portal/desktop"),
-        QStringLiteral("org.freedesktop.portal.Settings"),
-        QStringLiteral("Read"));
+        kPortalDesktop, kPortalPath, kPortalSettings, QStringLiteral("Read"));
+    request.setAutoStartService(false);
     request << nameSpace << key;
     auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(request), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
