@@ -12,6 +12,8 @@ Planned work and ideas for OmaEar.
 - [ ] **Mark all podcasts played** — Mark every episode in every podcast as played, from the Shelf empty-space menu, a podcast's right-click menu and the top-right ⋯ menu.
 - [ ] **Explore behaves like the Shelf** — Explore adopts the Shelf's lifts, animations, shades and keys, and responds to the same toggles and settings.
 - [ ] **Explore cover cache, done right** — Switching regions (e.g. Poland, Switzerland, Poland…) is slow the first time, still not fast the second, and only good the third. Find why, make the second visit as fast as the third (or faster), consider drawing the page only once its covers are ready, and decide how many regions to keep cached (5–6 regions should work, even if rare), and keep each cover's identity stable across searches and regions so covers stay put instead of reloading. Consult Gonzales. Very important; next after the 4.5 look.
+- [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
+- [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
 - [ ] **SQLite tuning** — Tune the library database (pragmas, indexes, batched writes) for faster loads and fewer disk writes. Do it together with the cheaper feed refresh, which shares the batched-insert work; Explore covers don't use SQLite (they use Qt's network disk cache), so it won't help that item.
 
