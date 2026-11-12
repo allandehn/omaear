@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QList>
 #include <QPair>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QString>
 
@@ -64,6 +65,27 @@ struct ParsedShow {
     QList<ParsedEpisode> episodes;
 };
 
+// What a refresh needs to know about a stored feed (all zero/empty if unknown).
+struct FeedState {
+    qint64 showId = 0;
+    QString title;
+    QString imageUrl;
+    QString etag;          // validators from the last full answer
+    QString lastModified;
+    qint64 checkedAt = 0;  // unix secs of the last successful check (200 or 304)
+    qint64 fullAt = 0;     // unix secs of the last unconditional, whole-feed parse
+    qint64 newest = 0;     // newest stored episode date (unix secs)
+};
+
+// How one fetched feed is recorded together with its episodes.
+struct FeedFetchMeta {
+    QString etag;
+    QString lastModified;
+    qint64 now = 0;
+    bool full = false;     // unconditional fetch, whole feed parsed: restarts the full-parse clock
+    bool partial = false;  // parse stopped early: show-level fields it did not see stay as they are
+};
+
 class Library {
 public:
     static QString defaultPath();
@@ -95,7 +117,11 @@ public:
     QString showImageUrl(qint64 showId) const;
     qint64 episodeByAudioUrl(const QString &audioUrl) const;
 
-    qint64 upsertShow(const QString &feedUrl, const ParsedShow &parsed);
+    // One transaction: show row, new or changed episodes, and (with meta) the refresh bookkeeping.
+    qint64 upsertShow(const QString &feedUrl, const ParsedShow &parsed, const FeedFetchMeta *meta = nullptr);
+    FeedState feedState(const QString &feedUrl) const;
+    QSet<QString> knownGuids(qint64 showId) const;
+    void noteFeedChecked(qint64 showId, qint64 now); // a 304: just the check time (skipped if under 10 min old)
     void setShowImage(qint64 showId, const QString &imageUrl, const QString &imagePath);
     void setEpisodeImage(qint64 episodeId, const QString &imageUrl, const QString &imagePath);
     // Delete the cached file and clear image_path. The remote image URL stays,
