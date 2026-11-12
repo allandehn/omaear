@@ -106,8 +106,57 @@ int runSelfTest(int argc, char **argv)
     check(parseDuration(QStringLiteral("90")) == 90, "duration seconds");
     check(parseDuration(QStringLiteral("1:02:03")) == 3723, "duration hms");
     check(parseDuration(QStringLiteral("12:34")) == 754, "duration ms");
-    check(parsePublished(QStringLiteral("Wed, 10 Jun 2026 12:00:00 +0000")) > 0, "rfc2822");
-    check(parsePublished(QStringLiteral("2026-01-02T00:00:00Z")) > 0, "iso");
+    check(parsePublished(QStringLiteral("Wed, 10 Jun 2026 12:00:00 +0000")) == 1781092800, "rfc2822");
+    check(parsePublished(QStringLiteral("2026-01-02T00:00:00Z")) == 1767312000, "iso");
+    check(parsePublished(QStringLiteral("Thu, 05 Nov 2026 23:30:00 GMT")) == 1793921400, "zone GMT");
+    check(parsePublished(QStringLiteral("Thu, 05 Nov 2026 23:30:00 UT")) == 1793921400, "zone UT");
+    check(parsePublished(QStringLiteral("Thu, 05 Nov 2026 23:30:00 Z")) == 1793921400, "zone Z");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 PST")) == 1785520943, "zone PST");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 PDT")) == 1785517343, "zone PDT");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 EST")) == 1785510143, "zone EST");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 EDT")) == 1785506543, "zone EDT");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 CST")) == 1785513743, "zone CST");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 CDT")) == 1785510143, "zone CDT");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 MST")) == 1785517343, "zone MST");
+    check(parsePublished(QStringLiteral("Fri, 31 Jul 2026 10:02:23 MDT")) == 1785513743, "zone MDT");
+    check(parsePublished(QStringLiteral("Wed, 10 Jun 2026 12:00:00 A")) == 1781092800, "military A as UTC");
+    check(parsePublished(QStringLiteral("Wed, 10 Jun 2026 12:00:00 Foo")) == 1781092800, "unknown zone as UTC");
+    check(parsePublished(QStringLiteral("Sun, 6 Mar 2022 19:08:44 PST")) == 1646622524, "PST single-digit day");
+    check(parsePublished(QStringLiteral("Mon, 9 Nov 2026 10:45:00 +0000")) == 1794221100, "single-digit day");
+    check(parsePublished(QStringLiteral("10 Jun 2026 12:00:00 +0000")) == 1781092800, "missing weekday");
+    check(parsePublished(QStringLiteral("Wed, 10 Jun 2026 12:00 +0000")) == 1781092800, "missing seconds");
+    check(parsePublished(QStringLiteral("10 Jun 2026 12:00 GMT")) == 1781092800, "GMT missing weekday and seconds");
+    // 26 Aug 2024 was a Monday; Qt rejects the wrong weekday unless we strip it.
+    check(parsePublished(QStringLiteral("Sun, 26 Aug 2024 08:30:00 -0700")) == 1724686200, "wrong weekday");
+    check(parsePublished(QStringLiteral("not a date")) == 0, "garbage date");
+
+    {
+        // A normal refresh overwrites published_at, so a stored 0 is repaired once the feed parses.
+        QTemporaryDir datedDir;
+        Library datedLib(datedDir.filePath(QStringLiteral("dates.db")));
+        check(datedLib.isOpen(), "date library open");
+        if (datedLib.isOpen()) {
+            const qint64 when = parsePublished(QStringLiteral("Thu, 05 Nov 2026 23:30:00 GMT"));
+            ParsedShow show;
+            show.title = QStringLiteral("Dated");
+            show.author = QStringLiteral("Ada");
+            show.imageUrl = QStringLiteral("https://example.com/cover.jpg");
+            ParsedEpisode ep;
+            ep.guid = QStringLiteral("gmt-1");
+            ep.title = QStringLiteral("One");
+            ep.audioUrl = QStringLiteral("https://example.com/gmt.mp3");
+            ep.published = when;
+            show.episodes.append(ep);
+            const qint64 showId = datedLib.upsertShow(QStringLiteral("https://example.com/gmt.xml"), show);
+            check(showId != 0 && datedLib.episodes(showId).at(0).published == when, "store parsed GMT date");
+            show.episodes[0].published = 0;
+            datedLib.upsertShow(QStringLiteral("https://example.com/gmt.xml"), show);
+            check(datedLib.episodes(showId).at(0).published == 0, "refresh can store a 0 date");
+            show.episodes[0].published = when;
+            datedLib.upsertShow(QStringLiteral("https://example.com/gmt.xml"), show);
+            check(datedLib.episodes(showId).at(0).published == when, "refresh rewrites a stored 0 date");
+        }
+    }
 
     const QByteArray rss = R"(<?xml version="1.0"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
