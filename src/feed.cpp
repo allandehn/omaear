@@ -84,6 +84,50 @@ void considerImage(ParsedEpisode &episode, const QString &url, const QUrl &base)
         return;
     episode.imageUrl = resolveUrl(url, base);
 }
+
+// Qt's RFC 2822 parser only accepts numeric offsets. Map RFC 822 named zones;
+// unknown names and military letters (A-I, K-Z) become UTC.
+QString withNumericZone(const QString &text)
+{
+    int i = text.size();
+    while (i > 0 && text.at(i - 1).isLetter())
+        --i;
+    if (i == text.size() || i == 0 || !text.at(i - 1).isSpace())
+        return text;
+    const QString name = text.mid(i).toUpper();
+    QLatin1String offset("+0000");
+    if (name == QLatin1String("EST"))
+        offset = QLatin1String("-0500");
+    else if (name == QLatin1String("EDT"))
+        offset = QLatin1String("-0400");
+    else if (name == QLatin1String("CST"))
+        offset = QLatin1String("-0600");
+    else if (name == QLatin1String("CDT"))
+        offset = QLatin1String("-0500");
+    else if (name == QLatin1String("MST"))
+        offset = QLatin1String("-0700");
+    else if (name == QLatin1String("MDT"))
+        offset = QLatin1String("-0600");
+    else if (name == QLatin1String("PST"))
+        offset = QLatin1String("-0800");
+    else if (name == QLatin1String("PDT"))
+        offset = QLatin1String("-0700");
+    return text.left(i) + offset;
+}
+
+// Qt also rejects a weekday that does not match the date (seen in real feeds).
+QString stripRfcWeekday(const QString &text)
+{
+    if (text.size() < 5)
+        return text;
+    if (!(text.at(0).isLetter() && text.at(1).isLetter() && text.at(2).isLetter()
+          && text.at(3) == QLatin1Char(',')))
+        return text;
+    int i = 4;
+    while (i < text.size() && text.at(i).isSpace())
+        ++i;
+    return text.mid(i);
+}
 }
 
 qint64 parsePublished(const QString &text)
@@ -92,6 +136,12 @@ qint64 parsePublished(const QString &text)
     if (trimmed.isEmpty())
         return 0;
     QDateTime dt = QDateTime::fromString(trimmed, Qt::RFC2822Date);
+    if (!dt.isValid()) {
+        const QString numeric = withNumericZone(trimmed);
+        dt = QDateTime::fromString(numeric, Qt::RFC2822Date);
+        if (!dt.isValid())
+            dt = QDateTime::fromString(stripRfcWeekday(numeric), Qt::RFC2822Date);
+    }
     if (!dt.isValid())
         dt = QDateTime::fromString(trimmed, Qt::ISODate);
     if (!dt.isValid())
