@@ -202,7 +202,9 @@ static bool uiTestPathIsInside(const QString &path, const QString &root)
 static bool uiTestHomeIsThrowaway(QString *why)
 {
     const QString home = QDir::homePath();
-    const QString canon = QFileInfo(home).canonicalFilePath();
+    // Resolves even when HOME does not exist yet, so the root checks below
+    // can refuse it before any file is looked at.
+    const QString canon = uiTestResolvedPath(home);
     QString realHome;
     if (const passwd *pw = getpwuid(getuid())) {
         const QString real = QFileInfo(QString::fromLocal8Bit(pw->pw_dir)).canonicalFilePath();
@@ -211,10 +213,6 @@ static bool uiTestHomeIsThrowaway(QString *why)
             *why = QStringLiteral("HOME is your real home directory (%1)").arg(home);
             return false;
         }
-    }
-    if (!QFileInfo::exists(home + QStringLiteral("/.omaear-ui-test-home"))) {
-        *why = QStringLiteral("HOME (%1) has no .omaear-ui-test-home marker").arg(home);
-        return false;
     }
     const QString root = QFileInfo(canon).dir().canonicalPath();
     if (root.isEmpty() || root == QLatin1String("/")) {
@@ -235,6 +233,10 @@ static bool uiTestHomeIsThrowaway(QString *why)
             *why = QStringLiteral("the throwaway root (%1) is a shared directory").arg(root);
             return false;
         }
+    }
+    if (!QFileInfo::exists(home + QStringLiteral("/.omaear-ui-test-home"))) {
+        *why = QStringLiteral("HOME (%1) has no .omaear-ui-test-home marker").arg(home);
+        return false;
     }
     if (!QFileInfo::exists(root + QStringLiteral("/.omaear-ui-test-root"))) {
         *why = QStringLiteral("the throwaway root (%1) has no .omaear-ui-test-root marker").arg(root);

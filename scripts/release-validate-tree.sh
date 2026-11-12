@@ -37,7 +37,7 @@ cat >"$DBUS_CONF" <<'CONF'
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
   <type>session</type>
-  <listen>unix:tmpdir=/tmp</listen>
+  <listen>unix:tmpdir=@WORK@/bus</listen>
   <auth>EXTERNAL</auth>
   <policy context="default">
     <allow send_destination="*" eavesdrop="true"/>
@@ -46,6 +46,9 @@ cat >"$DBUS_CONF" <<'CONF'
   </policy>
 </busconfig>
 CONF
+# The bus socket lives in the work dir, never in the real /tmp.
+mkdir -p "$WORK/bus"
+sed -i "s|@WORK@|$WORK|" "$DBUS_CONF"
 
 # One isolated run of the app. $1 = home dir (made fresh by the caller), the
 # rest is the command inside dbus-run-session.
@@ -158,33 +161,55 @@ if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-gu
 fi
 echo "UI test guard: refuses a root without the marker"
 
-# A HOME directly under the real home (root = the real home) and a HOME directly
-# under /tmp (root = /tmp, even with a root marker) must be refused too. Both
-# use a temporary dir that is removed afterwards; HOME carries its own marker
-# and holds a canary library, so only the root checks can refuse it.
-# The real home is the container's, never the host's.
-guard_root_case() {   # $1 = name, $2 = parent dir for the temp HOME, $3 = message regex
-  local t rc=0 log=$WORK/uitest-guard-$1.log sum0
-  t=$(mktemp -d "$2/omaear-guard.XXXXXX") || die "cannot create a temp dir in $2"
-  mkdir -p "$t/data/omaear"; : >"$t/.omaear-ui-test-home"
-  printf 'canary\n' >"$t/data/omaear/library.db"
-  sum0=$(root_sum "$t")
-  run_app "$WORK/home-$1" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 HOME="$t" XDG_DATA_HOME="$t/data" XDG_CONFIG_HOME="$t/config" XDG_CACHE_HOME="$t/cache" XDG_STATE_HOME="$t/state" XDG_RUNTIME_DIR="$t/run" ./omaear >"$log" 2>&1 || rc=$?
-  local ok=0
-  [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$log" && grep -Eq "$3" "$log" && [[ $(root_sum "$t") == "$sum0" ]] && ok=1
-  rm -rf "$t"
-  [[ $ok -eq 1 ]] || { cat "$log" >&2; die "UI test did not refuse the root in $2 ($1, exit $rc)"; }
-}
+# Roots that must be refused although they carry markers. These cases write only
+# inside $WORK: never to the real home and never to the real /tmp.
+# (1) A shared dir as the root: TMPDIR is on the refused list, so a marked
+# throwaway root that is also $TMPDIR stands in for /tmp.
+H=$(new_home guard-shared)
+printf 'canary\n' >"$H/data/omaear/library.db"
+before=$(root_sum "$H")
+rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 TMPDIR="$H" ./omaear >"$WORK/uitest-guard-shared.log" 2>&1 || rc=$?
+if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-shared.log" && grep -q 'is a shared directory' "$WORK/uitest-guard-shared.log" && [[ $(root_sum "$H") == "$before" ]]; }; then
+  cat "$WORK/uitest-guard-shared.log" >&2
+  die "UI test did not refuse a shared directory as the root (exit $rc)"
+fi
+echo "UI test guard: refuses a shared directory as the root"
+
+# (2) A HOME directly under /tmp (root = /tmp), write-free: HOME is a path in
+# /tmp that does not exist. The root check runs before any marker is looked
+# at, so the app refuses with "shared directory", and the path must still not
+# exist afterwards.
+NOHOME=/tmp/omaear-guard-nonexistent-$$-$RANDOM
+[[ ! -e $NOHOME ]] || die "$NOHOME exists"
+H=$(new_home guard-tmp)
+rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 HOME="$NOHOME" ./omaear >"$WORK/uitest-guard-tmp.log" 2>&1 || rc=$?
+if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-tmp.log" && grep -q 'is a shared directory' "$WORK/uitest-guard-tmp.log" && [[ ! -e $NOHOME ]]; }; then
+  cat "$WORK/uitest-guard-tmp.log" >&2
+  die "UI test did not refuse a HOME directly under /tmp (exit $rc)"
+fi
+echo "UI test guard: refuses a HOME directly under /tmp"
+
+# (3) A HOME directly under the real home (root = the real home). An existing
+# subdirectory of the real home is used as HOME and nothing is written there:
+# the root checks run before the HOME marker check, so the app refuses while
+# the root is the real home, and would refuse anyway because that directory
+# has no marker. XDG dirs and the canary are in $WORK.
 REAL_HOME=$(getent passwd "$(id -u)" | cut -d: -f6)
-[[ -n $REAL_HOME && -d $REAL_HOME ]] || die "cannot find the real home of this user"
-guard_root_case under-real-home "$REAL_HOME" 'real home directory or contains it'
-echo "UI test guard: refuses a HOME directly under the real home"
-[[ ! -e /tmp/.omaear-ui-test-root ]] || die "/tmp/.omaear-ui-test-root already exists"
-: >/tmp/.omaear-ui-test-root
-trap 'rm -f /tmp/.omaear-ui-test-root' EXIT   # also removed if the case dies
-guard_root_case under-tmp /tmp 'shared directory'
-rm -f /tmp/.omaear-ui-test-root; trap - EXIT
-echo "UI test guard: refuses a HOME directly under /tmp, even with a marker"
+RH_SUB=
+[[ -n $REAL_HOME && -d $REAL_HOME ]] && RH_SUB=$(find "$REAL_HOME" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -n1)
+if [[ -z $RH_SUB ]]; then
+  echo "UI test guard: HOME under real home: skipped (no existing directory in the real home to use)"
+else
+  H=$(new_home guard-realhome)
+  printf 'canary\n' >"$H/data/omaear/library.db"
+  before=$(root_sum "$H")
+  rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 HOME="$RH_SUB" ./omaear >"$WORK/uitest-guard-realhome.log" 2>&1 || rc=$?
+  if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-realhome.log" && grep -q 'real home directory or contains it' "$WORK/uitest-guard-realhome.log" && [[ $(root_sum "$H") == "$before" ]]; }; then
+    cat "$WORK/uitest-guard-realhome.log" >&2
+    die "UI test did not refuse a HOME directly under the real home (exit $rc)"
+  fi
+  echo "UI test guard: refuses a HOME directly under the real home"
+fi
 
 # An XDG dir that points outside the throwaway root (HOME's parent) must also
 # be refused, even when HOME has the marker. A separate directory stands in
