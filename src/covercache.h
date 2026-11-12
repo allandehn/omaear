@@ -47,6 +47,13 @@ public:
     Q_INVOKABLE bool ready(const QString &source, int side) const;
     // Cached hasFlatRoundedCorners() for a cover source (image:// or file).
     Q_INVOKABLE bool preRounded(const QString &source) const;
+    // Click-to-shown (OMAEAR_TIMING=1): MouseArea press to the first frame
+    // after the show page is visible. No-ops when timing is off.
+    Q_INVOKABLE bool timingOn() const;
+    Q_INVOKABLE void markShowPress();
+    Q_INVOKABLE void cancelShowPress();
+    Q_INVOKABLE void armShowShown(QObject *window);
+    Q_INVOKABLE double lastClickToShownMs() const;
 };
 
 // Decoded episode/show covers, memory-cached (Qt Quick's own cache keeps only

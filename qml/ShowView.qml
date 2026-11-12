@@ -55,13 +55,24 @@ Item {
     // refresh (play/pause updates unplayed counts), so only reset on a real show change,
     // otherwise Enter on a cover looked like it moved focus to the text column.
     property double kbdColShowId: 0
+    // Counts backend notifies this page actually received (hidden pages stay frozen).
+    property int backendNotifyCount: 0
     Connections {
         target: backend
+        enabled: page.visible
         function onOpenShowChanged() {
+            page.backendNotifyCount++
             if (backend.openShowId !== page.kbdColShowId) {
                 page.kbdColShowId = backend.openShowId
                 page.kbdCol = 1
             }
+        }
+    }
+    // Catch up after a freeze: the signal may have been missed while hidden.
+    onVisibleChanged: {
+        if (visible && backend.openShowId !== page.kbdColShowId) {
+            page.kbdColShowId = backend.openShowId
+            page.kbdCol = 1
         }
     }
     // Left/Right switch columns inside the row, wrapping (two columns: either key
@@ -329,7 +340,7 @@ Item {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 color: theme.accent
-                visible: model.episodeId === backend.playerEpisodeId && backend.playerStatus !== "stopped"
+                visible: page.visible && model.episodeId === backend.playerEpisodeId && backend.playerStatus !== "stopped"
             }
 
             Item {
@@ -380,8 +391,8 @@ Item {
                     id: playButton
                     anchors.fill: parent
                     z: 2
-                    icon.name: model.episodeId === backend.playerEpisodeId
-                               && backend.playerStatus === "playing"
+                    icon.name: (page.visible && model.episodeId === backend.playerEpisodeId
+                               && backend.playerStatus === "playing")
                                ? "media-playback-pause-symbolic"
                                : "media-playback-start-symbolic"
                     // Scale the glyph with the cover so art stays readable under it.

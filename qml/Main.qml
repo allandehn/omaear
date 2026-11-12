@@ -307,7 +307,13 @@ ApplicationWindow {
         return true
     }
 
-    function openShowPage(showId) { navigate(makeEntry("show", showId, 0)) }
+    function openShowPage(showId) {
+        navigate(makeEntry("show", showId, 0))
+        coverCache.armShowShown(win)
+    }
+    function markShowPress() { coverCache.markShowPress() }
+    function cancelShowPress() { coverCache.cancelShowPress() }
+
     function openEpisodePage(episodeId) {
         navigate(makeEntry("episode", backend.episodeShowId(episodeId), episodeId))
     }
@@ -939,20 +945,83 @@ ApplicationWindow {
         }
     }
 
+    // Recently opened ShowViews stay alive so going back is instant. Cap the
+    // hidden ones (LRU) and never evict the visible page or the playing show.
+    property int warmShowCap: 6
+    // Oldest first, most recent last. Kept beside the model so bumping recency
+    // does not destroy and recreate a Repeater delegate.
+    property var warmOrder: []
+    readonly property int warmShowCount: warmShows.count
+
+    function warmHas(showId) {
+        for (var i = 0; i < warmShows.count; ++i) {
+            if (warmShows.get(i).showId === showId)
+                return true
+        }
+        return false
+    }
+
+    function warmPageFor(showId) {
+        for (var i = 0; i < showRepeater.count; ++i) {
+            var page = showRepeater.itemAt(i)
+            if (page && page.showId === showId)
+                return page
+        }
+        return null
+    }
+
+    function oldestEvictableId(order, visibleId, playingId) {
+        for (var i = 0; i < order.length; ++i) {
+            var id = order[i]
+            if (id !== visibleId && id !== playingId)
+                return id
+        }
+        return 0
+    }
+
     function rememberShow(showId) {
         if (!showId)
             return
+        var found = false
         for (var i = 0; i < warmShows.count; ++i) {
-            if (warmShows.get(i).showId === showId)
-                return
+            if (warmShows.get(i).showId === showId) {
+                found = true
+                break
+            }
         }
-        warmShows.append({ showId: showId })
+        if (!found)
+            warmShows.append({ showId: showId })
+        var order = []
+        for (var j = 0; j < warmOrder.length; ++j) {
+            if (warmOrder[j] !== showId)
+                order.push(warmOrder[j])
+        }
+        order.push(showId)
+        warmOrder = order
+        evictWarmShows()
     }
 
     function forgetShow(showId) {
         for (var i = warmShows.count - 1; i >= 0; --i) {
             if (warmShows.get(i).showId === showId)
                 warmShows.remove(i)
+        }
+        var order = []
+        for (var j = 0; j < warmOrder.length; ++j) {
+            if (warmOrder[j] !== showId)
+                order.push(warmOrder[j])
+        }
+        warmOrder = order
+    }
+
+    function evictWarmShows() {
+        var visibleId = (pageKind === "show") ? currentPage.showId : 0
+        var playingId = backend.playerShowId || 0
+        while (warmShows.count > warmShowCap) {
+            var victim = oldestEvictableId(warmOrder, visibleId, playingId)
+            if (!victim)
+                break
+            forgetShow(victim)
         }
     }
 
