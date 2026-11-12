@@ -560,12 +560,27 @@ int runSelfTest(int argc, char **argv)
         file.close();
         const QString src = localCoverSource(path);
         check(src.startsWith(QStringLiteral("image://covers/")), "cover url scheme");
+        check(src.contains(QStringLiteral("?v=")), "cover url has cache bust");
         // Same slash-stripping QQuick applies when it asks the image provider.
-        QString id = QUrl(src).toString(QUrl::RemoveScheme | QUrl::RemoveAuthority).mid(1);
+        // ?v=<mtime> is only for Qt's Image cache; the provider strips it.
+        QString id = QUrl(src).toString(QUrl::RemoveScheme | QUrl::RemoveAuthority | QUrl::RemoveQuery).mid(1);
         id = QUrl::fromPercentEncoding(id.toUtf8());
         if (!id.startsWith(QLatin1Char('/')) && QFileInfo::exists(QLatin1Char('/') + id))
             id.prepend(QLatin1Char('/'));
         check(id == path, "cover url round trip");
+        // A rewritten file at the same path must get a new URL so Qt's Image
+        // cache does not keep serving the old pixels.
+        const QDateTime later = QFileInfo(path).lastModified().addSecs(2);
+        check(file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write("xy") > 0, "rewrite cover");
+        file.close();
+        // setFileTime only sticks on a closed-then-reopened file (a write-open
+        // close overwrites the mtime).
+        check(file.open(QIODevice::ReadOnly)
+                  && file.setFileTime(later, QFileDevice::FileModificationTime),
+              "bump cover mtime");
+        file.close();
+        const QString src2 = localCoverSource(path);
+        check(src2 != src && src2.contains(QStringLiteral("?v=")), "rewritten cover changes url");
         check(localCoverSource(QString()).isEmpty(), "missing cover has no url");
     }
 

@@ -60,7 +60,13 @@ QString absolutePath(const QString &id)
         return {};
     // image:// id is the percent-encoded absolute path. QQuick strips one
     // leading slash, so the encoded "%2F" has to survive that and be decoded here.
-    QString path = QUrl::fromPercentEncoding(id.toUtf8());
+    // A "?v=<mtime>" suffix (see localCoverSource) is only for Qt Quick's
+    // Image cache; the provider and memory cache still key on the file path.
+    QString raw = id;
+    const int q = raw.indexOf(QLatin1Char('?'));
+    if (q >= 0)
+        raw = raw.left(q);
+    QString path = QUrl::fromPercentEncoding(raw.toUtf8());
     if (!path.startsWith(QLatin1Char('/')) && QFileInfo::exists(QLatin1Char('/') + path))
         path.prepend(QLatin1Char('/'));
     return path;
@@ -138,8 +144,12 @@ QString localCoverSource(const QString &path)
 {
     if (path.isEmpty() || !QFileInfo::exists(path))
         return {};
+    // mtime in the URL so a rewritten file at the same path is not served
+    // from Qt Quick's Image cache. The provider strips ?v= (absolutePath).
+    const qint64 stamp = QFileInfo(path).lastModified().toMSecsSinceEpoch();
     return QStringLiteral("image://covers/")
-        + QString::fromLatin1(QUrl::toPercentEncoding(path));
+        + QString::fromLatin1(QUrl::toPercentEncoding(path))
+        + QStringLiteral("?v=") + QString::number(stamp);
 }
 
 namespace {

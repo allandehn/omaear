@@ -687,7 +687,8 @@ void startUiTest(QQmlApplicationEngine &engine)
     if (instantMode == QLatin1String("1") || instantMode == QLatin1String("full")
         || instantMode == QLatin1String("cold") || instantMode == QLatin1String("ticks1")
         || instantMode == QLatin1String("ticks15") || instantMode == QLatin1String("prewarm")
-        || instantMode == QLatin1String("press") || instantMode == QLatin1String("sweep")) {
+        || instantMode == QLatin1String("press") || instantMode == QLatin1String("sweep")
+        || instantMode == QLatin1String("covers")) {
         auto readRollup = [](const char *key) -> long {
             std::ifstream in("/proc/self/smaps_rollup");
             std::string line;
@@ -804,6 +805,78 @@ void startUiTest(QQmlApplicationEngine &engine)
                             t->eval("win.warmSpecCap").toInt());
                     t->expect(spec <= 2 && warm <= 6, "instant: sweep keeps the spec cap and LRU cap");
                     t->expect(true, "instant: sweep finished");
+                    return;
+                }
+                if (instantMode == QLatin1String("covers")) {
+                    auto probe = [t](int index, const char *tag) {
+                        const QString js = QStringLiteral(
+                            "(function(){ var p = win.warmPageFor(backend.shows.showIdAt(%1));"
+                            " if (!p) return 'no-page'; return p.coverProbe() })()")
+                                             .arg(index);
+                        const QString got = t->eval(js).toString();
+                        fprintf(stderr, "instant: cover-probe %s index=%d %s\n",
+                                tag, index, qPrintable(got));
+                        return got;
+                    };
+                    // One real hover rest, to confirm the timer fires the same as prewarmShow().
+                    goShelf();
+                    t->eval("win.forgetAllWarm()");
+                    t->hover(t->centerOf("shelfView.coverItemAt(0)"));
+                    {
+                        QEventLoop wait;
+                        QTimer::singleShot(t->eval("win.warmPrewarmMs").toInt() + 50, &wait, &QEventLoop::quit);
+                        wait.exec();
+                    }
+                    QCoreApplication::processEvents();
+                    fprintf(stderr, "instant: hover-timer warmed=%s spec=%d\n",
+                            t->eval("win.warmHas(backend.shows.showIdAt(0))").toBool() ? "yes" : "no",
+                            t->eval("win.warmSpecCount").toInt());
+                    probe(0, "after-hover");
+                    t->eval("win.forgetAllWarm()");
+                    goShelf();
+
+                    QList<double> cold, prewarmed, reopened;
+                    for (int s = 0; s < 10; ++s) {
+                        goShelf();
+                        t->eval("win.forgetAllWarm()");
+                        QCoreApplication::processEvents();
+                        cold << clickShown(s, "cold", s);
+                        goShelf();
+                    }
+                    summarize("cold", cold);
+
+                    for (int s = 10; s < 20; ++s) {
+                        goShelf();
+                        t->eval("win.forgetAllWarm()");
+                        t->eval(QStringLiteral("win.prewarmShow(backend.shows.showIdAt(%1))").arg(s));
+                        QEventLoop wait;
+                        QTimer::singleShot(t->eval("win.warmPrewarmMs").toInt(), &wait, &QEventLoop::quit);
+                        wait.exec();
+                        QCoreApplication::processEvents();
+                        if (s == 10)
+                            probe(s, "after-prewarm");
+                        prewarmed << clickShown(s, "prewarmed", s);
+                        goShelf();
+                    }
+                    summarize("prewarmed", prewarmed);
+
+                    for (int s = 20; s < 30; ++s) {
+                        goShelf();
+                        t->eval("win.forgetAllWarm()");
+                        t->eval(QStringLiteral("win.openShowPage(backend.shows.showIdAt(%1))").arg(s));
+                        QEventLoop wait;
+                        QTimer::singleShot(200, &wait, &QEventLoop::quit);
+                        wait.exec();
+                        QCoreApplication::processEvents();
+                        goShelf();
+                        QCoreApplication::processEvents();
+                        if (s == 20)
+                            probe(s, "hidden-after-visit");
+                        reopened << clickShown(s, "reopen", s);
+                        goShelf();
+                    }
+                    summarize("reopen", reopened);
+                    t->expect(true, "instant: covers measurements finished");
                     return;
                 }
                 if (instantMode == QLatin1String("ticks1") || instantMode == QLatin1String("ticks15")) {
@@ -1202,11 +1275,51 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->eval("while (win.pageKind !== 'shelf' && win.canGoBack) win.back(); win.forgetAllWarm()");
         }},
         {200, [t]() {
+            auto coverProbe = [t]() -> QString {
+                return t->eval(
+                    "(function(){ var p = win.warmPageFor(backend.shows.showIdAt(0));"
+                    " if (!p) return 'no-page'; return p.coverProbe() })()").toString();
+            };
+            auto readyWith = [](const QString &probe, const QString &part) {
+                return probe.indexOf(QLatin1String("nonempty=0")) < 0
+                    && probe.indexOf(QLatin1String("ready=0")) < 0
+                    && probe.contains(QLatin1String("image://covers/"))
+                    && (part.isEmpty() || probe.contains(part));
+            };
+            // Launch refresh leaves image_path empty (feed art is
+            // file:///nonexistent/...). Pre-warm first, then plant a cover so
+            // the binding has to pick it up after coverRevision changes.
             t->eval("win.forgetAllWarm(); win.prewarmShow(backend.shows.showIdAt(0))");
+            QCoreApplication::processEvents();
             t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 1").toBool(),
                       "pre-warm creates a hidden page on the shelf");
             t->expect(t->eval("!win.warmPageFor(backend.shows.showIdAt(0)).visible").toBool(),
                       "a pre-warmed page stays hidden");
+            t->expect(!readyWith(coverProbe(), QString()),
+                      "a pre-warmed hidden page with no cover has empty row art");
+            const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                + QStringLiteral("/covers");
+            QDir().mkpath(dir);
+            QImage img(32, 32, QImage::Format_RGB32);
+            img.fill(QColor(200, 40, 40));
+            const QString pathA = dir + QStringLiteral("/uitest-0.png");
+            t->expect(img.save(pathA), "wrote a test show cover");
+            const qint64 id0 = t->eval("backend.shows.showIdAt(0)").toLongLong();
+            t->eval(QStringLiteral("backend.setShowCoverPath(%1, '%2')").arg(id0).arg(pathA));
+            QCoreApplication::processEvents();
+            const QString afterPlant = coverProbe();
+            t->expect(readyWith(afterPlant, QStringLiteral("uitest-0.png")),
+                      "planting a cover updates the hidden pre-warmed page");
+            img.fill(QColor(40, 40, 200));
+            const QString pathB = dir + QStringLiteral("/uitest-0b.png");
+            t->expect(img.save(pathB), "wrote a replacement test show cover");
+            t->eval(QStringLiteral("backend.setShowCoverPath(%1, '%2')").arg(id0).arg(pathB));
+            QCoreApplication::processEvents();
+            const QString afterChange = coverProbe();
+            t->expect(readyWith(afterChange, QStringLiteral("uitest-0b.png"))
+                          && !afterChange.contains(QStringLiteral("uitest-0.png"))
+                          && afterChange != afterPlant,
+                      "a changed cover path updates the hidden page's image source");
             t->eval("win.prewarmShow(2001); win.prewarmShow(2002); win.prewarmShow(2003)");
             t->expect(t->eval("win.warmSpecCount === 2 && !win.warmHas(backend.shows.showIdAt(0)) && !win.warmHas(2001) && win.warmHas(2002) && win.warmHas(2003)").toBool(),
                       "speculative pages are capped at 2, FIFO");
@@ -1239,7 +1352,10 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval("!win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 0").toBool(),
                       "a right-click does not pre-warm");
             t->eval("if (shelfView.coverMenuOpen) shelfView.coverMenuObject.close()");
-            t->eval("win.forgetAllWarm(); win.keyboardMode = true; win.navShown = true; shelfView.setNavIndex(1)");
+            // Leave the tile so hoverIndex is -1; otherwise onKbdShowIdChanged
+            // will not schedule a pre-warm. Move from 0 so the index actually changes.
+            t->hover(QPointF(5, 5));
+            t->eval("win.forgetAllWarm(); win.keyboardMode = true; win.navShown = true; shelfView.setNavIndex(0); shelfView.setNavIndex(1)");
         }},
         {250, [t]() {
             t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),

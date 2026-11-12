@@ -71,6 +71,9 @@ class Backend : public QObject {
     // Library size, not the eye-filtered shelf. Header chrome uses this so a
     // caught-up filter cannot hide the eye that would bring shows back.
     Q_PROPERTY(int showCount READ showCount NOTIFY showCountChanged)
+    // Bumped on reloadShows (cover download, path change, library reload).
+    // Hidden show pages depend on this so showArt re-evaluates.
+    Q_PROPERTY(int coverRevision READ coverRevision NOTIFY libraryChanged)
     Q_PROPERTY(EpisodeModel *queueModel READ queueModel CONSTANT)
     Q_PROPERTY(double nowPlayingArtScale READ nowPlayingArtScale NOTIFY nowPlayingArtScaleChanged)
     Q_PROPERTY(int queueCount READ queueCount NOTIFY queueChanged)
@@ -137,6 +140,7 @@ public:
     bool shelfShowAll() const;
     bool episodeShowAll() const;
     int showCount() const { return m_showCount; }
+    int coverRevision() const { return m_coverRevision; }
     EpisodeModel *queueModel() { return &m_queueModel; }
     int queueCount() const { return m_queueModel.rowCount(); }
     double nowPlayingArtScale() const { return m_library.nowPlayingArtScale(); }
@@ -158,6 +162,12 @@ public:
     // Load that show's episode model and start decoding covers already on disk.
     // Does not download missing art (no network on hover).
     Q_INVOKABLE void warmEpisodes(qint64 showId);
+    // image://covers/ URL for a show's on-disk art, or empty. Stable while the
+    // show is not open, so a hidden pre-warmed page can load the fallback art.
+    Q_INVOKABLE QString coverForShow(qint64 showId) const;
+    // UI-test only: point a show at an already-local cover file. No-op unless
+    // OMAEAR_UI_TEST=1.
+    Q_INVOKABLE void setShowCoverPath(qint64 showId, const QString &path);
     // Drop a speculative model's cache when that page was never opened.
     Q_INVOKABLE void dropWarmEpisodes(qint64 showId);
     Q_INVOKABLE void openEpisode(qint64 episodeId);
@@ -354,6 +364,7 @@ private:
 
     Library &m_library;
     int m_showCount = 0;
+    int m_coverRevision = 0;
     ShowModel m_shows;
     EpisodeModel m_episodes;
     EpisodeModel m_queueModel;
