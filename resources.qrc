@@ -4,6 +4,7 @@
         <file alias="cover-shadow.png">assets/cover-shadow.png</file>
         <file alias="Main.qml">qml/Main.qml</file>
         <file alias="HelpOverlay.qml">qml/HelpOverlay.qml</file>
+        <file alias="LoadingNote.qml">qml/LoadingNote.qml</file>
         <file alias="ShelfView.qml">qml/ShelfView.qml</file>
         <file alias="ShowView.qml">qml/ShowView.qml</file>
         <file alias="EpisodeView.qml">qml/EpisodeView.qml</file>

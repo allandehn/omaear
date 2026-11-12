@@ -140,6 +140,10 @@ ApplicationWindow {
     property int historyIndex: 0
     readonly property var currentPage: history[Math.max(0, Math.min(historyIndex, history.length - 1))]
     readonly property string pageKind: currentPage.kind
+    // Keyboard grid wrap is fixed (no menu choice, saved ui.gridWrap is ignored):
+    // false = "rows" (Up/Down stay in their column). Flip here to change the app's mode;
+    // the nav tests set it per check.
+    property bool gridWrapFull: false
     readonly property bool canGoBack: modalOpen || explore.previewOpen || explorePage.regionOpen || historyIndex > 0
     readonly property bool canGoForward: !modalOpen && historyIndex < history.length - 1
     readonly property bool modalOpen: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
@@ -516,7 +520,7 @@ ApplicationWindow {
     // was last left, or on its first item. Arrow keys never leave a zone: they
     // wrap inside it. A zone is one or more areas (a row of buttons or a grid);
     // Now Playing's content stacks transport / controls / seek / notes, and
-    // Up/Down step between those. Grid wrap (backend.gridWrapFull):
+    // Up/Down step between those. Grid wrap (win.gridWrapFull, fixed):
     //   rows: absolute. Left/Right wrap within the row; Up/Down always stay in
     //         the same column and wrap top<->bottom of that column (a short last
     //         row that lacks the column is skipped, never clamped).
@@ -687,7 +691,7 @@ ApplicationWindow {
         var dir = (k === Qt.Key_Left || k === Qt.Key_Up) ? -1 : 1
         var horiz = k === Qt.Key_Left || k === Qt.Key_Right
         var j = i
-        if (backend.gridWrapFull) {
+        if (win.gridWrapFull) {
             if (horiz) j = (i + dir + n) % n
             else if (dir > 0) j = i + c < n ? i + c : (col + 1) % c
             else if (i - c >= 0) j = i - c
@@ -969,12 +973,14 @@ ApplicationWindow {
             nowPlayingPage.applyArtZoom(delta)
             return true
         }
-        if (pageKind !== "shelf" && pageKind !== "show")
+        if (pageKind !== "shelf" && pageKind !== "show" && pageKind !== "queue")
             return false
         if (pageKind === "show") {
             var page = activeShow()
             if (page)
                 page.applyZoomDelta(delta)
+        } else if (pageKind === "queue") {
+            queuePage.applyZoomDelta(delta)
         } else {
             shelfView.applyZoomDelta(delta)
         }
@@ -991,9 +997,11 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
-            if (pageKind === "show") {
+            if (pageKind === "queue") {
+                queuePage.zoomIn()
+            } else if (pageKind === "show") {
                 var page = win.activeShow()
                 if (page)
                     page.zoomIn()
@@ -1005,9 +1013,11 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomOut]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
-            if (pageKind === "show") {
+            if (pageKind === "queue") {
+                queuePage.zoomOut()
+            } else if (pageKind === "show") {
                 var page = win.activeShow()
                 if (page)
                     page.zoomOut()
@@ -1308,14 +1318,14 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         // Reset this page's art size to its default (defaults match library.cpp).
         enabled: !modalOpen && !helpOpen
-                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show")
+                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
             if (pageKind === "nowPlaying")
                 backend.setNowPlayingArtScale(1.0)
-            else if (pageKind === "show")
-                backend.setEpisodeListSize(2)
+            else if (pageKind === "show" || pageKind === "queue")
+                backend.setListCoverSize(2)
             else if (backend.shelfView === "list")
-                backend.setShelfListSize(2)
+                backend.setListCoverSize(2)
             else
                 backend.setShelfColumns(6)
         }

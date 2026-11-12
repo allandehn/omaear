@@ -23,9 +23,9 @@ Item {
     // Refresh gray-out disabled (same spirit as enabled: !backend.busy comments).
     // Stronger than caught-up while refresh-all runs; cleared with backend.busy on success or failure.
     // readonly property real refreshVeil: 0.62
-    // Five steps. 0 matches the original 44px list cover. Keep the count in step with shelfListSize.
+    // Five steps. 0 matches the original 44px list cover. Keep the count in step with Library::listCoverSize (shared with Episodes and Queue).
     readonly property var listCoverSteps: [44, 64, 88, 120, 160]
-    readonly property int listCoverBase: listCoverSteps[Math.max(0, Math.min(backend.shelfListSize, listCoverSteps.length - 1))]
+    readonly property int listCoverBase: listCoverSteps[Math.max(0, Math.min(backend.listCoverSize, listCoverSteps.length - 1))]
     readonly property real listCover: listCoverBase * theme.textScale
     readonly property real listRowHeight: listCover + 20 * theme.textScale
 
@@ -104,14 +104,14 @@ Item {
 
     function zoomIn() {
         if (backend.shelfView === "list")
-            backend.setShelfListSize(backend.shelfListSize + 1)
+            backend.setListCoverSize(backend.listCoverSize + 1)
         else
             backend.setShelfColumns(Math.min(backend.shelfColumns, columns) - 1)
     }
 
     function zoomOut() {
         if (backend.shelfView === "list")
-            backend.setShelfListSize(backend.shelfListSize - 1)
+            backend.setListCoverSize(backend.listCoverSize - 1)
         else if (backend.shelfColumns < 10)
             backend.setShelfColumns(backend.shelfColumns + 1)
     }
@@ -813,12 +813,6 @@ Item {
             markable: true
             marked: backend.motionTryout
             onChosen: backend.toggleMotionTryout()
-        }
-        AppMenuItem {
-            text: "Grid wrap: full"
-            markable: true
-            marked: backend.gridWrapFull
-            onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}
         AppMenuItem {

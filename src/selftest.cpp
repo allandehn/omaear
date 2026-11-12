@@ -404,16 +404,16 @@ int runSelfTest(int argc, char **argv)
         check(library.shelfColumns() == 10, "columns stay at most ten");
         library.setShelfColumns(10);
         check(library.shelfColumns() == 10, "ten columns is allowed");
-        check(library.shelfListSize() == 2, "list cover starts two steps up");
-        library.setShelfListSize(-3);
-        check(library.shelfListSize() == 0, "list cover stays at least the smallest");
-        library.setShelfListSize(9);
-        check(library.shelfListSize() == 4, "list cover stays at most the largest");
-        check(library.episodeListSize() == 2, "episode list cover starts two steps up");
-        library.setEpisodeListSize(-3);
-        check(library.episodeListSize() == 0, "episode list cover stays at least the smallest");
-        library.setEpisodeListSize(9);
-        check(library.episodeListSize() == 4, "episode list cover stays at most the largest");
+        check(library.listCoverSize() == 2, "list cover starts two steps up (Episodes template)");
+        // Older libraries kept separate keys (Episodes first, then Shelf); a saved 1 stands in for one.
+        library.markCacheMigrationDone(QStringLiteral("shelf.listSize"));
+        check(library.listCoverSize() == 1, "an old saved list size carries over to the shared one");
+        library.setListCoverSize(3);
+        check(library.listCoverSize() == 3, "the shared size wins over the old keys once set");
+        library.setListCoverSize(-3);
+        check(library.listCoverSize() == 0, "list cover stays at least the smallest");
+        library.setListCoverSize(9);
+        check(library.listCoverSize() == 4, "list cover stays at most the largest");
         check(library.shelfShowAll(), "shelf eye starts open");
         check(library.episodeShowAll(), "episode eye starts open");
         library.setShelfShowAll(false);

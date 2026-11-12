@@ -1,8 +1,11 @@
 import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.Material
 
 Item {
     id: page
     signal dismissRequested()
+    LoadingNote { id: loadingNote }
 
     // Very short pane: horizontal art + titles, keep transport/scrubber, hide blurb.
     // Full stacked cover layout when page.height is at or above this.
@@ -14,7 +17,7 @@ Item {
         return Number((Math.round(value * 100) / 100).toFixed(2)).toString() + "×"
     }
 
-    // Ctrl+wheel art size: fraction of the largest square that fits (0.2 .. 1.0).
+    // Ctrl+wheel art size: fraction of the text column width (0.2 .. 1.0).
     property real zoomPending: 0
     function applyArtZoom(delta) {
         zoomPending += delta
@@ -125,39 +128,17 @@ Item {
             // of the window, whichever is wider, never past the side pads.
             readonly property real colWidth: Math.min(width, Math.max(560 * theme.textScale, page.width * 0.55))
 
-            // Height claimed by title, transport, scrubber and gaps. The episode
-            // description is left out on purpose: it scrolls below, so a long
-            // blurb no longer squeezes the cover down to a thumbnail.
+            // Square cover: at 100% as wide as the text column (same left/right
+            // bounds as scrubber and notes), but never taller than what leaves
+            // title, transport and scrubber in view on this window (notes are not
+            // reserved: they sit below and the page scrolls). Ctrl+wheel scales it
+            // down from there (20..100%). Never below a small floor.
             // PlayerBar lives in Main below this page, so page.height already excludes it.
-            // Everything below the cover except the notes.
             readonly property real baseChrome: titles.implicitHeight
                                                + transportBlock.implicitHeight
                                                + scrubberCol.implicitHeight
-            // Room the notes may take on a short window, after a small cover:
-            // a few lines show under the cover, the rest scrolls with the page.
-            readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
-                                              - spacing * 4 - 120 * theme.textScale
-            // The notes get ~5 lines or 35% of the free height, whichever is more (the
-            // cover fits around that, so they grow/shrink with the window); any
-            // longer notes continue below and the page scrolls.
-            readonly property real notesReserve: Math.max(0, Math.min(synopsis.implicitHeight, Math.max(theme.bodySmall * 1.4 * 5, notesRoom * 0.35), notesRoom))
-            readonly property real chromeBelow: {
-                var gaps = 3
-                var h = baseChrome
-                // Reserve a few lines of notes under the cover; the rest of a long
-                // blurb runs below the fold and the page scrolls.
-                if (synopsisBox.visible) {
-                    h += notesReserve
-                    gaps += 1
-                }
-                return h + spacing * gaps + bottomPad
-            }
-            // Square cover: the largest square that fits beside the window edges
-            // (24px margin) and above title/transport/scrubber, times the
-            // Ctrl+wheel fraction. Re-fits live on resize; never below a small floor.
-            readonly property real edgeMargin: 24 * theme.textScale
-            readonly property real coverFit: Math.min(page.width - edgeMargin * 2,
-                                                      page.height - topPad - chromeBelow)
+            readonly property real coverFit: Math.min(colWidth,
+                                                      page.height - topPad - baseChrome - spacing * 3 - bottomPad)
             readonly property real coverSide: Math.max(56 * theme.textScale,
                                                        Math.floor(coverFit * backend.nowPlayingArtScale))
 
@@ -316,7 +297,7 @@ Item {
                 SelectableText {
                     width: parent.width
                     horizontalAlignment: TextEdit.AlignHCenter
-                    text: backend.playerShowTitle
+                    text: loadingNote.active ? loadingNote.text : backend.playerShowTitle
                     color: theme.dim
                     font.pixelSize: theme.body
                     font.family: "monospace"
@@ -373,6 +354,15 @@ Item {
                                    : "media-playback-start-symbolic"
                         tip: backend.playerStatus === "playing" ? "Pause" : "Play"
                         onClicked: backend.togglePlayback()
+                        BusyIndicator {
+                            // Play pressed, no audio yet: a ring around the glyph.
+                            anchors.centerIn: parent
+                            width: parent.implicitHeight - 4
+                            height: width
+                            visible: loadingNote.active
+                            running: visible
+                            Material.accent: theme.accent
+                        }
                     }
                     IconButton {
                         // Size tier (seek): shared centre line.

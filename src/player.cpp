@@ -721,6 +721,21 @@ QVariantMap PlayerService::State()
     state.insert(QStringLiteral("played"), m_episode.played);
     state.insert(QStringLiteral("error"), m_error);
     state.insert(QStringLiteral("description"), m_description);
+    // Play pressed but no audio yet: head bytes still arriving, source not bound, or
+    // FFmpeg probing/rebuffering. bufferPercent is the share of the start gate
+    // (kMinBufferBytes) already downloaded, or -1 when that stage is over.
+    bool loading = false;
+    int bufferPercent = -1;
+    if (m_episode.id != 0 && m_error.isEmpty() && m_autoPlayPending) {
+        const auto media = m_player->mediaStatus();
+        loading = !m_sourceBound
+            || m_player->playbackState() != QMediaPlayer::PlayingState
+            || media == QMediaPlayer::LoadingMedia || media == QMediaPlayer::StalledMedia;
+        if (loading && !m_sourceBound && m_buffer)
+            bufferPercent = int(qMin<qint64>(100, m_buffer->availableBytes() * 100 / kMinBufferBytes));
+    }
+    state.insert(QStringLiteral("loading"), loading);
+    state.insert(QStringLiteral("bufferPercent"), bufferPercent);
     return state;
 }
 

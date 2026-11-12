@@ -329,10 +329,10 @@ void startUiTest(QQmlApplicationEngine &engine)
         const QString feeds = qEnvironmentVariable("OMAEAR_UI_TEST_FEEDS");
         // Grid math on a stand-in grid: 7 items, 3 columns (rows 0-2, 3-5, 6).
         auto gk = [t](int n, int c, int from, const char *k, bool full = false) {
-            return t->eval(QStringLiteral("(function(){ var keep = backend.gridWrapFull;"
-                " if (keep !== %5) backend.toggleGridWrap();"
+            return t->eval(QStringLiteral("(function(){ var keep = win.gridWrapFull;"
+                " win.gridWrapFull = %5;"
                 " var g = { navCount: %1, navColumns: %2, kbdIndex: %3, setNavIndex: function(j) { this.kbdIndex = j } };"
-                " win.navGridKey(g, Qt.%4); if (backend.gridWrapFull !== keep) backend.toggleGridWrap(); return g.kbdIndex })()")
+                " win.navGridKey(g, Qt.%4); win.gridWrapFull = keep; return g.kbdIndex })()")
                 .arg(n).arg(c).arg(from).arg(QLatin1String(k)).arg(full ? "true" : "false")).toInt();
         };
         t->steps = {
@@ -395,6 +395,19 @@ void startUiTest(QQmlApplicationEngine &engine)
             {1500, [t]() {
                 t->expect(!t->eval("activeShow().kbdRing").toBool() && !t->eval("win.navShown").toBool(),
                           "mouse mode: entering a page shows no key ring");
+                // Info open: the page behind gets no hover highlight.
+                t->eval("helpOpen = true");
+                t->hover(QPointF(5, 5));
+                t->hover(t->centerOf("activeShow().rowItemAt(0)"));
+            }},
+            {300, [t]() {
+                t->expect(t->eval("activeShow().hoverRaw === -1").toBool(), "Info open: hovering the page behind highlights nothing");
+                t->eval("helpOpen = false");
+                t->hover(QPointF(5, 5));
+                t->hover(t->centerOf("activeShow().rowItemAt(0)"));
+            }},
+            {300, [t]() {
+                t->expect(t->eval("activeShow().hoverRaw === 0").toBool(), "Info closed: the same hover highlights the row again");
                 t->key(Qt::Key_Down);
             }},
             {300, [t]() {
