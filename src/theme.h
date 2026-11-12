@@ -78,8 +78,6 @@ public:
     static QHash<QString, QString> parseShellToml(const QString &text);
     QColor barBackground() const { return m_barBackground; }
     QColor pillBackground() const { return m_pillBackground; }
-    // Test-only OMAEAR_TEXT_SCALE: the clamped scale, or 0 when empty/invalid.
-    static qreal parseTextScaleOverride(const QString &text);
     // Shift a colour's OKLCH lightness by dL and scale its chroma by cScale,
     // keeping hue and alpha. Out-of-gamut results are pulled in by lowering C.
     static qreal oklchLightness(const QColor &c);
@@ -129,7 +127,6 @@ private:
     QColor m_dim = QColor("#9a9a9a");
     bool m_darkMode = true;
     qreal m_textScale = 1.0;
-    qreal m_textScaleOverride = 0; // OMAEAR_TEXT_SCALE; wins over the portal
     int m_caption = 14;
     int m_bodySmall = 15;
     int m_body = 14;

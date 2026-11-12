@@ -94,31 +94,6 @@ int runSelfTest(int argc, char **argv)
                   && sh.value(QStringLiteral("font.base-size")) == QLatin1String("12")
                   && !sh.contains(QStringLiteral("popups.border-width")),
               "shell.toml parser: sections, quoted and bare values, comments");
-        // Test-only OMAEAR_TEXT_SCALE: valid values apply (clamped like the portal), anything else is ignored.
-        check(qFuzzyCompare(Theme::parseTextScaleOverride(QStringLiteral("1.6")), 1.6)
-                  && qFuzzyCompare(Theme::parseTextScaleOverride(QStringLiteral(" 1.25 ")), 1.25)
-                  && qFuzzyCompare(Theme::parseTextScaleOverride(QStringLiteral("9")), 3.0)
-                  && qFuzzyCompare(Theme::parseTextScaleOverride(QStringLiteral("0.1")), 0.5),
-              "text scale override: a valid number is applied and clamped to 0.5..3");
-        check(Theme::parseTextScaleOverride(QString()) == 0 && Theme::parseTextScaleOverride(QStringLiteral("")) == 0
-                  && Theme::parseTextScaleOverride(QStringLiteral("abc")) == 0 && Theme::parseTextScaleOverride(QStringLiteral("1,6")) == 0
-                  && Theme::parseTextScaleOverride(QStringLiteral("0")) == 0 && Theme::parseTextScaleOverride(QStringLiteral("-2")) == 0
-                  && Theme::parseTextScaleOverride(QStringLiteral("nan")) == 0 && Theme::parseTextScaleOverride(QStringLiteral("inf")) == 0,
-              "text scale override: empty or invalid values are ignored");
-        {
-            const QByteArray old = qgetenv("OMAEAR_TEXT_SCALE");
-            const bool had = qEnvironmentVariableIsSet("OMAEAR_TEXT_SCALE");
-            qputenv("OMAEAR_TEXT_SCALE", "2.0");
-            const qreal withEnv = Theme().textScale();
-            qputenv("OMAEAR_TEXT_SCALE", "junk");
-            const qreal withJunk = Theme().textScale();
-            if (had)
-                qputenv("OMAEAR_TEXT_SCALE", old);
-            else
-                qunsetenv("OMAEAR_TEXT_SCALE");
-            check(qFuzzyCompare(withEnv, 2.0) && qFuzzyCompare(withJunk, 1.0),
-                  "text scale override: the Theme uses it when valid and stays at 1.0 when invalid");
-        }
         const QHash<QString, QColor> pal{{QStringLiteral("foreground"), QColor(QStringLiteral("#a9b1d6"))},
                                          {QStringLiteral("accent"), QColor(QStringLiteral("#7aa2f7"))},
                                          {QStringLiteral("background"), QColor(QStringLiteral("#1a1b26"))}};
