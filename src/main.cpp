@@ -161,21 +161,101 @@ void startUiTest(QQmlApplicationEngine &engine);
 // (~/.local/state/omarchy/current/theme, ~/.config/omarchy/shell.toml) and
 // uses the library in XDG_DATA_HOME. Refuse to run it unless HOME is a
 // throwaway home: it must hold the marker file release-validate-tree.sh
-// writes, and must not be the account's real home directory.
+// writes, and must not be the account's real home directory. Each of
+// XDG_DATA_HOME, XDG_CONFIG_HOME, XDG_CACHE_HOME, XDG_STATE_HOME and
+// XDG_RUNTIME_DIR, if set, must resolve (canonical path) inside the
+// throwaway root. The root is HOME's parent, matching the layout used
+// by release-validate-tree.sh: HOME is $root/home, and the XDG dirs sit
+// beside it as $root/{data,config,cache,run}. The root must hold the
+// marker .omaear-ui-test-root and must not be empty, "/", the real home
+// or an ancestor of it, or a shared dir (/tmp, /var/tmp, /dev/shm,
+// /run/user/<uid>, $TMPDIR).
+static QString uiTestResolvedPath(const QString &path)
+{
+    const QString abs = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    const QString canon = QFileInfo(abs).canonicalFilePath();
+    if (!canon.isEmpty())
+        return canon;
+    // The path may not exist yet. Walk up to an existing ancestor so a
+    // symlink such as /tmp/test-data -> ~/.local/share still resolves.
+    QDir dir(abs);
+    QString rest;
+    while (!dir.exists() && !dir.isRoot()) {
+        const QString name = dir.dirName();
+        dir.cdUp();
+        rest = rest.isEmpty() ? name : name + QLatin1Char('/') + rest;
+    }
+    const QString base = dir.canonicalPath();
+    if (base.isEmpty())
+        return abs;
+    return rest.isEmpty() ? base : QDir::cleanPath(base + QLatin1Char('/') + rest);
+}
+
+static bool uiTestPathIsInside(const QString &path, const QString &root)
+{
+    if (path == root)
+        return true;
+    const QString prefix = root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/');
+    return path.startsWith(prefix);
+}
+
 static bool uiTestHomeIsThrowaway(QString *why)
 {
     const QString home = QDir::homePath();
-    const QString canon = QFileInfo(home).canonicalFilePath();
+    // Resolves even when HOME does not exist yet, so the root checks below
+    // can refuse it before any file is looked at.
+    const QString canon = uiTestResolvedPath(home);
+    QString realHome;
     if (const passwd *pw = getpwuid(getuid())) {
         const QString real = QFileInfo(QString::fromLocal8Bit(pw->pw_dir)).canonicalFilePath();
+        realHome = real;
         if (!real.isEmpty() && canon == real) {
             *why = QStringLiteral("HOME is your real home directory (%1)").arg(home);
+            return false;
+        }
+    }
+    const QString root = QFileInfo(canon).dir().canonicalPath();
+    if (root.isEmpty() || root == QLatin1String("/")) {
+        *why = QStringLiteral("the throwaway root for HOME (%1) is empty or /").arg(home);
+        return false;
+    }
+    if (!realHome.isEmpty() && uiTestPathIsInside(realHome, root)) {
+        *why = QStringLiteral("the throwaway root (%1) is your real home directory or contains it").arg(root);
+        return false;
+    }
+    QStringList shared = {QStringLiteral("/tmp"), QStringLiteral("/var/tmp"), QStringLiteral("/dev/shm"),
+                          QStringLiteral("/run/user/%1").arg(getuid())};
+    if (const QString tmpdir = qEnvironmentVariable("TMPDIR"); !tmpdir.isEmpty())
+        shared << tmpdir;
+    for (const QString &dir : std::as_const(shared)) {
+        const QString c = QFileInfo(dir).canonicalFilePath();
+        if (!c.isEmpty() && root == c) {
+            *why = QStringLiteral("the throwaway root (%1) is a shared directory").arg(root);
             return false;
         }
     }
     if (!QFileInfo::exists(home + QStringLiteral("/.omaear-ui-test-home"))) {
         *why = QStringLiteral("HOME (%1) has no .omaear-ui-test-home marker").arg(home);
         return false;
+    }
+    if (!QFileInfo::exists(root + QStringLiteral("/.omaear-ui-test-root"))) {
+        *why = QStringLiteral("the throwaway root (%1) has no .omaear-ui-test-root marker").arg(root);
+        return false;
+    }
+    static const char *const xdgVars[] = {
+        "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
+        "XDG_STATE_HOME", "XDG_RUNTIME_DIR"
+    };
+    for (const char *name : xdgVars) {
+        const QString value = qEnvironmentVariable(name);
+        if (value.isEmpty())
+            continue;
+        const QString resolved = uiTestResolvedPath(value);
+        if (!uiTestPathIsInside(resolved, root)) {
+            *why = QStringLiteral("%1 (%2) is outside the throwaway root (%3)")
+                       .arg(QLatin1String(name), value, root);
+            return false;
+        }
     }
     return true;
 }
@@ -198,8 +278,9 @@ int main(int argc, char **argv)
         QString why;
         if (!uiTestHomeIsThrowaway(&why)) {
             fprintf(stderr, "omaear: refusing to run the UI test: %s.\n"
-                            "It rewrites Omarchy theme files under HOME. Run it through "
-                            "scripts/release-validate-tree.sh, which gives it a throwaway HOME.\n",
+                            "It rewrites Omarchy theme files under HOME and uses the library "
+                            "in XDG_DATA_HOME. Run it through scripts/release-validate-tree.sh, "
+                            "which gives it a throwaway HOME and XDG dirs.\n",
                     qPrintable(why));
             return 3;
         }
