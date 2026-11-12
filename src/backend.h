@@ -155,6 +155,11 @@ public:
     Q_INVOKABLE void closeShow();
     // Stable per-show list. Kept after Back so the episode view is not rebuilt.
     Q_INVOKABLE QObject *episodesFor(qint64 showId);
+    // Load that show's episode model and start decoding covers already on disk.
+    // Does not download missing art (no network on hover).
+    Q_INVOKABLE void warmEpisodes(qint64 showId);
+    // Drop a speculative model's cache when that page was never opened.
+    Q_INVOKABLE void dropWarmEpisodes(qint64 showId);
     Q_INVOKABLE void openEpisode(qint64 episodeId);
     Q_INVOKABLE void openPlayingEpisode();
     Q_INVOKABLE void closeEpisode();
@@ -297,7 +302,7 @@ private:
     QList<ShowRow> visibleShows(const QList<ShowRow> &rows) const;
     QList<EpisodeRow> visibleEpisodes(qint64 showId) const;
     EpisodeModel *episodeModel(qint64 showId, bool create);
-    void syncEpisodeModel(qint64 showId);
+    void syncEpisodeModel(qint64 showId, bool fetchCovers = true);
     void discardEpisodeModel(qint64 showId);
     void enqueue(const QStringList &urls, bool manual = false);
     void feedRefreshed(const QString &url, const FeedRefreshResult &r);

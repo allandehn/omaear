@@ -311,8 +311,21 @@ ApplicationWindow {
         navigate(makeEntry("show", showId, 0))
         coverCache.armShowShown(win)
     }
-    function markShowPress() { coverCache.markShowPress() }
-    function cancelShowPress() { coverCache.cancelShowPress() }
+    property double pressSpecId: 0
+    function markShowPress(showId) {
+        coverCache.markShowPress()
+        if (!showId)
+            return
+        var created = !warmHas(showId)
+        prewarmShow(showId)
+        pressSpecId = created ? showId : 0
+    }
+    function cancelShowPress() {
+        coverCache.cancelShowPress()
+        if (pressSpecId && isSpeculative(pressSpecId))
+            forgetShow(pressSpecId)
+        pressSpecId = 0
+    }
 
     function openEpisodePage(episodeId) {
         navigate(makeEntry("episode", backend.episodeShowId(episodeId), episodeId))
@@ -952,6 +965,12 @@ ApplicationWindow {
     // does not destroy and recreate a Repeater delegate.
     property var warmOrder: []
     readonly property int warmShowCount: warmShows.count
+    // Speculative (hover/press, never opened) pages, oldest first. Cap 2, FIFO,
+    // and they live inside the 6-page LRU: they are evicted first.
+    readonly property int warmSpecCap: 2
+    readonly property int warmPrewarmMs: 200
+    property var specOrder: []
+    readonly property int warmSpecCount: specOrder.length
 
     function warmHas(showId) {
         for (var i = 0; i < warmShows.count; ++i) {
@@ -970,13 +989,50 @@ ApplicationWindow {
         return null
     }
 
-    function oldestEvictableId(order, visibleId, playingId) {
-        for (var i = 0; i < order.length; ++i) {
-            var id = order[i]
-            if (id !== visibleId && id !== playingId)
+    function oldestEvictableId(order, visibleId, playingId, specs) {
+        // Drop older never-opened pages first, but keep the newest speculative
+        // one when an opened hidden page can go instead: a fresh pre-warm must
+        // not evict itself just because the LRU is already full.
+        if (specs && specs.length > 1) {
+            for (var i = 0; i < specs.length - 1; ++i) {
+                var sid = specs[i]
+                if (sid !== visibleId && sid !== playingId)
+                    return sid
+            }
+        }
+        for (var j = 0; j < order.length; ++j) {
+            var id = order[j]
+            if (id !== visibleId && id !== playingId) {
+                if (specs && specs.length === 1 && id === specs[0])
+                    continue
                 return id
+            }
+        }
+        if (specs && specs.length > 0) {
+            for (var k = 0; k < specs.length; ++k) {
+                var last = specs[k]
+                if (last !== visibleId && last !== playingId)
+                    return last
+            }
         }
         return 0
+    }
+
+    function isSpeculative(showId) {
+        for (var i = 0; i < specOrder.length; ++i) {
+            if (specOrder[i] === showId)
+                return true
+        }
+        return false
+    }
+
+    function dropSpec(showId) {
+        var specs = []
+        for (var i = 0; i < specOrder.length; ++i) {
+            if (specOrder[i] !== showId)
+                specs.push(specOrder[i])
+        }
+        specOrder = specs
     }
 
     function rememberShow(showId) {
@@ -998,10 +1054,12 @@ ApplicationWindow {
         }
         order.push(showId)
         warmOrder = order
+        dropSpec(showId)
         evictWarmShows()
     }
 
     function forgetShow(showId) {
+        var wasSpec = isSpeculative(showId)
         for (var i = warmShows.count - 1; i >= 0; --i) {
             if (warmShows.get(i).showId === showId)
                 warmShows.remove(i)
@@ -1012,17 +1070,60 @@ ApplicationWindow {
                 order.push(warmOrder[j])
         }
         warmOrder = order
+        dropSpec(showId)
+        if (pressSpecId === showId)
+            pressSpecId = 0
+        if (wasSpec)
+            backend.dropWarmEpisodes(showId)
     }
 
     function evictWarmShows() {
         var visibleId = (pageKind === "show") ? currentPage.showId : 0
         var playingId = backend.playerShowId || 0
         while (warmShows.count > warmShowCap) {
-            var victim = oldestEvictableId(warmOrder, visibleId, playingId)
+            var victim = oldestEvictableId(warmOrder, visibleId, playingId, specOrder)
             if (!victim)
                 break
             forgetShow(victim)
         }
+    }
+
+    function prewarmShow(showId) {
+        if (!showId)
+            return
+        backend.warmEpisodes(showId)
+        if (warmHas(showId))
+            return
+        while (specOrder.length >= warmSpecCap) {
+            var drop = specOrder[0]
+            if (!drop)
+                break
+            forgetShow(drop)
+        }
+        warmShows.append({ showId: showId })
+        var specs = []
+        for (var i = 0; i < specOrder.length; ++i)
+            specs.push(specOrder[i])
+        specs.push(showId)
+        specOrder = specs
+        var order = []
+        for (var j = 0; j < warmOrder.length; ++j)
+            order.push(warmOrder[j])
+        order.push(showId)
+        warmOrder = order
+        evictWarmShows()
+    }
+
+    function warmShowIds() {
+        var ids = []
+        for (var i = 0; i < warmShows.count; ++i)
+            ids.push(warmShows.get(i).showId)
+        return ids
+    }
+
+    function forgetAllWarm() {
+        while (warmShows.count > 0)
+            forgetShow(warmShows.get(0).showId)
     }
 
     function activeShow() {

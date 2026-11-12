@@ -102,6 +102,36 @@ Item {
             win.openShowPage(backend.shows.showIdAt(kbdIndex))
     }
 
+    // Hover-rest or keyboard-rest: pre-create the show page after 200 ms.
+    // Pointer leaving the tile cancels it; a left-press pre-warms at once.
+    Timer {
+        id: prewarmTimer
+        interval: win.warmPrewarmMs
+        repeat: false
+        property double showId: 0
+        onTriggered: {
+            if (showId && win.pageKind === "shelf")
+                win.prewarmShow(showId)
+        }
+    }
+    function schedulePrewarm(showId) {
+        prewarmTimer.stop()
+        prewarmTimer.showId = showId || 0
+        if (prewarmTimer.showId && win.pageKind === "shelf" && !win.modalOpen)
+            prewarmTimer.restart()
+    }
+    function cancelScheduledPrewarm() {
+        prewarmTimer.stop()
+        prewarmTimer.showId = 0
+    }
+    onKbdShowIdChanged: {
+        if (win.pageKind !== "shelf" || hoverIndex >= 0)
+            return
+        if (!win.navShown && !win.keyboardMode)
+            return
+        schedulePrewarm(kbdShowId)
+    }
+
     function zoomIn() {
         if (backend.shelfView === "list")
             backend.setListCoverSize(backend.listCoverSize + 1)
@@ -485,7 +515,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onPressed: function(mouse) {
                     if (mouse.button === Qt.LeftButton)
-                        win.markShowPress()
+                        win.markShowPress(model.showId)
                 }
                 onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
@@ -503,8 +533,10 @@ Item {
                     if (containsMouse) {
                         shelf.hoverRawShowId = model.showId
                         shelf.hoverRaw = index
+                        shelf.schedulePrewarm(model.showId)
                     } else if (shelf.hoverRaw === index) {
                         shelf.hoverRaw = -1
+                        shelf.cancelScheduledPrewarm()
                     }
                 }
             }
@@ -667,7 +699,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onPressed: function(mouse) {
                     if (mouse.button === Qt.LeftButton)
-                        win.markShowPress()
+                        win.markShowPress(model.showId)
                 }
                 onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
@@ -680,6 +712,16 @@ Item {
                     }
                 }
                 onWheel: (wheel) => shelf.takeWheel(wheel)
+                onContainsMouseChanged: {
+                    if (containsMouse) {
+                        shelf.hoverRawShowId = model.showId
+                        shelf.hoverRaw = index
+                        shelf.schedulePrewarm(model.showId)
+                    } else if (shelf.hoverRaw === index) {
+                        shelf.hoverRaw = -1
+                        shelf.cancelScheduledPrewarm()
+                    }
+                }
             }
         }
     }
