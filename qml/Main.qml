@@ -54,7 +54,8 @@ ApplicationWindow {
     // which start on the confirm button, which is Omarchy Stable 4.5's default for all of them.
     // Flip a line to change one dialog.
     readonly property bool unsubscribeStartsOnCancel: false      // one podcast: starts on Unsubscribe
-    readonly property bool unsubscribeAllStartsOnCancel: true    // Unsubscribe from all, both steps
+    readonly property bool unsubscribeAllStep1StartsOnCancel: false // Unsubscribe from all, step 1: starts on Unsubscribe from all…
+    readonly property bool unsubscribeAllStep2StartsOnCancel: true  // Unsubscribe from all, final step: starts on Cancel
     readonly property bool markAllStartsOnCancel: true           // Mark all as played (one podcast)
     readonly property bool markEverythingStartsOnCancel: true    // every episode of every podcast (not built yet)
     readonly property bool clearQueueStartsOnCancel: false       // starts on Clear queue
@@ -1198,11 +1199,13 @@ ApplicationWindow {
                     : confirmRemove ? "Playback history for this show goes with it."
                     : ""
             // Adding is not destructive: the confirm button takes the accent, not the urgent colour.
-            // Mark all as played can't be undone in one step, so it is destructive too.
-            destructive: !addOpen && !confirmUnsubAll
+            // Mark all as played can't be undone in one step, so it is destructive too, and so are
+            // both steps of Unsubscribe from all (Allan, 2026-11-12).
+            destructive: !addOpen
             // Per-dialog start (see the decisions above); 4.5's own default is the confirm button.
             startOnCancel: addOpen ? false
-                           : (confirmUnsubAll || confirmUnsubAll2) ? unsubscribeAllStartsOnCancel
+                           : confirmUnsubAll ? unsubscribeAllStep1StartsOnCancel
+                           : confirmUnsubAll2 ? unsubscribeAllStep2StartsOnCancel
                            : confirmQueue ? clearQueueStartsOnCancel
                            : confirmRemove ? unsubscribeStartsOnCancel
                            : markAllStartsOnCancel

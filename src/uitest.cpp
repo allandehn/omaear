@@ -591,8 +591,8 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->eval("win.confirmUnsubscribeAll()");
         }},
         {500, [t]() {
-            t->expect(t->eval("confirmUnsubAll && dialog.selectedIndex === 0 && dialog.startOnCancel").toBool(), "start: Unsubscribe from all step 1 starts on Cancel");
-            t->expect(t->eval("!dialog.destructive && dialog.actionTone.toString() === theme.accent.toString()").toBool(), "non-destructive confirm uses the accent");
+            t->expect(t->eval("confirmUnsubAll && dialog.selectedIndex === 1 && !dialog.startOnCancel").toBool(), "start: Unsubscribe from all step 1 starts on the confirm button");
+            t->expect(t->eval("dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()").toBool(), "Unsubscribe from all step 1 confirm uses the urgent colour");
             t->eval("dialog.accepted()");   // Enter would only move to step 2
         }},
         {500, [t]() {
@@ -625,6 +625,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         {500, [t]() {
             t->expect(t->eval("addOpen && dialog.selectedIndex === 1 && !dialog.startOnCancel && feedField.activeFocus").toBool(),
                       "start: Add feed focuses the field, confirm selected");
+            t->expect(t->eval("!dialog.destructive && dialog.actionTone.toString() === theme.accent.toString()").toBool(), "non-destructive confirm (Add) uses the accent");
             t->eval("win.closeModals(); win.confirmUnsubscribe(backend.shows.showIdAt(0), 'Alpha Show')");
         }},
         {500, [t]() {
