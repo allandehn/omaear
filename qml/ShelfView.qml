@@ -483,6 +483,11 @@ Item {
                 hoverEnabled: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onPressed: function(mouse) {
+                    if (mouse.button === Qt.LeftButton)
+                        win.markShowPress()
+                }
+                onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
                         shelf.openCoverMenu(model.showId, model.title)
@@ -660,6 +665,11 @@ Item {
                 hoverEnabled: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onPressed: function(mouse) {
+                    if (mouse.button === Qt.LeftButton)
+                        win.markShowPress()
+                }
+                onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton)
                         shelf.openCoverMenu(model.showId, model.title)

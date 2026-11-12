@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QCursor>
 #include <QGuiApplication>
+#include <QCoreApplication>
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -22,9 +23,15 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTimer>
+#include <QEventLoop>
+#include <algorithm>
 #include <functional>
 
 #include "explore.h"
+#include "covercache.h"
+#include <fstream>
+#include <sstream>
+#include <sys/resource.h>
 
 namespace {
 // Offline Explore results for the UI tests (the test container has no network):
@@ -95,6 +102,7 @@ struct UiTest {
     QList<std::pair<int, std::function<void()>>> steps;
     QElapsedTimer settleClock;
     bool sawBusy = false;
+    int frozenAt = -1;
 
     QVariant eval(const QString &js)
     {
@@ -626,6 +634,197 @@ void startUiTest(QQmlApplicationEngine &engine)
         t->run(0);
         return;
     }
+    // OMAEAR_UI_TEST_INSTANT=1 (or "full"/"cold"/"ticks1"): measurements.
+    // Needs a library of at least 30 shows (seeded by the measure script).
+    // Not part of the gate.
+    const QString instantMode = qEnvironmentVariable("OMAEAR_UI_TEST_INSTANT");
+    if (instantMode == QLatin1String("1") || instantMode == QLatin1String("full")
+        || instantMode == QLatin1String("cold") || instantMode == QLatin1String("ticks1")
+        || instantMode == QLatin1String("ticks15")) {
+        auto readRollup = [](const char *key) -> long {
+            std::ifstream in("/proc/self/smaps_rollup");
+            std::string line;
+            while (std::getline(in, line)) {
+                if (line.rfind(key, 0) == 0) {
+                    std::istringstream ss(line.substr(std::string(key).size()));
+                    long kb = 0;
+                    ss >> kb;
+                    return kb;
+                }
+            }
+            return -1;
+        };
+        auto logMem = [t, readRollup](int visited) {
+            // Let hidden pages and the last decode settle.
+            QCoreApplication::processEvents();
+            const long rss = readRollup("Rss:");
+            const long pss = readRollup("Pss:");
+            const int warm = t->eval("win.warmShowCount").toInt();
+            fprintf(stderr, "instant: mem after %d shows Rss=%ld kB Pss=%ld kB warm=%d\n",
+                    visited, rss, pss, warm);
+        };
+        auto cpuMs = []() -> double {
+            rusage ru{};
+            getrusage(RUSAGE_SELF, &ru);
+            return ru.ru_utime.tv_sec * 1000.0 + ru.ru_utime.tv_usec / 1000.0
+                 + ru.ru_stime.tv_sec * 1000.0 + ru.ru_stime.tv_usec / 1000.0;
+        };
+        auto clickShown = [t](int index, const char *tag, int sample) {
+            const QString js = QStringLiteral(
+                "coverCache.markShowPress(); win.openShowPage(backend.shows.showIdAt(%1)); coverCache.armShowShown(win)")
+                                    .arg(index);
+            t->eval(js);
+            QEventLoop loop;
+            QObject::connect(t->win, &QQuickWindow::frameSwapped, &loop, &QEventLoop::quit);
+            QTimer::singleShot(4000, &loop, &QEventLoop::quit);
+            loop.exec();
+            const double ms = t->eval("coverCache.lastClickToShownMs()").toDouble();
+            fprintf(stderr, "instant: click-to-shown %s[%d] index=%d %.2f ms\n",
+                    tag, sample, index, ms);
+            return ms;
+        };
+        auto goShelf = [t]() {
+            t->eval("while (win.pageKind !== 'shelf' && win.canGoBack) win.back()");
+            QCoreApplication::processEvents();
+        };
+        auto median = [](QList<double> v) {
+            std::sort(v.begin(), v.end());
+            const int n = v.size();
+            if (n == 0) return -1.0;
+            if (n % 2) return v[n / 2];
+            return 0.5 * (v[n / 2 - 1] + v[n / 2]);
+        };
+        auto worst = [](const QList<double> &v) {
+            double m = -1;
+            for (double x : v) if (x > m) m = x;
+            return m;
+        };
+        auto summarize = [median, worst](const char *tag, const QList<double> &v) {
+            fprintf(stderr, "instant: summary %s n=%d median=%.2f ms worst=%.2f ms\n",
+                    tag, int(v.size()), median(v), worst(v));
+        };
+
+        t->steps = {
+            {800, [t, goShelf, clickShown, logMem, summarize, median, worst, cpuMs, instantMode]() {
+                t->expect(t->eval("pageKind").toString() == "shelf", "instant: starts on shelf");
+                const int shows = t->eval("shelfView.navCount").toInt();
+                t->expect(shows >= 30, "instant: library has at least 30 shows");
+                if (shows < 30) return;
+                t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
+
+                if (instantMode == QLatin1String("cold")) {
+                    QList<double> cold;
+                    for (int s = 0; s < 20; ++s) {
+                        goShelf();
+                        cold << clickShown(s, "cold", s);
+                        goShelf();
+                    }
+                    summarize("cold", cold);
+                    t->expect(true, "instant: cold measurements finished");
+                    return;
+                }
+                if (instantMode == QLatin1String("ticks1") || instantMode == QLatin1String("ticks15")) {
+                    const int pages = instantMode == QLatin1String("ticks15") ? 15 : 1;
+                    // Raise the cap so a frozen 15-page set can be compared to main.
+                    t->eval(QStringLiteral("if (win.warmShowCap !== undefined) win.warmShowCap = 30"));
+                    for (int i = 0; i < pages; ++i) {
+                        t->eval(QStringLiteral("win.openShowPage(backend.shows.showIdAt(%1))").arg(i));
+                        QCoreApplication::processEvents();
+                    }
+                    goShelf();
+                    const int warm = t->eval("win.warmShowCount").toInt();
+                    const double t0 = cpuMs();
+                    QElapsedTimer wall;
+                    wall.start();
+                    for (int n = 0; n < 8000; ++n)
+                        t->eval("backend.playerStateChanged()");
+                    QCoreApplication::processEvents();
+                    fprintf(stderr, "instant: ticks %d-warm pages=%d warm=%d cpu=%.1f ms wall=%lld ms\n",
+                            pages, pages, warm, cpuMs() - t0, qint64(wall.elapsed()));
+                    t->expect(true, "instant: ticks measurements finished");
+                    return;
+                }
+
+                // RSS/Pss after visiting 1, 5, 15 and 30 shows (fresh process).
+                for (int i = 0; i < 30; ++i) {
+                    t->eval(QStringLiteral("win.openShowPage(backend.shows.showIdAt(%1))").arg(i));
+                    QCoreApplication::processEvents();
+                    goShelf();
+                    if (i + 1 == 1 || i + 1 == 5 || i + 1 == 15 || i + 1 == 30)
+                        logMem(i + 1);
+                }
+
+                // Warm reopen: the last 6 visited stay under the LRU cap (or all
+                // of them on an uncapped baseline). Use the most recent index.
+                QList<double> warm;
+                const int warmIndex = 29;
+                for (int s = 0; s < 20; ++s) {
+                    goShelf();
+                    warm << clickShown(warmIndex, "warm", s);
+                    goShelf();
+                }
+                summarize("warm", warm);
+
+                // Reopen after eviction: bump 6 other shows first so index 0
+                // is evicted again before every sample (otherwise the first
+                // reopen puts it back in the cap and the rest are warm).
+                // On an uncapped baseline this stays a warm reopen.
+                QList<double> evicted;
+                const int cap = t->eval("win.warmShowCap").toInt();
+                for (int s = 0; s < 20; ++s) {
+                    goShelf();
+                    if (cap > 0 && cap < 30) {
+                        for (int i = 0; i < cap; ++i) {
+                            t->eval(QStringLiteral("win.openShowPage(backend.shows.showIdAt(%1))").arg(24 + (i % 6)));
+                            QCoreApplication::processEvents();
+                        }
+                        goShelf();
+                    }
+                    evicted << clickShown(0, "evicted", s);
+                    goShelf();
+                }
+                summarize("evicted", evicted);
+
+                // Cold first open of shows that have not been opened this run:
+                // none remain after visiting 0..29. Report that and move on.
+                // (The measure script runs a separate cold-only process.)
+
+                // Simulated player ticks: fire playerStateChanged many times
+                // with 1 vs 15 warm pages and compare process CPU.
+                auto tickCpu = [t, goShelf, cpuMs](int pages, const char *tag) {
+                    t->eval("win.warmShowCap"); // keep referenced
+                    // Evict down by visiting only `pages` recent shows if the
+                    // cap allows; otherwise just open `pages` shows.
+                    goShelf();
+                    // Drop extras by opening a unique set, then stay on shelf
+                    // so hidden pages would still have been waking before the freeze.
+                    for (int i = 0; i < pages; ++i) {
+                        t->eval(QStringLiteral("win.openShowPage(backend.shows.showIdAt(%1))").arg(i));
+                        QCoreApplication::processEvents();
+                    }
+                    goShelf();
+                    const int warm = t->eval("win.warmShowCount").toInt();
+                    const double t0 = cpuMs();
+                    QElapsedTimer wall;
+                    wall.start();
+                    for (int n = 0; n < 8000; ++n)
+                        t->eval("backend.playerStateChanged()");
+                    QCoreApplication::processEvents();
+                    const double cpu = cpuMs() - t0;
+                    fprintf(stderr, "instant: ticks %s pages=%d warm=%d cpu=%.1f ms wall=%lld ms\n",
+                            tag, pages, warm, cpu, qint64(wall.elapsed()));
+                };
+                // 15 first so we see the cost of a full set, then 1 (after
+                // opening only show 0; extras may remain if there is no cap).
+                tickCpu(15, "15-warm");
+
+                t->expect(true, "instant: measurements finished");
+            }},
+        };
+        t->run(0);
+        return;
+    }
+
     t->steps = {
         {1500, [t]() {
             t->expect(t->eval("pageKind").toString() == "shelf", "starts on shelf");
@@ -850,6 +1049,31 @@ void startUiTest(QQmlApplicationEngine &engine)
         {900, [t]() {
             t->expect(t->eval("theme.border.toString() === theme.accent.toString() && theme.popupBackground.toString() === theme.background.toString()").toBool(),
                       "theme: with the files gone, the popup border is the accent again");
+            t->eval("win.closeModals(); while (win.pageKind !== 'shelf' && win.canGoBack) win.back()");
+            t->eval("win.openShowPage(backend.shows.showIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'show' && win.warmHas(backend.shows.showIdAt(0))").toBool(),
+                      "warm page created for the open show");
+            t->frozenAt = t->eval("win.warmPageFor(backend.shows.showIdAt(0)).backendNotifyCount").toInt();
+            t->eval("win.openShowPage(backend.shows.showIdAt(1))");
+        }},
+        {200, [t]() {
+            t->eval("backend.openShowChanged()");
+            const int now = t->eval("win.warmPageFor(backend.shows.showIdAt(0)).backendNotifyCount").toInt();
+            t->expect(now == t->frozenAt && t->frozenAt >= 0,
+                      "hidden show page is frozen (no backend notifies)");
+            t->expect(t->eval("win.warmPageFor(backend.shows.showIdAt(1)) !== null").toBool(),
+                      "visible show page is still warm");
+            t->eval("(function(){ for (var i = 0; i < 8; ++i) win.rememberShow(1000 + i) })()");
+            t->expect(t->eval("win.warmShowCount === win.warmShowCap && win.warmShowCap === 6").toBool(),
+                      "warm pages are capped at 6");
+            t->expect(t->eval("win.warmHas(backend.openShowId)").toBool(),
+                      "the visible show is not evicted");
+            t->expect(t->eval("!win.warmHas(1000) && win.warmHas(1007)").toBool(),
+                      "the oldest hidden page is evicted first");
+            t->expect(t->eval("win.oldestEvictableId([1, 2, 3], 3, 1) === 2 && win.oldestEvictableId([1, 3], 3, 1) === 0").toBool(),
+                      "the playing show is not evicted when another page is visible");
         }},
     };
     t->run(0);

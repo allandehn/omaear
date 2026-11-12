@@ -14,6 +14,7 @@
 #include <QAtomicInt>
 #include <QThreadPool>
 #include <QUrl>
+#include <QQuickWindow>
 
 namespace {
 QMutex cacheMutex;
@@ -76,6 +77,61 @@ bool startupTiming()
 {
     static const bool on = qEnvironmentVariableIntValue("OMAEAR_TIMING") == 1;
     return on;
+}
+
+namespace {
+QElapsedTimer &showPressTimer()
+{
+    static QElapsedTimer timer;
+    return timer;
+}
+bool &showPressPending()
+{
+    static bool pending = false;
+    return pending;
+}
+double &lastClickToShown()
+{
+    static double ms = -1;
+    return ms;
+}
+}
+
+bool CoverCache::timingOn() const
+{
+    return startupTiming();
+}
+
+void CoverCache::markShowPress()
+{
+    if (!startupTiming())
+        return;
+    showPressTimer().start();
+    showPressPending() = true;
+}
+
+void CoverCache::cancelShowPress()
+{
+    showPressPending() = false;
+}
+
+void CoverCache::armShowShown(QObject *window)
+{
+    if (!startupTiming() || !showPressPending())
+        return;
+    auto *win = qobject_cast<QQuickWindow *>(window);
+    if (!win)
+        return;
+    showPressPending() = false;
+    QObject::connect(win, &QQuickWindow::frameSwapped, win, []() {
+        lastClickToShown() = showPressTimer().nsecsElapsed() / 1e6;
+        fprintf(stderr, "timing: click-to-shown %.2f ms\n", lastClickToShown());
+    }, Qt::SingleShotConnection);
+}
+
+double CoverCache::lastClickToShownMs() const
+{
+    return lastClickToShown();
 }
 
 QString localCoverSource(const QString &path)
