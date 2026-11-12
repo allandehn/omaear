@@ -12,15 +12,23 @@
 #include "feed.h"
 #include "library.h"
 #include "updates.h"
+#include "growingmediadevice.h"
 
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QHostAddress>
 #include <QLocale>
+#include <QStandardPaths>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QNetworkDiskCache>
 #include "netaccess.h"
 
@@ -634,6 +642,271 @@ int runSelfTest(int argc, char **argv)
             check(ink > 20, ("icon renders: " + what).constData());
         }
         check(iconSvg(QStringLiteral("../x.svg"), false).isEmpty(), "icons: no path escape");
+    }
+
+    {
+        // AdsWizz / Simplecast AIS: strip campaign query, keep Lavf, leave
+        // other hosts (including a Flightcast-style path) unchanged. A local
+        // mock server returns a short "plain" body without aw* params and a
+        // longer "stitched" body with them. No real network.
+        const QUrl ads = QUrl(QStringLiteral(
+            "https://pdrl.fm/f3efd0/dts.podtrac.com/redirect.mp3/arttrk.com/p/ST44R/"
+            "claritaspod.com/measure/stitcher.simplecastaudio.com/show/episodes/ep/"
+            "audio/128/default.mp3?aid=rss_feed&awCollectionId=col&awEpisodeId=ep&feed=dHoohVNH"));
+        check(HttpFileBuffer::isAdsWizzAudioUrl(ads), "ads: tracker enclosure is recognised");
+        const QUrl adsPlain = HttpFileBuffer::withoutAdsWizzQuery(ads);
+        check(adsPlain != ads, "ads: campaign query is dropped");
+        check(!QUrlQuery(adsPlain).hasQueryItem(QStringLiteral("awCollectionId"))
+                  && !QUrlQuery(adsPlain).hasQueryItem(QStringLiteral("awEpisodeId"))
+                  && !QUrlQuery(adsPlain).hasQueryItem(QStringLiteral("aid")),
+              "ads: awCollectionId, awEpisodeId and aid are gone");
+        check(QUrlQuery(adsPlain).queryItemValue(QStringLiteral("feed")) == QStringLiteral("dHoohVNH"),
+              "ads: other query items are kept");
+        check(adsPlain.host() == QStringLiteral("pdrl.fm")
+                  && adsPlain.path().contains(QStringLiteral("simplecastaudio.com")),
+              "ads: tracker prefix and path stay");
+        check(HttpFileBuffer::isAdsWizzAudioUrl(adsPlain),
+              "ads: path still recognised after the strip");
+
+        const QUrl byQuery(QStringLiteral("https://cdn.example.com/ep.mp3?awCollectionId=x&keep=1"));
+        check(HttpFileBuffer::isAdsWizzAudioUrl(byQuery), "ads: awCollectionId alone is recognised");
+        check(QUrlQuery(HttpFileBuffer::withoutAdsWizzQuery(byQuery)).queryItemValue(QStringLiteral("keep"))
+                  == QStringLiteral("1"),
+              "ads: non-campaign query on a plain host is kept");
+
+        const QUrl normal(QStringLiteral("https://cdn.example.com/ep.mp3?keep=1"));
+        check(!HttpFileBuffer::isAdsWizzAudioUrl(normal), "ads: ordinary host is not recognised");
+        check(HttpFileBuffer::withoutAdsWizzQuery(normal) == normal, "ads: ordinary URL is unchanged");
+
+        const QUrl flight(QStringLiteral("https://m.flightcast.com/listen/episode.mp3?token=1"));
+        check(!HttpFileBuffer::isAdsWizzAudioUrl(flight), "ads: Flightcast-style URL is not recognised");
+        check(HttpFileBuffer::withoutAdsWizzQuery(flight) == flight,
+              "ads: Flightcast-style URL is unchanged");
+
+        struct AudioProbeServer : QTcpServer {
+            QByteArray plain = QByteArray(80, 'P');
+            QByteArray stitched = QByteArray(160, 'S');
+            QByteArray other = QByteArray(40, 'O');
+            struct Hit {
+                QByteArray ua;
+                QString target;
+            };
+            QList<Hit> hits;
+            QHash<QTcpSocket *, QByteArray> buf;
+            AudioProbeServer()
+            {
+                connect(this, &QTcpServer::newConnection, this, [this]() {
+                    while (QTcpSocket *s = nextPendingConnection()) {
+                        connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                            buf[s] += s->readAll();
+                            QByteArray &raw = buf[s];
+                            int end = raw.indexOf("\r\n\r\n");
+                            int skip = 4;
+                            if (end < 0) {
+                                end = raw.indexOf("\n\n");
+                                skip = 2;
+                            }
+                            if (end < 0)
+                                return;
+                            const QByteArray req = raw.left(end);
+                            raw.remove(0, end + skip);
+                            const QList<QByteArray> lines = req.split('\n');
+                            const QString first = QString::fromLatin1(lines.value(0)).trimmed();
+                            const QString target = first.section(QLatin1Char(' '), 1, 1);
+                            QByteArray ua;
+                            for (const QByteArray &line : lines) {
+                                const QByteArray low = line.toLower();
+                                if (low.startsWith("user-agent:"))
+                                    ua = line.mid(line.indexOf(':') + 1).trimmed();
+                            }
+                            hits.append({ua, target});
+
+                            const QUrl got(QStringLiteral("http://localhost") + target);
+                            const bool adsPath = target.contains(QStringLiteral("simplecastaudio.com"))
+                                || target.contains(QStringLiteral("/default.mp3"));
+                            const QUrlQuery q(got);
+                            auto has = [&](const char *k) {
+                                const QString key = QLatin1String(k);
+                                return q.hasQueryItem(key) || q.hasQueryItem(key.toLower());
+                            };
+                            const bool campaign = has("awCollectionId") || has("awEpisodeId");
+
+                            QByteArray body;
+                            int status = 200;
+                            QByteArray ctype = "audio/mpeg";
+                            QByteArray loc;
+                            if (target.startsWith(QLatin1String("/tracker/"))) {
+                                status = 302;
+                                ctype = "text/plain";
+                                body = "tracker-hop";
+                                const QString rest = target.mid(QStringLiteral("/tracker").size());
+                                loc = "http://";
+                                loc += s->localAddress().toString().toLatin1();
+                                loc += ':';
+                                loc += QByteArray::number(serverPort());
+                                loc += rest.toUtf8();
+                            } else if (adsPath) {
+                                body = campaign ? stitched : plain;
+                            } else {
+                                body = other;
+                            }
+
+                            QByteArray resp = "HTTP/1.1 ";
+                            resp += status == 302 ? "302 Found" : "200 OK";
+                            resp += "\r\nContent-Type: ";
+                            resp += ctype;
+                            if (!loc.isEmpty()) {
+                                resp += "\r\nLocation: ";
+                                resp += loc;
+                            }
+                            resp += "\r\nConnection: close\r\nContent-Length: ";
+                            resp += QByteArray::number(body.size());
+                            resp += "\r\n\r\n";
+                            resp += body;
+                            s->write(resp);
+                            s->flush();
+                            s->disconnectFromHost();
+                        });
+                        connect(s, &QTcpSocket::disconnected, s, &QObject::deleteLater);
+                    }
+                });
+            }
+        };
+        AudioProbeServer server;
+        check(server.listen(QHostAddress::LocalHost, 0), "ads: probe server listens");
+        const QString origin = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+
+        QTemporaryDir cacheHome;
+        check(cacheHome.isValid(), "ads: throwaway cache dir");
+        const QByteArray oldCache = qgetenv("XDG_CACHE_HOME");
+        qputenv("XDG_CACHE_HOME", cacheHome.path().toUtf8());
+
+        auto waitDone = [](HttpFileBuffer *buf, int ms = 5000) {
+            if (buf->isComplete() || buf->isFailed())
+                return;
+            QEventLoop loop;
+            QObject::connect(buf, &HttpFileBuffer::completed, &loop, &QEventLoop::quit);
+            QObject::connect(buf, &HttpFileBuffer::failed, &loop, &QEventLoop::quit);
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+        auto readFinished = [](const QString &path) {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+        auto sidecarOf = [](qint64 id) {
+            QFile f(HttpFileBuffer::mediaDir() + QStringLiteral("/.%1.ua").arg(id));
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+
+        const QByteArray lavf(kAudioGenericUserAgent);
+
+        // AdsWizz-style enclosure behind a tracker hop that answers 302 text/plain
+        // (claritaspod). The campaign query must be gone before the first request,
+        // so the mock serves the plain body, and the User-Agent stays Lavf.
+        {
+            server.hits.clear();
+            const QUrl enc(origin
+                           + QStringLiteral("/tracker/dts.podtrac.com/redirect.mp3/"
+                                            "stitcher.simplecastaudio.com/show/episodes/ep/"
+                                            "audio/128/default.mp3"
+                                            "?aid=rss_feed&awCollectionId=col&awEpisodeId=ep&feed=dHoohVNH"));
+            HttpFileBuffer buf(910001, enc);
+            buf.start();
+            waitDone(&buf);
+            const QString path = buf.existingFinishedPath();
+            const QByteArray body = readFinished(path);
+            check(buf.isComplete() && !buf.isFailed() && body == server.plain,
+                  "ads: enclosure is fetched as the plain body");
+            check(buf.preferredUserAgent(enc) == lavf, "ads: preferred UA stays generic");
+            check(server.hits.size() >= 2, "ads: tracker hop is followed");
+            bool allLavf = !server.hits.isEmpty();
+            bool sawCampaign = false;
+            bool sawFeed = false;
+            for (const auto &h : server.hits) {
+                if (h.ua != lavf)
+                    allLavf = false;
+                const QUrl u(QStringLiteral("http://x") + h.target);
+                const QUrlQuery q(u);
+                if (q.hasQueryItem(QStringLiteral("awCollectionId"))
+                    || q.hasQueryItem(QStringLiteral("awEpisodeId"))
+                    || q.hasQueryItem(QStringLiteral("aid")))
+                    sawCampaign = true;
+                if (q.queryItemValue(QStringLiteral("feed")) == QStringLiteral("dHoohVNH"))
+                    sawFeed = true;
+            }
+            check(allLavf, "ads: every hop uses the generic player identity");
+            check(!sawCampaign, "ads: campaign query never reaches the host");
+            check(sawFeed, "ads: feed= is kept on the request");
+            const QByteArray side = sidecarOf(910001);
+            // Sidecar is removed after a successful finalize; a mid-download
+            // peek is enough: if it is already gone, the finished file is plain.
+            if (!side.isEmpty())
+                check(side.contains("variant=noaw"), "ads: sidecar records variant noaw");
+            Q_UNUSED(side);
+        }
+
+        // Ordinary host: URL and query stay as given, UA is still Lavf.
+        {
+            server.hits.clear();
+            const QUrl enc(origin + QStringLiteral("/normal/ep.mp3?keep=1"));
+            HttpFileBuffer buf(910002, enc);
+            buf.start();
+            waitDone(&buf);
+            const QByteArray body = readFinished(buf.existingFinishedPath());
+            check(buf.isComplete() && body == server.other, "ads: ordinary host downloads");
+            check(server.hits.size() == 1 && server.hits.at(0).ua == lavf,
+                  "ads: ordinary host uses the generic player identity");
+            check(server.hits.at(0).target.contains(QStringLiteral("keep=1")),
+                  "ads: ordinary URL is requested unchanged");
+        }
+
+        // Flightcast-style path (the host that first needed Lavf): untouched.
+        {
+            server.hits.clear();
+            const QUrl enc(origin + QStringLiteral("/m.flightcast.com/listen/episode.mp3?token=1"));
+            check(!HttpFileBuffer::isAdsWizzAudioUrl(enc), "ads: Flightcast path is not AdsWizz");
+            HttpFileBuffer buf(910003, enc);
+            buf.start();
+            waitDone(&buf);
+            const QByteArray body = readFinished(buf.existingFinishedPath());
+            check(buf.isComplete() && body == server.other, "ads: Flightcast-style download");
+            check(server.hits.size() == 1 && server.hits.at(0).ua == lavf,
+                  "ads: Flightcast-style host uses the generic player identity");
+            check(server.hits.at(0).target.contains(QStringLiteral("token=1")),
+                  "ads: Flightcast-style URL is requested unchanged");
+        }
+
+        // A .part recorded as variant=default must not be spliced onto a noaw fetch.
+        {
+            server.hits.clear();
+            const QUrl enc(origin
+                           + QStringLiteral("/stitcher.simplecastaudio.com/show/episodes/ep/"
+                                            "audio/128/default.mp3?awCollectionId=col&awEpisodeId=ep"));
+            const qint64 id = 910004;
+            const QString part = HttpFileBuffer::mediaDir() + QStringLiteral("/%1.part").arg(id);
+            const QString sidePath = HttpFileBuffer::mediaDir() + QStringLiteral("/.%1.ua").arg(id);
+            QDir().mkpath(HttpFileBuffer::mediaDir());
+            QFile partFile(part);
+            check(partFile.open(QIODevice::WriteOnly) && partFile.write(QByteArray(24, 'X')) == 24,
+                  "ads: stale stitched .part written");
+            partFile.close();
+            QFile side(sidePath);
+            check(side.open(QIODevice::WriteOnly)
+                      && side.write(lavf + "\nvariant=default\n") > 0,
+                  "ads: stale default sidecar written");
+            side.close();
+            HttpFileBuffer buf(id, enc);
+            buf.start();
+            waitDone(&buf);
+            const QByteArray body = readFinished(buf.existingFinishedPath());
+            check(buf.isComplete() && body == server.plain,
+                  "ads: default .part is not spliced onto a noaw download");
+            check(!body.contains('X'), "ads: stale stitched bytes are gone");
+        }
+
+        qputenv("XDG_CACHE_HOME", oldCache);
+        server.close();
     }
 
     if (g_fails == 0) {

@@ -1783,6 +1783,23 @@ int runPlayer(int argc, char **argv)
         library.markCacheMigrationDone(QStringLiteral("audio_cache_static_fallback"));
         qInfo("[omaear-cache] static-fallback fix: removed %d cached Audioboom episode files", removed);
     }
+    // One-time: AdsWizz / Simplecast audio cached with campaign query (and
+    // therefore a player-stitched file) is dropped so the next play fetches
+    // the plain file. Played marks and positions are untouched.
+    if (!library.cacheMigrationDone(QStringLiteral("audio_cache_adswizz_noaw"))) {
+        QList<qint64> ids;
+        for (const QString &frag : {QStringLiteral("simplecastaudio.com"),
+                                    QStringLiteral("awCollectionId"),
+                                    QStringLiteral("awEpisodeId")}) {
+            for (qint64 id : library.episodeIdsViaHost(frag)) {
+                if (!ids.contains(id))
+                    ids.append(id);
+            }
+        }
+        const int removed = HttpFileBuffer::purgeEpisodes(ids);
+        library.markCacheMigrationDone(QStringLiteral("audio_cache_adswizz_noaw"));
+        qInfo("[omaear-cache] AdsWizz plain-audio fix: removed %d cached episode files", removed);
+    }
     QTimer::singleShot(400, &service, &PlayerService::considerExit);
     return app.exec();
 }

@@ -52,6 +52,13 @@ public:
     // Static original behind a variant URL (…/v1/variant/…?fallback_url=…
     // media_type=static, e.g. Audioboom). Empty when the URL is not such a variant.
     static QUrl staticFallbackUrl(const QUrl &url);
+    // AdsWizz / Simplecast AIS: query has awCollectionId or awEpisodeId, or the
+    // host or path contains simplecastaudio.com (including a tracker-prefixed
+    // enclosure that embeds that host in the path).
+    static bool isAdsWizzAudioUrl(const QUrl &url);
+    // Drops awCollectionId, awEpisodeId and aid. Tracker prefixes and other
+    // query items (e.g. feed=) are kept. Unchanged when those keys are absent.
+    static QUrl withoutAdsWizzQuery(const QUrl &url);
     // Deletes cached files (finished, .part, sidecar) of these episodes.
     static int purgeEpisodes(const QList<qint64> &episodeIds);
 
@@ -117,10 +124,14 @@ private:
     bool m_fallbackInFlight = false;
     bool m_genericRefusedByHost = false;
     bool m_truncateOnAccept = false; // next accepted response restarts the file at 0
-    // Which variant the bytes are: "default" (whatever the chain serves) or
-    // "static" (fallback_url original). Part of the sidecar identity.
+    // Which variant the bytes are: "default" (whatever the chain serves),
+    // "static" (fallback_url original), or "noaw" (AdsWizz campaign query
+    // stripped). Part of the sidecar identity so a stitched .part is never resumed.
     QByteArray m_variant = "default";
     QByteArray m_sidecarVariant;
+    // Constructor saw an AdsWizz / Simplecast AIS URL and stripped its campaign
+    // query. startRequest keeps variant "noaw" for this buffer.
+    bool m_adsWizzPlain = false;
 };
 
 class GrowingMediaDevice : public QIODevice {

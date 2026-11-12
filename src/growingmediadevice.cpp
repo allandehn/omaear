@@ -43,13 +43,60 @@ QByteArray HttpFileBuffer::preferredUserAgent(const QUrl &url)
                                                        : QByteArray(kAudioGenericUserAgent);
 }
 
+bool HttpFileBuffer::isAdsWizzAudioUrl(const QUrl &url)
+{
+    const QString host = url.host();
+    const QString path = url.path();
+    if (host.contains(QLatin1String("simplecastaudio.com"), Qt::CaseInsensitive)
+        || path.contains(QLatin1String("simplecastaudio.com"), Qt::CaseInsensitive))
+        return true;
+    const QUrlQuery query(url);
+    const auto items = query.queryItems(QUrl::FullyDecoded);
+    for (const auto &item : items) {
+        const QString key = item.first.toLower();
+        if (key == QLatin1String("awcollectionid") || key == QLatin1String("awepisodeid"))
+            return true;
+    }
+    return false;
+}
+
+QUrl HttpFileBuffer::withoutAdsWizzQuery(const QUrl &url)
+{
+    const QUrlQuery query(url);
+    if (query.isEmpty())
+        return url;
+    QUrlQuery kept;
+    bool dropped = false;
+    const auto items = query.queryItems(QUrl::FullyDecoded);
+    for (const auto &item : items) {
+        const QString key = item.first.toLower();
+        if (key == QLatin1String("awcollectionid")
+            || key == QLatin1String("awepisodeid")
+            || key == QLatin1String("aid")) {
+            dropped = true;
+            continue;
+        }
+        kept.addQueryItem(item.first, item.second);
+    }
+    if (!dropped)
+        return url;
+    QUrl clean(url);
+    clean.setQuery(kept);
+    return clean;
+}
+
 HttpFileBuffer::HttpFileBuffer(qint64 episodeId, const QUrl &url, QObject *parent)
     : QObject(parent)
     , m_episodeId(episodeId)
     , m_url(url)
     , m_nam(new AppNetworkAccessManager(this)) // HTTP/1.1 only, see netaccess.h
 {
-    m_ext = extensionFromUrl(url);
+    if (isAdsWizzAudioUrl(m_url)) {
+        m_url = withoutAdsWizzQuery(m_url);
+        m_adsWizzPlain = true;
+        m_variant = QByteArray("noaw");
+    }
+    m_ext = extensionFromUrl(m_url);
     m_hintUrl = QUrl(QStringLiteral("file:episode%1%2").arg(episodeId).arg(m_ext));
     m_device = new GrowingMediaDevice(this, this);
 }
@@ -109,7 +156,7 @@ QString HttpFileBuffer::uaSidecarPath() const
 
 void HttpFileBuffer::writeUaSidecar()
 {
-    // Line 1: UA. Line 2: variant=<default|static>. Both must match to resume.
+    // Line 1: UA. Line 2: variant=<default|static|noaw>. Both must match to resume.
     QFile side(uaSidecarPath());
     if (side.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         side.write(m_ua + "\nvariant=" + m_variant + "\n");
@@ -278,6 +325,11 @@ void HttpFileBuffer::start()
                   recorded.isEmpty() ? "unknown" : uaLabel(recorded));
             QFile::remove(part);
             existing = 0;
+        } else if (recordedVariant != m_variant) {
+            qInfo("[omaear-cache] episode %lld: .part was fetched as %s, restarting from 0",
+                  static_cast<long long>(m_episodeId), recordedVariant.constData());
+            QFile::remove(part);
+            existing = 0;
         } else {
             m_sidecarUa = recorded;
             m_sidecarVariant = recordedVariant;
@@ -335,8 +387,14 @@ void HttpFileBuffer::startRequest(qint64 fromOffset, const QUrl &overrideUrl)
     m_reqAccepted = false;
 
     // Every fresh chain starts as "default"; onRedirected switches to the static
-    // fallback before any stitched body flows.
-    m_variant = overrideUrl.isEmpty() ? QByteArray("default") : QByteArray("static");
+    // fallback before any stitched body flows. AdsWizz URLs that dropped the
+    // campaign query stay "noaw" so a previously stitched .part is never resumed.
+    if (!overrideUrl.isEmpty())
+        m_variant = QByteArray("static");
+    else if (m_adsWizzPlain)
+        m_variant = QByteArray("noaw");
+    else
+        m_variant = QByteArray("default");
     QNetworkRequest req(overrideUrl.isEmpty() ? m_url : overrideUrl);
     // Each hop is checked in onRedirected (same safety as NoLessSafe).
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -428,6 +486,10 @@ bool HttpFileBuffer::headersRejected(QNetworkReply *reply) const
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (status >= 400)
         return true;
+    // Redirect hops are not a refusal. claritaspod answers 302 with text/plain;
+    // treating that as a rejection would fall back to the app identity.
+    if (status >= 300)
+        return false;
     // Some hosts answer an identity they dislike with a 200 HTML/JSON page.
     const QString ct = reply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
     return ct.startsWith(QStringLiteral("text/")) || ct.contains(QStringLiteral("html"))
