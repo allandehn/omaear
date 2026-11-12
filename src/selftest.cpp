@@ -40,6 +40,11 @@
 #include <QTimer>
 #include <QNetworkDiskCache>
 #include "netaccess.h"
+#include "backend.h"
+#include <QSettings>
+#include <QThread>
+#include <algorithm>
+#include <functional>
 
 namespace {
 int g_fails = 0;
@@ -1327,6 +1332,152 @@ int runSelfTest(int argc, char **argv)
     }
 
     g_fails += runRefreshSelfTest();
+
+    {
+        // Episode-list art is a local cache file only. Opening show A used to
+        // enqueue every missing cover, and opening show B appended behind that
+        // remainder (6 in flight). B then showed only the show cover until a
+        // description jump-the-queue download finished. Opening B must drop
+        // other shows' queued jobs so its covers start on the next free slot.
+        QByteArray jpeg;
+        {
+            QImage img(8, 8, QImage::Format_RGB32);
+            img.fill(Qt::blue);
+            QBuffer buf(&jpeg);
+            check(buf.open(QIODevice::WriteOnly) && img.save(&buf, "JPEG", 90) && jpeg.size() > 32,
+                  "episode-cover jpeg encodes");
+        }
+        struct HoldCoverServer : QTcpServer {
+            QByteArray body;
+            QByteArray leftover;
+            QStringList paths;
+            QList<QTcpSocket *> held;
+            void replyTo(QTcpSocket *s)
+            {
+                QByteArray resp = "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n"
+                                  "Connection: close\r\nContent-Length: ";
+                resp += QByteArray::number(body.size());
+                resp += "\r\n\r\n";
+                resp += body;
+                s->write(resp);
+                s->flush();
+                s->disconnectFromHost();
+            }
+            HoldCoverServer()
+            {
+                connect(this, &QTcpServer::newConnection, this, [this]() {
+                    while (QTcpSocket *s = nextPendingConnection()) {
+                        connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                            leftover += s->readAll();
+                            const int end = leftover.indexOf("\r\n\r\n") >= 0
+                                ? leftover.indexOf("\r\n\r\n")
+                                : leftover.indexOf("\n\n");
+                            if (end < 0)
+                                return;
+                            const QByteArray req = leftover;
+                            leftover.clear();
+                            const QString first = QString::fromLatin1(req.split('\n').value(0)).trimmed();
+                            paths << first.section(QLatin1Char(' '), 1, 1);
+                            held.append(s);
+                        });
+                        connect(s, &QTcpSocket::disconnected, this, [this, s]() {
+                            held.removeAll(s);
+                            s->deleteLater();
+                        });
+                    }
+                });
+            }
+        };
+        HoldCoverServer server;
+        server.body = jpeg;
+        check(server.listen(QHostAddress::LocalHost, 0), "episode-cover server listens");
+        const QString origin = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+
+        check(library.isOpen(), "episode-cover library still open");
+        {
+            QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+            settings.setValue(QStringLiteral("refresh/lastSuccessMs"),
+                              QDateTime::currentMSecsSinceEpoch());
+            settings.sync();
+        }
+
+        auto makeShow = [&](const QString &feed, const QString &title, const QString &prefix, int count) {
+            ParsedShow show;
+            show.title = title;
+            show.author = QStringLiteral("Test");
+            // Empty imageUrl is bound as NULL and fails the NOT NULL column.
+            show.imageUrl = origin + QLatin1Char('/') + prefix + QStringLiteral("-show.jpg");
+            for (int i = 1; i <= count; ++i) {
+                ParsedEpisode ep;
+                ep.guid = QStringLiteral("ep-cover-%1-%2").arg(prefix).arg(i);
+                ep.title = title + QLatin1Char(' ') + QString::number(i);
+                ep.audioUrl = origin + QLatin1Char('/') + prefix + QString::number(i) + QStringLiteral(".mp3");
+                ep.imageUrl = origin + QLatin1Char('/') + prefix + QString::number(i) + QStringLiteral(".jpg");
+                ep.published = 1700000000 + i;
+                show.episodes.append(ep);
+            }
+            return library.upsertShow(feed, show);
+        };
+        const qint64 showA = makeShow(QStringLiteral("https://example.test/show-a.xml"),
+                                      QStringLiteral("Show A"), QStringLiteral("a"), 10);
+        const qint64 showB = makeShow(QStringLiteral("https://example.test/show-b.xml"),
+                                      QStringLiteral("Show B"), QStringLiteral("b"), 3);
+        check(showA != 0 && showB != 0 && library.episodes(showA).size() == 10
+                  && library.episodes(showB).size() == 3,
+              "episode-cover shows stored");
+
+        Backend backend(library);
+        // Drain the constructor's launch singleShot without starting a refresh.
+        QCoreApplication::processEvents();
+
+        auto waitUntil = [](const std::function<bool()> &ready, int ms) {
+            QElapsedTimer t;
+            t.start();
+            while (!ready() && t.elapsed() < ms) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+                QThread::msleep(5);
+            }
+            return ready();
+        };
+
+        backend.openShow(showA);
+        check(waitUntil([&]() { return server.held.size() >= 6; }, 2000),
+              "opening show A fills the 6 cover-download slots");
+        check(server.paths.size() == 6, "only 6 show A covers start at first");
+        const bool firstWaveIsA = std::all_of(server.paths.cbegin(), server.paths.cend(),
+                                              [](const QString &p) { return p.startsWith(QLatin1String("/a")); });
+        check(firstWaveIsA, "first wave is show A");
+
+        backend.openShow(showB);
+        QCoreApplication::processEvents();
+        check(server.paths.size() == 6 && server.held.size() == 6,
+              "opening show B leaves in-flight show A downloads running");
+
+        // Free one slot. The next request must be show B, not the rest of A.
+        check(!server.held.isEmpty(), "a held show A connection can be released");
+        if (!server.held.isEmpty())
+            server.replyTo(server.held.first());
+        const bool startedB = waitUntil([&]() {
+            for (const QString &p : server.paths) {
+                if (p.startsWith(QLatin1String("/b")))
+                    return true;
+            }
+            return false;
+        }, 2000);
+        check(startedB, "opening show B starts its covers on the next free slot");
+        QStringList after;
+        for (int i = 6; i < server.paths.size(); ++i)
+            after << server.paths.at(i);
+        const bool noMoreABeforeB = after.isEmpty()
+            || after.at(0).startsWith(QLatin1String("/b"));
+        check(noMoreABeforeB, "show B is not queued behind the rest of show A");
+
+        const auto held = server.held;
+        for (QTcpSocket *s : held)
+            server.replyTo(s);
+        waitUntil([&]() { return server.held.isEmpty(); }, 2000);
+        server.close();
+    }
 
     if (g_fails == 0) {
         printf("ok\n");

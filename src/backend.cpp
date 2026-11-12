@@ -745,6 +745,34 @@ void Backend::ensureEpisodeCovers(const QList<EpisodeRow> &rows)
     // List art used to stay on the remote URL, so the only copy was Qt Quick's
     // pixmap cache. Opening another show evicted it and the return visit
     // downloaded again. Files under CacheLocation survive that.
+    //
+    // Opening a different show used to append its covers behind the previous
+    // show's remaining queue (capped at 6 in flight). The list only paints
+    // those cached files, so the new show kept the show cover until a
+    // description jump-the-queue download finished. Drop other shows' queued
+    // jobs (in-flight ones finish). A later visit re-queues via openShow.
+    // Keep a playing or open episode so a jump-the-queue job is not dropped.
+    QSet<qint64> keep;
+    keep.reserve(rows.size() + 2);
+    for (const EpisodeRow &row : rows)
+        keep.insert(row.id);
+    if (m_playerEpisodeId != 0)
+        keep.insert(m_playerEpisodeId);
+    if (m_openEpisodeId != 0)
+        keep.insert(m_openEpisodeId);
+    if (!m_episodeCoverQueue.isEmpty()) {
+        QList<EpisodeCoverJob> kept;
+        kept.reserve(m_episodeCoverQueue.size());
+        QSet<qint64> keptIds;
+        for (const EpisodeCoverJob &job : std::as_const(m_episodeCoverQueue)) {
+            if (!keep.contains(job.episodeId))
+                continue;
+            kept.append(job);
+            keptIds.insert(job.episodeId);
+        }
+        m_episodeCoverQueue = kept;
+        m_episodeCoverQueued = keptIds;
+    }
     for (const EpisodeRow &row : rows) {
         if (row.imageUrl.isEmpty())
             continue;
