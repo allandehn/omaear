@@ -640,7 +640,8 @@ void startUiTest(QQmlApplicationEngine &engine)
     const QString instantMode = qEnvironmentVariable("OMAEAR_UI_TEST_INSTANT");
     if (instantMode == QLatin1String("1") || instantMode == QLatin1String("full")
         || instantMode == QLatin1String("cold") || instantMode == QLatin1String("ticks1")
-        || instantMode == QLatin1String("ticks15")) {
+        || instantMode == QLatin1String("ticks15") || instantMode == QLatin1String("prewarm")
+        || instantMode == QLatin1String("press") || instantMode == QLatin1String("sweep")) {
         auto readRollup = [](const char *key) -> long {
             std::ifstream in("/proc/self/smaps_rollup");
             std::string line;
@@ -721,6 +722,42 @@ void startUiTest(QQmlApplicationEngine &engine)
                     }
                     summarize("cold", cold);
                     t->expect(true, "instant: cold measurements finished");
+                    return;
+                }
+                if (instantMode == QLatin1String("prewarm") || instantMode == QLatin1String("press")) {
+                    const bool hover = instantMode == QLatin1String("prewarm");
+                    QList<double> samples;
+                    for (int s = 0; s < 20; ++s) {
+                        goShelf();
+                        t->eval(QStringLiteral("win.prewarmShow(backend.shows.showIdAt(%1))").arg(s));
+                        if (hover) {
+                            // Same rest the hover timer uses, so decode can start.
+                            QEventLoop wait;
+                            QTimer::singleShot(t->eval("win.warmPrewarmMs").toInt(), &wait, &QEventLoop::quit);
+                            wait.exec();
+                        }
+                        QCoreApplication::processEvents();
+                        samples << clickShown(s, hover ? "prewarmed" : "press", s);
+                        goShelf();
+                    }
+                    summarize(hover ? "prewarmed" : "press", samples);
+                    t->expect(true, "instant: prewarm measurements finished");
+                    return;
+                }
+                if (instantMode == QLatin1String("sweep")) {
+                    // Hover-prewarm every tile in turn, no dwell. The cap must hold.
+                    for (int i = 0; i < 30; ++i) {
+                        t->eval(QStringLiteral("win.prewarmShow(backend.shows.showIdAt(%1))").arg(i));
+                        QCoreApplication::processEvents();
+                    }
+                    logMem(0);
+                    const int warm = t->eval("win.warmShowCount").toInt();
+                    const int spec = t->eval("win.warmSpecCount").toInt();
+                    fprintf(stderr, "instant: sweep warm=%d spec=%d cap=%d specCap=%d\n",
+                            warm, spec, t->eval("win.warmShowCap").toInt(),
+                            t->eval("win.warmSpecCap").toInt());
+                    t->expect(spec <= 2 && warm <= 6, "instant: sweep keeps the spec cap and LRU cap");
+                    t->expect(true, "instant: sweep finished");
                     return;
                 }
                 if (instantMode == QLatin1String("ticks1") || instantMode == QLatin1String("ticks15")) {
@@ -1074,6 +1111,55 @@ void startUiTest(QQmlApplicationEngine &engine)
                       "the oldest hidden page is evicted first");
             t->expect(t->eval("win.oldestEvictableId([1, 2, 3], 3, 1) === 2 && win.oldestEvictableId([1, 3], 3, 1) === 0").toBool(),
                       "the playing show is not evicted when another page is visible");
+            t->expect(t->eval("win.oldestEvictableId([1, 2, 3], 3, 0, [2]) === 1").toBool(),
+                      "a lone speculative page is kept if an opened hidden page can go");
+            t->expect(t->eval("win.oldestEvictableId([1, 2, 3], 3, 0, [1, 2]) === 1").toBool(),
+                      "an older speculative page is evicted before the newest one");
+            t->eval("while (win.pageKind !== 'shelf' && win.canGoBack) win.back(); win.forgetAllWarm()");
+        }},
+        {200, [t]() {
+            t->eval("win.forgetAllWarm(); win.prewarmShow(backend.shows.showIdAt(0))");
+            t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 1").toBool(),
+                      "pre-warm creates a hidden page on the shelf");
+            t->expect(t->eval("!win.warmPageFor(backend.shows.showIdAt(0)).visible").toBool(),
+                      "a pre-warmed page stays hidden");
+            t->eval("win.prewarmShow(2001); win.prewarmShow(2002); win.prewarmShow(2003)");
+            t->expect(t->eval("win.warmSpecCount === 2 && !win.warmHas(backend.shows.showIdAt(0)) && !win.warmHas(2001) && win.warmHas(2002) && win.warmHas(2003)").toBool(),
+                      "speculative pages are capped at 2, FIFO");
+        }},
+        {200, [t]() {
+            t->eval("win.forgetAllWarm(); win.prewarmShow(backend.shows.showIdAt(0)); win.openShowPage(backend.shows.showIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'show' && win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 0").toBool(),
+                      "opening a pre-warmed show promotes it off the speculative list");
+            t->eval("win.back(); win.forgetAllWarm()");
+            t->eval("win.markShowPress(backend.shows.showIdAt(1))");
+            t->expect(t->eval("win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),
+                      "a left-press pre-warms at once");
+            t->eval("win.cancelShowPress()");
+            t->expect(t->eval("!win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 0").toBool(),
+                      "canceling a press drops the speculative page");
+        }},
+        {200, [t]() {
+            t->eval("win.forgetAllWarm()");
+            t->hover(t->centerOf("shelfView.coverItemAt(1)"));
+        }},
+        {250, [t]() {
+            t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),
+                      "hovering a tile for 200 ms pre-warms it");
+            t->eval("win.forgetAllWarm()");
+            t->click(t->centerOf("shelfView.coverItemAt(0)"), Qt::RightButton);
+        }},
+        {200, [t]() {
+            t->expect(t->eval("!win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 0").toBool(),
+                      "a right-click does not pre-warm");
+            t->eval("if (shelfView.coverMenuOpen) shelfView.coverMenuObject.close()");
+            t->eval("win.forgetAllWarm(); win.keyboardMode = true; win.navShown = true; shelfView.setNavIndex(1)");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),
+                      "keyboard focus resting on a tile pre-warms it");
         }},
     };
     t->run(0);

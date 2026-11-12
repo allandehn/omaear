@@ -190,14 +190,44 @@ EpisodeModel *Backend::episodeModel(qint64 showId, bool create)
     return model;
 }
 
-void Backend::syncEpisodeModel(qint64 showId)
+void Backend::syncEpisodeModel(qint64 showId, bool fetchCovers)
 {
     if (showId == 0)
         return;
     EpisodeModel *model = episodeModel(showId, true);
     const QList<EpisodeRow> rows = visibleEpisodes(showId);
     model->setRows(rows);
-    ensureEpisodeCovers(rows);
+    if (fetchCovers)
+        ensureEpisodeCovers(rows);
+}
+
+void Backend::warmEpisodes(qint64 showId)
+{
+    if (showId == 0 || !m_library.hasShow(showId))
+        return;
+    if (!m_episodeModels.contains(showId))
+        syncEpisodeModel(showId, false);
+    QStringList paths;
+    const QString showArt = m_library.showImage(showId);
+    if (!showArt.isEmpty() && QFileInfo::exists(showArt))
+        paths.append(showArt);
+    int n = 0;
+    for (const EpisodeRow &row : visibleEpisodes(showId)) {
+        if (row.imagePath.isEmpty() || !QFileInfo::exists(row.imagePath))
+            continue;
+        paths.append(row.imagePath);
+        if (++n >= 24)
+            break;
+    }
+    if (!paths.isEmpty())
+        prewarmCovers(paths, {kCoverRowSide});
+}
+
+void Backend::dropWarmEpisodes(qint64 showId)
+{
+    if (showId == 0 || showId == m_openShowId || showId == m_playerShowId)
+        return;
+    discardEpisodeModel(showId);
 }
 
 void Backend::discardEpisodeModel(qint64 showId)
