@@ -845,11 +845,12 @@ void Library::setShelfColumns(int columns)
 
 int Library::shelfListSize() const
 {
-    // 0 is the original list cover. ShelfView keeps five sizes, 0 through 4.
+    // 0 is the original 44px list cover. ShelfView keeps five sizes, 0 through 4;
+    // a new library starts two steps up (88px).
     bool ok = false;
-    const int value = setting(QStringLiteral("shelf.listSize"), QStringLiteral("0")).toInt(&ok);
+    const int value = setting(QStringLiteral("shelf.listSize"), QStringLiteral("2")).toInt(&ok);
     if (!ok)
-        return 0;
+        return 2;
     return qBound(0, value, 4);
 }
 

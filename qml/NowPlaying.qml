@@ -59,8 +59,8 @@ Item {
         for (var i = 0; i < controls.children.length; ++i) list.push(controls.children[i])
         return shown(list) }
     function navSeek() { return shown([scrubber]) }
-    // The notes are a stop only when they scroll (Up/Down scroll them, then move on).
-    function navNotes() { return synopsisBox.visible && synopsisBox.interactive ? [synopsisBox] : [] }
+    // The notes are a stop only when the page scrolls (Up/Down scroll the page, then move on).
+    function navNotes() { return synopsisBox.visible && scroller.contentHeight > scroller.height + 1 ? [synopsisBox] : [] }
 
     function nudge(seconds) {
         var next = backend.playerPosition + seconds
@@ -121,6 +121,9 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: topPad
             spacing: (page.compact ? 10 : 20) * theme.textScale
+            // Titles, transport, scrubber and notes share one column: 560px or 55%
+            // of the window, whichever is wider, never past the side pads.
+            readonly property real colWidth: Math.min(width, Math.max(560 * theme.textScale, page.width * 0.55))
 
             // Height claimed by title, transport, scrubber and gaps. The episode
             // description is left out on purpose: it scrolls below, so a long
@@ -131,20 +134,18 @@ Item {
                                                + transportBlock.implicitHeight
                                                + scrubberCol.implicitHeight
             // Room the notes may take on a short window, after a small cover:
-            // they shrink (and scroll) or step aside rather than run under the bar.
+            // a few lines show under the cover, the rest scrolls with the page.
             readonly property real notesRoom: page.height - topPad - bottomPad - baseChrome
                                               - spacing * 4 - 120 * theme.textScale
             // The notes get ~5 lines or 35% of the free height, whichever is more (the
             // cover fits around that, so they grow/shrink with the window); any
-            // height still free under the cover goes to the notes too (notesLeft).
+            // longer notes continue below and the page scrolls.
             readonly property real notesReserve: Math.max(0, Math.min(synopsis.implicitHeight, Math.max(theme.bodySmall * 1.4 * 5, notesRoom * 0.35), notesRoom))
-            readonly property real notesLeft: page.height - topPad - bottomPad - coverBlock.height - baseChrome - spacing * 4
             readonly property real chromeBelow: {
                 var gaps = 3
                 var h = baseChrome
-                // The notes box is capped (it scrolls inside), so it can claim its
-                // room without squeezing the cover to a thumbnail; nothing sits
-                // hidden below the fold above the player bar any more.
+                // Reserve a few lines of notes under the cover; the rest of a long
+                // blurb runs below the fold and the page scrolls.
                 if (synopsisBox.visible) {
                     h += notesReserve
                     gaps += 1
@@ -298,7 +299,7 @@ Item {
 
             Column {
                 id: titles
-                width: Math.min(parent.width, 560 * theme.textScale)
+                width: body.colWidth
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: 6
                 visible: !page.compact
@@ -456,7 +457,7 @@ Item {
 
             Column {
                 id: scrubberCol
-                width: Math.min(parent.width, 560 * theme.textScale)
+                width: body.colWidth
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: page.compact ? 4 : 8
 
@@ -494,30 +495,25 @@ Item {
                 }
             }
 
-            // Notes: fill the height left under the cover (at least ~5 lines when
-            // there is room); longer notes scroll in place, with a fade while clipped.
-            Flickable {
+            // Notes: part of the page. The cover leaves room for a few lines; longer
+            // notes run on below and the whole page scrolls.
+            Item {
                 id: synopsisBox
-                width: Math.min(parent.width, 560 * theme.textScale)
+                width: body.colWidth
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !page.compact && backend.playerDescription.length > 0
-                         && body.notesRoom >= theme.bodySmall * 1.4 * 2
-                height: Math.max(body.notesReserve, Math.min(synopsis.implicitHeight, body.notesLeft))
-                contentWidth: width
-                contentHeight: synopsis.implicitHeight
-                interactive: contentHeight > height
-                clip: true
+                height: synopsis.implicitHeight
                 property bool kbdFocus: false
-                // Up/Down from the keyboard: ~3 lines; false at the end so focus moves on.
+                // Up/Down from the keyboard: ~3 lines of the page; false at the end so focus moves on.
                 function navScroll(dir) {
-                    var max = Math.max(0, contentHeight - height)
-                    if ((dir < 0 && contentY <= 0) || (dir > 0 && contentY >= max - 0.5)) return false
-                    contentY = Math.max(0, Math.min(max, contentY + dir * theme.bodySmall * 1.4 * 3))
+                    var max = Math.max(0, scroller.contentHeight - scroller.height)
+                    if ((dir < 0 && scroller.contentY <= 0) || (dir > 0 && scroller.contentY >= max - 0.5)) return false
+                    scroller.contentY = Math.max(0, Math.min(max, scroller.contentY + dir * theme.bodySmall * 1.4 * 3))
                     return true
                 }
                 Rectangle {   // keyboard ring
-                    parent: synopsisBox
                     anchors.fill: parent
+                    anchors.margins: -4
                     z: 3
                     color: "transparent"
                     radius: theme.rButton
@@ -525,8 +521,6 @@ Item {
                     border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.55)
                     visible: synopsisBox.kbdFocus
                 }
-                boundsBehavior: Flickable.StopAtBounds
-                FastWheel { }
                 SelectableText {
                     id: synopsis
                     width: synopsisBox.width
@@ -541,20 +535,6 @@ Item {
                     font.family: "monospace"
                     wrapMode: TextEdit.Wrap
                     opacity: 0.9
-                }
-                // "More below": soft fade at the bottom edge while the text is clipped.
-                Rectangle {
-                    parent: synopsisBox
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: Math.min(28 * theme.textScale, synopsisBox.height / 2)
-                    visible: synopsisBox.contentHeight > synopsisBox.height + 1
-                             && synopsisBox.contentY + synopsisBox.height < synopsisBox.contentHeight - 1
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Qt.rgba(theme.background.r, theme.background.g, theme.background.b, 0) }
-                        GradientStop { position: 1; color: theme.background }
-                    }
                 }
             }
         }

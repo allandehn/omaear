@@ -1315,7 +1315,7 @@ ApplicationWindow {
             else if (pageKind === "show")
                 backend.setEpisodeListSize(2)
             else if (backend.shelfView === "list")
-                backend.setShelfListSize(0)
+                backend.setShelfListSize(2)
             else
                 backend.setShelfColumns(6)
         }

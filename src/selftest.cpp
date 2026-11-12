@@ -404,7 +404,7 @@ int runSelfTest(int argc, char **argv)
         check(library.shelfColumns() == 10, "columns stay at most ten");
         library.setShelfColumns(10);
         check(library.shelfColumns() == 10, "ten columns is allowed");
-        check(library.shelfListSize() == 0, "list cover starts at the smallest");
+        check(library.shelfListSize() == 2, "list cover starts two steps up");
         library.setShelfListSize(-3);
         check(library.shelfListSize() == 0, "list cover stays at least the smallest");
         library.setShelfListSize(9);
