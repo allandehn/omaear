@@ -3,6 +3,10 @@
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
 #include <QDir>
 #include <QFile>
+#include <QLinearGradient>
+#include <QPainter>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QFileInfo>
 #include <QElapsedTimer>
 #include <QCursor>
@@ -20,7 +24,40 @@
 #include <QTimer>
 #include <functional>
 
+#include "explore.h"
+
 namespace {
+// Offline Explore results for the UI tests (the test container has no network):
+// n coloured covers written under the throwaway cache dir, handed to the model.
+void seedExplore(QQmlApplicationEngine &engine, int n)
+{
+    auto *ex = qobject_cast<Explore *>(engine.rootContext()->contextProperty(QStringLiteral("explore")).value<QObject *>());
+    if (!ex)
+        return;
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/explore-seed");
+    QDir().mkpath(dir);
+    QList<ExploreResult> rows;
+    for (int i = 0; i < n; ++i) {
+        QImage img(400, 400, QImage::Format_RGB32);
+        QPainter p(&img);
+        QLinearGradient g(0, 0, 400, 400);
+        g.setColorAt(0, QColor::fromHsv((i * 47) % 360, 140, 220));
+        g.setColorAt(1, QColor::fromHsv((i * 47 + 40) % 360, 200, 120));
+        p.fillRect(img.rect(), g);
+        p.end();
+        const QString path = dir + QStringLiteral("/seed-%1.png").arg(i);
+        img.save(path);
+        ExploreResult r;
+        r.id = 1000 + i;
+        r.title = QStringLiteral("Seeded podcast %1").arg(i + 1);
+        r.author = QStringLiteral("Test publisher");
+        r.cover = QUrl::fromLocalFile(path).toString();
+        r.feedUrl = QStringLiteral("file:///nonexistent-%1.xml").arg(i);
+        rows << r;
+    }
+    ex->results()->setRows(rows);
+}
+
 // Throwaway-HOME theme files, for the live-theme checks (HOME is the test's own tree).
 QString themeDir() { return QDir::homePath() + QStringLiteral("/.local/state/omarchy/current/theme"); }
 void writeFile(const QString &path, const QString &text)
@@ -464,7 +501,118 @@ void startUiTest(QQmlApplicationEngine &engine)
                 t->eval(seed);
                 t->eval("backend.refreshOpenShow(true)");
                 t->expect(t->eval("explorePage.heldCovers.length").toInt() == 0, "Find: force refresh (open show) drops the kept covers too");
+                // Explore like the Shelf: seeded results (no network here), then the same keys,
+                // ring, lift and sizing as the Shelf. Four columns pinned so rows are predictable.
+                seedExplore(*t->engine, 12);
+                t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
             }},
+            {400, [t]() {
+                t->expect(t->eval("explorePage.navCount === 12").toBool(), "Explore: seeded results show 12 tiles");
+                t->expect(t->eval("explorePage.columns === 4 && shelfView.columns === 4").toBool(),
+                          "Explore: follows the Shelf's column setting");
+                t->expect(t->eval("Math.abs(explorePage.coverSize - shelfView.coverSize) < 0.5").toBool(),
+                          "Explore: covers have the Shelf's size at the same column count");
+                t->eval("win.keyboardMode = true; win.navShown = true; win.navEnter(win.navFind(win.navAreas(), 'grid'), 'first')");
+                t->expect(t->eval("win.navArea === 'grid' && explorePage.kbdRing && explorePage.kbdIndex === 0").toBool(),
+                          "Explore: results are a grid zone with the ring on the first tile");
+                t->key(Qt::Key_Right);
+                const bool right = t->eval("explorePage.kbdIndex === 1").toBool();
+                t->key(Qt::Key_Right);
+                t->key(Qt::Key_Down);
+                const bool down = t->eval("explorePage.kbdIndex === 6").toBool();
+                t->key(Qt::Key_Up);
+                const bool up = t->eval("explorePage.kbdIndex === 2").toBool();
+                t->key(Qt::Key_End);
+                const bool end = t->eval("explorePage.kbdIndex === 11").toBool();
+                t->key(Qt::Key_Home);
+                const bool home = t->eval("explorePage.kbdIndex === 0").toBool();
+                t->key(Qt::Key_Left);
+                const bool wrap = t->eval("explorePage.kbdIndex === 3").toBool();
+                // h/j/k/l stay typing on Find: any printable key goes to the search field.
+                t->expect(right && down && up && end && home && wrap,
+                          "Explore keys: arrows, Home/End and the row wrap work like the Shelf");
+                t->expect(t->eval("explorePage.tileItemAt(3).lifted && !explorePage.tileItemAt(2).lifted").toBool(),
+                          "Explore: only the ringed tile lifts");
+                t->eval("win.keyRepeating = true");
+                t->expect(t->eval("!explorePage.tileItemAt(3).lifted").toBool(), "Explore: no lift while a key auto-repeats");
+                t->eval("win.keyRepeating = false");
+                t->key(Qt::Key_Menu);
+            }},
+            {400, [t]() {
+                t->expect(t->eval("explorePage.resultMenuOpen").toBool(), "Explore: the menu key opens the ringed tile's menu");
+                t->key(Qt::Key_Escape);
+            }},
+            {400, [t]() {
+                t->expect(!t->eval("explorePage.resultMenuOpen").toBool() && t->eval("win.navArea === 'grid'").toBool(), "Explore: Esc closes the menu and the ring stays on the grid");
+                t->key(Qt::Key_Return);
+            }},
+            {400, [t]() {
+                t->expect(t->eval("explore.previewOpen").toBool(), "Explore: Enter opens the ringed podcast");
+                t->key(Qt::Key_Escape);
+            }},
+            {400, [t]() {
+                t->expect(!t->eval("explore.previewOpen").toBool(), "Explore: Esc closes the preview");
+                // Mouse: hover = ring + lift, no shade; the Subscribe badge keeps the hover.
+                t->hover(QPointF(5, 5));
+                t->hover(t->centerOf("explorePage.tileItemAt(5).coverArt"));
+            }},
+            {400, [t]() {
+                t->expect(t->eval("explorePage.hoverIndex === 5 && explorePage.kbdIndex === 5 && explorePage.ringShown").toBool(),
+                          "Explore: hover moves the key focus to the tile under the pointer");
+                t->expect(t->eval("explorePage.tileItemAt(5).lifted && explorePage.tileItemAt(5).coverScale > 1.02").toBool(),
+                          "Explore: the hovered cover lifts");
+                t->hover(t->centerOf("explorePage.tileItemAt(6).badgeItem"));
+            }},
+            {400, [t]() {
+                t->expect(t->eval("explorePage.hoverIndex === 6 && explorePage.tileItemAt(6).lifted").toBool(),
+                          "Explore: hovering the Subscribe badge keeps the lift");
+                // Navigation animation: gliding ring on, static ring in the tile off; and back.
+                if (!t->eval("backend.motionTryout").toBool())
+                    t->eval("backend.toggleMotionTryout()");
+                t->expect(t->eval("explorePage.glideRingItem.visible && !explorePage.tileItemAt(6).keyRing.visible").toBool(),
+                          "Explore: Navigation animation on -> one gliding ring");
+                t->eval("backend.toggleMotionTryout()");
+                t->expect(t->eval("!explorePage.glideRingItem.visible && explorePage.tileItemAt(6).keyRing.visible").toBool(),
+                          "Explore: Navigation animation off -> static ring on the tile");
+                t->eval("backend.toggleMotionTryout()");
+                // Sizing shares the Shelf's setting (Ctrl+wheel arrives as zoomFromWheel).
+                t->eval("win.zoomFromWheel(120)");
+                t->expect(t->eval("backend.shelfColumns === 3 && explorePage.columns === 3 && shelfView.columns === 3").toBool(),
+                          "Explore: Ctrl+wheel up zooms in (fewer columns), like the Shelf");
+                t->eval("win.zoomFromWheel(-240)");
+                t->expect(t->eval("backend.shelfColumns === 5 && explorePage.columns === 5").toBool(),
+                          "Explore: Ctrl+wheel down zooms out");
+                t->eval("explore.openPreview(0)");
+            }},
+            {300, [t]() {
+                t->expect(!t->eval("win.zoomFromWheel(120)").toBool() && t->eval("backend.shelfColumns === 5").toBool(),
+                          "Explore: Ctrl+wheel does nothing while the preview card is open");
+                t->eval("explore.closePreview(); backend.setShelfColumns(4)");
+            }},
+        };
+        t->run(0);
+        return;
+    }
+    // OMAEAR_UI_TEST_EXPLORE_SHOTS=<dir>: offline Explore (seeded results) in four
+    // states: plain, key ring, mouse hover, three columns. Before/after pictures.
+    const QString exploreShots = qEnvironmentVariable("OMAEAR_UI_TEST_EXPLORE_SHOTS");
+    if (!exploreShots.isEmpty()) {
+        QDir().mkpath(exploreShots);
+        auto grab = [t, exploreShots](const char *name) {
+            t->expect(t->win->grabWindow().save(exploreShots + QLatin1Char('/') + QLatin1String(name) + QStringLiteral(".png")), name);
+        };
+        t->steps = {
+            {500, [t]() { t->eval("backend.setShelfColumns(6); win.openExplorePage()"); }},
+            {800, [t]() { seedExplore(*t->engine, 24); }},
+            {1200, [grab]() { grab("explore-plain"); }},
+            {100, [t]() {
+                t->eval("win.keyboardMode = true; win.navShown = true; win.navArea = 'grid'; explorePage.setNavIndex(2); win.navRefreshRing()");
+            }},
+            {700, [grab]() { grab("explore-key-ring"); }},
+            {100, [t]() { t->hover(QPointF(5, 5)); t->hover(t->centerOf("explorePage.tileItemAt(4).coverArt")); }},
+            {700, [grab]() { grab("explore-hover"); }},
+            {100, [t]() { t->hover(QPointF(5, 5)); t->eval("backend.setShelfColumns(3)"); }},
+            {900, [grab]() { grab("explore-3-columns"); }},
         };
         t->run(0);
         return;

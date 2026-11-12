@@ -18,6 +18,8 @@
         <file alias="PopupFadeIn.qml">qml/PopupFadeIn.qml</file>
         <file alias="ConfirmDialog.qml">qml/ConfirmDialog.qml</file>
         <file alias="CoverClip.qml">qml/CoverClip.qml</file>
+        <file alias="CoverRing.qml">qml/CoverRing.qml</file>
+        <file alias="CoverShadow.qml">qml/CoverShadow.qml</file>
         <file alias="SearchView.qml">qml/SearchView.qml</file>
         <file alias="NowPlaying.qml">qml/NowPlaying.qml</file>
         <file alias="IconButton.qml">qml/IconButton.qml</file>

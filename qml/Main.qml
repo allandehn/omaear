@@ -973,9 +973,13 @@ ApplicationWindow {
             nowPlayingPage.applyArtZoom(delta)
             return true
         }
-        if (pageKind !== "shelf" && pageKind !== "show" && pageKind !== "queue")
+        if (pageKind !== "shelf" && pageKind !== "show" && pageKind !== "queue" && pageKind !== "explore")
             return false
-        if (pageKind === "show") {
+        if (pageKind === "explore") {
+            if (explore.previewOpen || explorePage.regionOpen)
+                return false
+            explorePage.applyZoomDelta(delta)
+        } else if (pageKind === "show") {
             var page = activeShow()
             if (page)
                 page.applyZoomDelta(delta)
@@ -997,9 +1001,12 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
+        enabled: !modalOpen && !helpOpen && !explorePage.regionOpen
+                 && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue" || (pageKind === "explore" && !explore.previewOpen))
         onActivated: {
-            if (pageKind === "queue") {
+            if (pageKind === "explore") {
+                explorePage.zoomIn()
+            } else if (pageKind === "queue") {
                 queuePage.zoomIn()
             } else if (pageKind === "show") {
                 var page = win.activeShow()
@@ -1013,9 +1020,12 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomOut]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
+        enabled: !modalOpen && !helpOpen && !explorePage.regionOpen
+                 && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue" || (pageKind === "explore" && !explore.previewOpen))
         onActivated: {
-            if (pageKind === "queue") {
+            if (pageKind === "explore") {
+                explorePage.zoomOut()
+            } else if (pageKind === "queue") {
                 queuePage.zoomOut()
             } else if (pageKind === "show") {
                 var page = win.activeShow()
@@ -1318,10 +1328,13 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         // Reset this page's art size to its default (defaults match library.cpp).
         enabled: !modalOpen && !helpOpen
-                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
+                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show" || pageKind === "queue"
+                     || (pageKind === "explore" && !explore.previewOpen && !explorePage.regionOpen))
         onActivated: {
             if (pageKind === "nowPlaying")
                 backend.setNowPlayingArtScale(1.0)
+            else if (pageKind === "explore")
+                backend.setShelfColumns(6)
             else if (pageKind === "show" || pageKind === "queue")
                 backend.setListCoverSize(2)
             else if (backend.shelfView === "list")
