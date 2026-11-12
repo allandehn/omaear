@@ -14,6 +14,7 @@ Planned work and ideas for OmaEar.
 
 ## Nice to have
 
+- [ ] **Status-pill job kind from the backend** — Have the backend tell the pill whether a message is busy, done or an error, instead of matching the status string.
 - [ ] **Fisheye by folding** — In long episode lists, episodes near the playing one stay full rows; older ones fold into month headers that open step by step as you scroll toward them (title, then title + date, then full row); positions never jump, so clicks stay instant. From Design Champ's design wander #22 (Furnas 1986 fisheye views, Cockburn 2008 review): fold distant detail in fixed places rather than magnify Dock-style.
 
 ## Done

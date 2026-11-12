@@ -1317,6 +1317,7 @@ ApplicationWindow {
             // Status messages (refresh progress, results, errors) float over every
             // page, bottom centre just above the player bar (this stack ends there),
             // so they never move content. Not interactive and never focusable.
+            // Look: Omarchy popup/OSD colours, live Hyprland rounding, a flat 30px job badge.
             Rectangle {
                 id: statusPill
                 z: 10
@@ -1324,22 +1325,72 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: 12
-                readonly property real padX: 14
-                width: Math.min(globalStatus.naturalWidth + 2 + padX * 2, parent.width * 0.8)
-                height: globalStatus.implicitHeight + 10
-                radius: theme.rButton
-                color: theme.pillBackground
+                readonly property real s: theme.textScale
+                readonly property int padY: Math.round(6 * s)
+                readonly property int padLeft: Math.round(6 * s)
+                readonly property int padRight: Math.round(16 * s)
+                readonly property int gap: Math.round(12 * s)
+                readonly property int badgeSize: Math.round(30 * s)
+                readonly property int iconSize: Math.round(18 * s)
+                readonly property real iconLift: (theme.rounding > 0 && jobError) ? 0.75 * (iconSize / 18) : 0
+                readonly property bool jobBusy: backend.busy
+                readonly property bool jobError: !jobBusy && isErrorStatus(backend.status)
+                readonly property color jobColor: jobBusy ? theme.accent : jobError ? theme.urgent : theme.green
+                readonly property int badgeRadius: theme.rounding > 0 ? Math.round(badgeSize / 2) : 0
+                function isErrorStatus(s) {
+                    var t = (s || "").toLowerCase()
+                    return t.indexOf("error") >= 0
+                        || t.indexOf("could not") >= 0
+                        || t.indexOf("couldn't") >= 0
+                        || t.indexOf("did not") >= 0
+                        || t.indexOf("has no feeds") >= 0
+                        || t.indexOf("no subscriptions") >= 0
+                        || t.indexOf("no artwork") >= 0
+                        || t.indexOf("no web address") >= 0
+                }
+                width: Math.min(padLeft + badgeSize + gap + globalStatus.naturalWidth + padRight, parent.width * 0.8)
+                height: badgeSize + padY * 2
+                radius: theme.rounding
+                color: theme.popupBackground
                 border.width: 1
-                border.color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.25)
+                border.color: jobError ? theme.urgent : theme.border
                 opacity: globalStatus.fade
                 visible: opacity > 0.01
+
+                Rectangle {
+                    id: statusBadge
+                    x: statusPill.padLeft
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: statusPill.badgeSize
+                    height: statusPill.badgeSize
+                    radius: statusPill.badgeRadius
+                    color: Qt.alpha(statusPill.jobColor, 0.18)
+                    Image {
+                        id: statusIcon
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: -statusPill.iconLift
+                        width: statusPill.iconSize
+                        height: statusPill.iconSize
+                        sourceSize: Qt.size(width, height)
+                        fillMode: Image.PreserveAspectFit
+                        source: theme.tintedSvg(statusPill.jobBusy ? "status-refresh.svg"
+                                              : statusPill.jobError ? "status-warning.svg"
+                                              : "status-check.svg", statusPill.jobColor)
+                    }
+                }
+
                 StatusNote {
                     id: globalStatus
                     opacity: 1 // the pill carries the fade
-                    anchors.centerIn: parent
-                    width: parent.width - parent.padX * 2
-                    horizontalAlignment: TextEdit.AlignHCenter
-                    font.pixelSize: theme.bodySmall
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: statusBadge.right
+                    anchors.leftMargin: statusPill.gap
+                    width: Math.max(0, parent.width - statusPill.padLeft - statusPill.badgeSize
+                                      - statusPill.gap - statusPill.padRight)
+                    horizontalAlignment: TextEdit.AlignLeft
+                    font.pixelSize: theme.heading
+                    font.weight: Font.Bold
+                    color: theme.popupText
                     activeFocusOnPress: false
                     selectByMouse: false
                 }

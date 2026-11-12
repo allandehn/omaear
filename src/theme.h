@@ -22,6 +22,7 @@ class Theme : public QObject {
     Q_PROPERTY(QColor muted READ muted NOTIFY changed)
     Q_PROPERTY(QColor dim READ dim NOTIFY changed)
     Q_PROPERTY(QColor urgent READ urgent NOTIFY changed)
+    Q_PROPERTY(QColor green READ green NOTIFY changed)
     // Popup surfaces (menus, popups), read the way Omarchy's shell/Commons/Color.qml reads
     // them: [popups] background / text / border (+ -alpha) from the generated theme
     // shell.toml, with ~/.config/omarchy/shell.toml on top. border is normally
@@ -62,6 +63,7 @@ public:
     QColor muted() const { return m_muted; }
     QColor dim() const { return m_dim; }
     QColor urgent() const { return m_urgent; }
+    QColor green() const { return m_green; }
     QColor popupBackground() const { return m_popupBackground; }
     QColor popupText() const { return m_popupText; }
     QColor border() const { return m_border; }
@@ -90,6 +92,11 @@ public:
     Q_INVOKABLE int rInner(qreal p) const { return qMax(qRound(m_rounding - p), 0); }
     // Re-read rounding now (called on window focus; also polled every second).
     Q_INVOKABLE void refreshRounding();
+    // Pin decoration:rounding (UI tests and screenshots; same as OMAEAR_ROUNDING).
+    Q_INVOKABLE void forceRounding(int n);
+    // Recolour a bundled SVG (currentColor -> the given colour) as a data URI
+    // for Image.source. Rasterised once via sourceSize; no per-frame effect.
+    Q_INVOKABLE QString tintedSvg(const QString &name, const QColor &color) const;
     bool darkMode() const { return m_darkMode; }
     qreal textScale() const { return m_textScale; }
     int caption() const { return m_caption; }
@@ -136,6 +143,7 @@ private:
     int m_display = 24;
     QFileSystemWatcher m_watcher;
     QColor m_urgent = QColor("#e06c75");
+    QColor m_green = QColor("#98c379");
     QColor m_border = QColor("#5584aa");
     QColor m_popupBackground = QColor("#101010");
     QColor m_popupText = QColor("#eeeeee");

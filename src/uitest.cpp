@@ -634,6 +634,45 @@ void startUiTest(QQmlApplicationEngine &engine)
         t->run(0);
         return;
     }
+    // OMAEAR_UI_TEST_PILL=<dir>: grab the status pill in busy, done and error
+    // states (crop is the pill plus a little context). Theme files come from
+    // the throwaway HOME; pair with OMAEAR_ROUNDING if needed.
+    const QString pillShots = qEnvironmentVariable("OMAEAR_UI_TEST_PILL");
+    if (!pillShots.isEmpty()) {
+        QDir().mkpath(pillShots);
+        auto grabPill = [t, pillShots](const char *state) {
+            const QImage img = t->win->grabWindow();
+            auto *item = qvariant_cast<QQuickItem *>(t->eval("statusPill"));
+            t->expect(item && item->isVisible() && !img.isNull(), state);
+            if (!item || img.isNull())
+                return;
+            const QPointF tl = item->mapToScene(QPointF(0, 0));
+            const int pad = 36;
+            const int x = qMax(0, int(std::floor(tl.x())) - pad);
+            const int y = qMax(0, int(std::floor(tl.y())) - pad);
+            const int w = qMin(img.width() - x, int(std::ceil(item->width())) + pad * 2);
+            const int h = qMin(img.height() - y, int(std::ceil(item->height())) + pad * 2);
+            const QString path = pillShots + QLatin1Char('/') + QLatin1String(state) + QStringLiteral(".png");
+            t->expect(img.copy(x, y, w, h).save(path), state);
+            img.save(pillShots + QLatin1Char('/') + QLatin1String(state) + QStringLiteral("-full.png"));
+        };
+        t->steps = {
+            {800, [t]() {
+                t->eval("backend.showStatus('Updating 3 of 12 feeds: Syntax', true)");
+            }},
+            {700, [grabPill]() { grabPill("busy"); }},
+            {100, [t]() {
+                t->eval("backend.showStatus('All podcasts updated.', false)");
+            }},
+            {200, [grabPill]() { grabPill("done"); }},
+            {100, [t]() {
+                t->eval("backend.showStatus('Refresh finished with errors.', false)");
+            }},
+            {200, [grabPill]() { grabPill("error"); }},
+        };
+        t->run(0);
+        return;
+    }
     // OMAEAR_UI_TEST_INSTANT=1 (or "full"/"cold"/"ticks1"): measurements.
     // Needs a library of at least 30 shows (seeded by the measure script).
     // Not part of the gate.
@@ -1086,7 +1125,85 @@ void startUiTest(QQmlApplicationEngine &engine)
         {900, [t]() {
             t->expect(t->eval("theme.border.toString() === theme.accent.toString() && theme.popupBackground.toString() === theme.background.toString()").toBool(),
                       "theme: with the files gone, the popup border is the accent again");
+            t->expect(t->eval("theme.green.toString() === '#98c379'").toBool(),
+                      "theme: with the files gone, green falls back to the dark default");
             t->eval("win.closeModals(); while (win.pageKind !== 'shelf' && win.canGoBack) win.back()");
+            themeWrite(QStringLiteral("colors.toml"),
+                       QStringLiteral("mode = \"dark\"\naccent = \"#77baf3\"\nbackground = \"#193e58\"\n"
+                                      "foreground = \"#eee2cc\"\ngreen = \"#a9c972\"\nurgent = \"#ff8e7c\"\n"));
+            themeWrite(QStringLiteral("shell.toml"),
+                       QStringLiteral("[hyprland]\nactive-border = \"#6ba7d8\"\n[popups]\n"
+                                      "background = \"#193e58\"\nbackground-alpha = 0.95\n"
+                                      "text = \"#eee2cc\"\nborder = \"hyprland.active-border\"\nborder-alpha = 1.0\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.accent.toString() === '#77baf3' && theme.green.toString() === '#a9c972' && theme.urgent.toString() === '#ff8e7c'").toBool(),
+                      "status pill: job colour slots follow the theme");
+            t->eval("theme.forceRounding(0)");
+            t->eval("backend.showStatus('Updating 3 of 12 feeds: Syntax', true)");
+        }},
+        {700, [t]() {
+            t->expect(t->eval("statusPill.visible && statusPill.jobBusy && !statusPill.jobError"
+                              " && statusPill.jobColor.toString() === theme.accent.toString()").toBool(),
+                      "status pill: busy uses the accent");
+            t->expect(t->eval("statusPill.color.toString() === theme.popupBackground.toString()"
+                              " && Math.abs(statusPill.color.a - 0.95) < 0.01").toBool(),
+                      "status pill: background is the popup colour at its alpha");
+            t->expect(t->eval("statusPill.border.width === 1 && statusPill.border.color.toString() === theme.border.toString()").toBool(),
+                      "status pill: busy border is the popup border, 1px");
+            t->expect(t->eval("statusPill.radius === 0 && statusBadge.radius === 0 && theme.rounding === 0").toBool(),
+                      "status pill: rounding 0 keeps a square pill and a square badge");
+            t->expect(t->eval("Math.abs(statusBadge.color.a - 0.18) < 0.01"
+                              " && Math.abs(statusBadge.color.r - statusPill.jobColor.r) < 0.01"
+                              " && Math.abs(statusBadge.color.g - statusPill.jobColor.g) < 0.01"
+                              " && Math.abs(statusBadge.color.b - statusPill.jobColor.b) < 0.01").toBool(),
+                      "status pill: badge fill is the job colour at 18%");
+            t->expect(t->eval("globalStatus.color.toString() === theme.popupText.toString()"
+                              " && globalStatus.font.pixelSize === theme.heading"
+                              " && globalStatus.font.weight === Font.Bold").toBool(),
+                      "status pill: text is the popup foreground, bold, at heading size");
+            t->expect(t->eval("!statusPill.enabled && !statusPill.activeFocus && !globalStatus.activeFocus"
+                              " && !globalStatus.activeFocusOnPress").toBool(),
+                      "status pill: not enabled and not focused");
+            t->eval("theme.forceRounding(8)");
+            t->eval("backend.showStatus('All podcasts updated.', false)");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("!statusPill.jobBusy && !statusPill.jobError"
+                              " && statusPill.jobColor.toString() === theme.green.toString()").toBool(),
+                      "status pill: done uses the theme's green slot");
+            t->expect(t->eval("statusPill.border.color.toString() === theme.border.toString()").toBool(),
+                      "status pill: done keeps the popup border");
+            t->expect(t->eval("statusPill.radius === 8 && statusBadge.radius === Math.round(statusPill.badgeSize / 2)"
+                              " && statusPill.iconLift === 0").toBool(),
+                      "status pill: rounding above 0 makes a rounded pill and a circle badge");
+            t->eval("backend.showStatus('Refresh finished with errors.', false)");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("statusPill.jobError && statusPill.jobColor.toString() === theme.urgent.toString()").toBool(),
+                      "status pill: error uses the urgent colour");
+            t->expect(t->eval("statusPill.border.color.toString() === theme.urgent.toString()"
+                              " && globalStatus.color.toString() === theme.popupText.toString()").toBool(),
+                      "status pill: error border takes urgent, text stays the popup foreground");
+            t->expect(t->eval("statusPill.iconLift > 0 && statusBadge.radius === Math.round(statusPill.badgeSize / 2)").toBool(),
+                      "status pill: the warning icon lifts only in a circle badge");
+            t->eval("theme.forceRounding(0)");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("statusPill.radius === 0 && statusBadge.radius === 0 && statusPill.iconLift === 0").toBool(),
+                      "status pill: rounding 0 makes the badge square and does not lift the warning");
+            t->expect(t->eval("statusPill.isErrorStatus('2 feeds couldn\\'t update')"
+                              " && !statusPill.isErrorStatus('All podcasts updated.')"
+                              " && !statusPill.isErrorStatus('Added to queue.')").toBool(),
+                      "status pill: error wording is recognised, success is not");
+            t->click(t->centerOf("statusPill"), Qt::LeftButton);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!statusPill.activeFocus && !globalStatus.activeFocus && !statusPill.enabled").toBool(),
+                      "status pill: a click does not focus it");
+            t->eval("backend.showStatus('', false)");
+            t->eval("theme.forceRounding(0)");
+            themeRemove();
             t->eval("win.openShowPage(backend.shows.showIdAt(0))");
         }},
         {200, [t]() {

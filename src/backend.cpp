@@ -151,6 +151,12 @@ void Backend::setBusy(bool busy)
     emit busyChanged();
 }
 
+void Backend::showStatus(const QString &status, bool busy)
+{
+    setBusy(busy);
+    setStatus(status);
+}
+
 QList<ShowRow> Backend::visibleShows(const QList<ShowRow> &rows) const
 {
     if (m_library.shelfShowAll())

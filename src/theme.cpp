@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QTextStream>
+#include <QUrl>
 #include <QVariant>
 #include <QtMath>
 #include <cmath>
@@ -247,6 +248,30 @@ void Theme::refreshRounding()
                          {QStringLiteral("-j"), QStringLiteral("getoption"), QStringLiteral("decoration:rounding")});
 }
 
+void Theme::forceRounding(int n)
+{
+    if (n < 0)
+        return;
+    m_roundingFixed = true;
+    if (n == m_rounding)
+        return;
+    m_rounding = n;
+    emit roundingChanged();
+}
+
+QString Theme::tintedSvg(const QString &name, const QColor &color) const
+{
+    if (name.contains(QLatin1Char('/')) || !name.endsWith(QStringLiteral(".svg")))
+        return {};
+    QFile file(QStringLiteral(":/icons/") + name);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QByteArray svg = file.readAll();
+    const QByteArray hex = color.name(QColor::HexRgb).toLatin1();
+    svg.replace("currentColor", hex);
+    return QStringLiteral("data:image/svg+xml;utf8,") + QString::fromLatin1(QUrl::toPercentEncoding(QString::fromUtf8(svg)));
+}
+
 void Theme::loadColors()
 {
     bool dark = true;
@@ -255,6 +280,7 @@ void Theme::loadColors()
     QColor accent(QStringLiteral("#5584aa"));
     QColor selection(QStringLiteral("#186a9a"));
     QColor urgent;
+    QColor green;
     QColor red;
     QColor color1;
     QColor blue;
@@ -292,6 +318,8 @@ void Theme::loadColors()
                 accent = QColor(value);
             else if (key == QStringLiteral("urgent"))
                 urgent = QColor(value);
+            else if (key == QStringLiteral("green"))
+                green = QColor(value);
             else if (key == QStringLiteral("red"))
                 red = QColor(value);
             else if (key == QStringLiteral("color1"))
@@ -333,6 +361,8 @@ void Theme::loadColors()
         urgent = color1;
     if (!urgent.isValid())
         urgent = QColor(dark ? QStringLiteral("#e06c75") : QStringLiteral("#c0392b"));
+    if (!green.isValid())
+        green = QColor(dark ? QStringLiteral("#98c379") : QStringLiteral("#40a02b"));
     // Popup surfaces from shell.toml, as Color.qml reads them: the theme's generated file,
     // then the user's ~/.config/omarchy/shell.toml on top. A missing file means defaults.
     QHash<QString, QString> shell;
@@ -349,6 +379,7 @@ void Theme::loadColors()
                                          {QStringLiteral("background"), background},
                                          {QStringLiteral("accent"), accent},
                                          {QStringLiteral("urgent"), urgent},
+                                         {QStringLiteral("green"), green},
                                          {QStringLiteral("muted"), muted}};
     const auto popupColor = [&](const char *key, const char *alphaKey, const QColor &fallback, qreal fallbackAlpha) {
         QColor c = shell.contains(QLatin1String(key)) ? resolveShellColor(shell.value(QLatin1String(key)), shell, palette) : QColor();
@@ -370,12 +401,13 @@ void Theme::loadColors()
     const QColor pillBackground = oklchNudge(background, dark ? -0.05 : 0.035);
     const bool changedColors = background != m_background || foreground != m_foreground
         || accent != m_accent || blue != m_blue || selection != m_selection || muted != m_muted
-        || dim != m_dim || dark != m_darkMode || urgent != m_urgent || border != m_border
+        || dim != m_dim || dark != m_darkMode || urgent != m_urgent || green != m_green || border != m_border
         || popupBackground != m_popupBackground || popupText != m_popupText
         || barBackground != m_barBackground || pillBackground != m_pillBackground;
     m_barBackground = barBackground;
     m_pillBackground = pillBackground;
     m_urgent = urgent;
+    m_green = green;
     m_border = border;
     m_popupBackground = popupBackground;
     m_popupText = popupText;

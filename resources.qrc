@@ -47,6 +47,9 @@
         <file alias="icons/queue-remove-symbolic.svg">qml/icons/queue-remove-symbolic.svg</file>
         <file alias="icons/queue-clear-symbolic.svg">qml/icons/queue-clear-symbolic.svg</file>
         <file alias="icons/globe-symbolic.svg">qml/icons/globe-symbolic.svg</file>
+        <file alias="icons/status-refresh.svg">qml/icons/status-refresh.svg</file>
+        <file alias="icons/status-check.svg">qml/icons/status-check.svg</file>
+        <file alias="icons/status-warning.svg">qml/icons/status-warning.svg</file>
         <file alias="icons/omaear.svg">assets/icons/omaear.svg</file>
     </qresource>
 </RCC>
