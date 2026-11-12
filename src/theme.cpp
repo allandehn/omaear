@@ -209,6 +209,7 @@ Theme::Theme(QObject *parent)
         this,
         SLOT(handlePortalSettingChanged(QString,QString,QDBusVariant)));
     watchPortal();
+    m_textScaleOverride = parseTextScaleOverride(qEnvironmentVariable("OMAEAR_TEXT_SCALE"));
     requestTextScale();
 
     // Corner radius R follows Hyprland's decoration:rounding (see the shared
@@ -523,8 +524,21 @@ void Theme::requestPortalSetting(const QString &nameSpace, const QString &key,
             });
 }
 
+qreal Theme::parseTextScaleOverride(const QString &text)
+{
+    bool ok = false;
+    const qreal scale = text.trimmed().toDouble(&ok);
+    if (!ok || !std::isfinite(scale) || scale <= 0)
+        return 0;
+    return qBound(0.5, scale, 3.0);
+}
+
 void Theme::requestTextScale()
 {
+    if (m_textScaleOverride > 0) {
+        applyTextScale(m_textScaleOverride);
+        return;
+    }
     requestPortalSetting(QStringLiteral("org.gnome.desktop.interface"),
                          QStringLiteral("text-scaling-factor"),
                          [this](const QVariant &value) { applyTextScale(unwrap(value).toDouble()); });
@@ -544,7 +558,7 @@ void Theme::applyTextScale(qreal scale)
 void Theme::handlePortalSettingChanged(const QString &nameSpace, const QString &key,
                                        const QDBusVariant &value)
 {
-    if (nameSpace == QStringLiteral("org.gnome.desktop.interface")
+    if (m_textScaleOverride <= 0 && nameSpace == QStringLiteral("org.gnome.desktop.interface")
         && key == QStringLiteral("text-scaling-factor"))
         applyTextScale(unwrap(value.variant()).toDouble());
 }
