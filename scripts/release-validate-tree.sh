@@ -62,6 +62,7 @@ new_home() {
   local h=$WORK/home-$1
   rm -rf "$h"
   mkdir -p "$h"/{home,data/omaear,config,cache} && mkdir -m 700 "$h/run"
+  : >"$h/home/.omaear-ui-test-home"   # lets the UI test run here (see uiTestHomeIsThrowaway)
   printf '%s\n' "$h"
 }
 
@@ -132,9 +133,21 @@ run_app "$H" timeout 180 dbus-run-session --config-file="$DBUS_CONF" -- ./omaear
   || { tail -15 "$WORK/selftest.log" >&2; die "self-test failed (log: $WORK/selftest.log)"; }
 echo "Self-test: ok"
 
+# The UI test must refuse a HOME without the throwaway marker and leave it alone.
+H=$(new_home guard); rm -f "$H/home/.omaear-ui-test-home"
+mkdir -p "$H/home/.local/state/omarchy/current/theme" "$H/home/.config/omarchy"
+printf 'accent = "#123456"\n' >"$H/home/.local/state/omarchy/current/theme/colors.toml"
+printf '[popups]\n' >"$H/home/.config/omarchy/shell.toml"
+guard_sum() { (cd "$H/home" && find . -type f | sort | xargs sha256sum); }
+before=$(guard_sum)
+rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 ./omaear >"$WORK/uitest-guard.log" 2>&1 || rc=$?
+[[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard.log" && [[ $(guard_sum) == "$before" ]] \
+  || { cat "$WORK/uitest-guard.log" >&2; die "UI test did not refuse a HOME without the marker (exit $rc)"; }
+echo "UI test guard: refuses a normal HOME"
+
 H=$(new_home ui); seed_library "$H"
 ui_run default "$H" 200 OMAEAR_UI_TEST=1
 
 H=$(new_home nav)
 ui_run nav "$H" 180 OMAEAR_UI_TEST=1 OMAEAR_UI_TEST_NAV=1 OMAEAR_UI_TEST_FEEDS="$FEEDS"
-echo "Tree validated: build, self-test, UI test, nav UI test."
+echo "Tree validated: build, self-test, UI test guard, UI test, nav UI test."

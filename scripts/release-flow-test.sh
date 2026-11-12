@@ -182,6 +182,7 @@ printf '%s\n' "$*" >> "$MOCK_LOG/make"
   echo "printf '%s|%s|%s|%s|%s\\n' \"\$HOME\" \"\$XDG_DATA_HOME\" \"\$DISPLAY\$WAYLAND_DISPLAY\" \"\$OMAEAR_UI_TEST_NAV\" \"\$(head -c 40 \"\$XDG_DATA_HOME/omaear/library.db\" 2>/dev/null | tr -d '\\n' | tr -c '[:print:]' '?')\" >> \"$MOCK_LOG/appenv\""
   echo "if [ -f \"$MOCK_DIR/dump_library\" ] && [ -f \"\$XDG_DATA_HOME/omaear/library.db\" ]; then sqlite3 \"\$XDG_DATA_HOME/omaear/library.db\" 'select feed_url from shows order by id' >> \"$MOCK_LOG/library-dump\"; fi"
   echo 'if [ "$1" = --self-test ]; then exit 0; fi'
+  echo 'if [ -n "$OMAEAR_UI_TEST" ] && [ ! -f "$HOME/.omaear-ui-test-home" ]; then echo "omaear: refusing to run the UI test: no marker"; exit 3; fi'
   echo "if [ -f \"$MOCK_DIR/ui_fail\" ] && [ -n \"\$OMAEAR_UI_TEST\" ]; then echo '[uitest] FAIL fixture says so'; exit 1; fi"
   echo 'if [ -n "$OMAEAR_UI_TEST" ]; then echo "[uitest] PASS one"; echo "[uitest] ALL PASS"; exit 0; fi'
   echo 'exit 0'
@@ -622,10 +623,10 @@ if run_rel --validate --sha "$SHA" --version 0.3.1; then
   fi
   [[ -z $(ls -A "$BASE/tmp") ]] && ok "validate removed its scratch dir" || bad "validate left scratch: $(ls "$BASE/tmp")"
   n=$(wc -l <"$LOG/appenv")
-  if [[ $n -eq 3 ]] \
+  if [[ $n -eq 4 ]] \
       && ! grep -q "$REALHOME" "$LOG/appenv" \
       && awk -F'|' -v t="$BASE/tmp/" 'index($1, t) != 1 || index($2, t) != 1 { exit 1 }' "$LOG/appenv"; then
-    ok "self-test, UI test and nav test each ran with their own throwaway HOME and XDG_DATA_HOME"
+    ok "self-test, UI test guard, UI test and nav test each ran with their own throwaway HOME and XDG_DATA_HOME"
   else
     bad "app runs did not all use throwaway dirs"; cat "$LOG/appenv" >&2
   fi

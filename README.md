@@ -26,7 +26,7 @@ Click **+** (Add a podcast) in the shelf's top bar to open **Find new podcasts**
 
 ## Features
 
-**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only. The top bar keeps the eye, Refresh and **+**, and the ⋯ menu holds the rest: gallery or list, Search episodes, Queue, Import and Export OPML, the two navigation settings (see Keyboard), and Info.
+**Shelf.** Your shows as a gallery or a list. Shows with unheard episodes sit in front, newest first, with an unheard count on the cover. Caught-up shows sit behind, dimmed. The eye button switches between all shows and unplayed only. The top bar keeps the eye, Refresh and **+**, and the ⋯ menu holds the rest: gallery or list, Search episodes, Queue, Import and Export OPML, the navigation animation setting (see Keyboard), and Info.
 
 **Search.** Ctrl+F (or Search episodes in the ⋯ menu) searches show names, episode titles and show notes across everything you subscribe to, with results updating as you type. Show matches come first, then titles, then notes, newest first within each. The Show, Title and Notes chips (Alt+1/2/3) pick what to search. Search episodes in a show's own ⋯ menu searches just that show. The globe button sends the same words to Find new podcasts.
 
@@ -40,7 +40,7 @@ Click **+** (Add a podcast) in the shelf's top bar to open **Find new podcasts**
 
 **Status.** Refresh progress ("Updating 3 of 16 feeds: …") and short messages such as "Added to queue." show in a small pill just above the player bar, so nothing on the page moves.
 
-**Keyboard.** Every page works from the keyboard. Arrows (or h, j, k, l, except while you are typing in a text field) move a quiet focus ring through the buttons, podcasts, episodes and player bar. Tab and Shift+Tab jump between the top bar, the page and the player bar, and each area remembers where you left it. Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from. A key press switches to keyboard mode and moving the mouse switches back, so the ring only shows while you use the keys. Two settings in the ⋯ menu: **Grid wrap** is *rows* (Up and Down stay in their column, Left and Right wrap within a row) or *full* (the arrows walk the whole grid, wrapping at the ends), and **Navigation animation** turns the gliding ring and the spinning Refresh icon on or off.
+**Keyboard.** Every page works from the keyboard. Arrows (or h, j, k, l, except while you are typing in a text field) move a quiet focus ring through the buttons, podcasts, episodes and player bar. Tab and Shift+Tab jump between the top bar, the page and the player bar, and each area remembers where you left it. Enter opens or presses, the Menu key opens the right-click menu, and Back returns the ring to where you came from. A key press switches to keyboard mode and moving the mouse switches back, so the ring only shows while you use the keys. In a grid, Up and Down stay in their column and Left and Right wrap within a row. One setting in the ⋯ menu: **Navigation animation** turns the gliding ring and the spinning Refresh icon on or off.
 
 **Keeps playing.** Close the window and the episode carries on, with controls in the Omarchy bar and media keys. Open OmaEar again and the same window comes back.
 

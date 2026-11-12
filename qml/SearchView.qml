@@ -128,7 +128,7 @@ Item {
             rightPadding: 10 + clearButton.width
             verticalAlignment: TextInput.AlignVCenter
             Material.accent: theme.accent
-            placeholderText: librarySearch.scope ? "Search in " + librarySearch.scopeTitle : "Search episodes"
+            placeholderText: librarySearch.scope ? "Search in " + librarySearch.scopeTitle : "Search your podcasts' episodes"
 
             IconButton {
                 id: clearButton
@@ -248,7 +248,7 @@ Item {
             wrapMode: Text.Wrap
             text: librarySearch.query.length === 0
                   ? (librarySearch.scope ? "Search titles and show notes of " + librarySearch.scopeTitle
-                                         : "Search titles and show notes of every episode you subscribe to")
+                                         : "Searches show names, titles and show notes of the episodes your feeds list. Only episodes listed in each podcast\u2019s feed are found; use Find new podcasts for the rest.")
                                                     : "No episodes match \u201C" + librarySearch.query + "\u201D"
             color: librarySearch.query.length === 0 ? theme.dim : theme.foreground
             font.pixelSize: librarySearch.query.length === 0 ? theme.body : theme.titleSize

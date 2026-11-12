@@ -1,10 +1,13 @@
 import QtQuick
 
-// Shared panel look for context menus and the volume/speed popups:
-// corners min(R, 4) (theme.rButton), theme background, foreground border.
+// Shared card for context menus and the volume/speed/region popups, after
+// Omarchy Stable 4.5's popup card: [popups] background and border from the live
+// theme (theme.popupBackground / theme.border: the theme's Hyprland active border,
+// accent when it has none), 1px wide, corner radius = the live Hyprland rounding
+// (theme.rounding), never a fixed value.
 Rectangle {
-    color: theme.background
-    border.color: theme.foreground
+    color: theme.popupBackground
+    border.color: theme.border
     border.width: 1
-    radius: theme.rButton
+    radius: theme.rounding
 }

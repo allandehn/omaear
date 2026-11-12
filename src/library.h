@@ -130,8 +130,6 @@ public:
     void setQueueAutoplay(bool on);
     bool motionTryout() const;
     void setMotionTryout(bool on);
-    bool gridWrapFull() const;
-    void setGridWrapFull(bool on);
     void setMono(bool on);
     double volumeBeforeMute() const;
     void setVolumeBeforeMute(double volume);
@@ -141,10 +139,8 @@ public:
     void setShelfView(const QString &view);
     int shelfColumns() const;
     void setShelfColumns(int columns);
-    int shelfListSize() const;
-    void setShelfListSize(int size);
-    int episodeListSize() const;
-    void setEpisodeListSize(int size);
+    int listCoverSize() const;
+    void setListCoverSize(int size);
     bool shelfShowAll() const;
     void setShelfShowAll(bool showAll);
     bool episodeShowAll() const;

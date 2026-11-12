@@ -65,7 +65,17 @@ Item {
 
     property real menuEpisode: 0
     property int menuIndex: -1
-    readonly property real cover: 56 * theme.textScale
+    // Same five steps as Shelf list and Episodes (Library::listCoverSize, shared).
+    readonly property var coverSteps: [44, 64, 88, 120, 160]
+    readonly property real cover: coverSteps[Math.max(0, Math.min(backend.listCoverSize, coverSteps.length - 1))] * theme.textScale
+    property real zoomPending: 0
+    function zoomIn() { backend.setListCoverSize(backend.listCoverSize + 1) }
+    function zoomOut() { backend.setListCoverSize(backend.listCoverSize - 1) }
+    function applyZoomDelta(delta) {
+        zoomPending += delta
+        while (zoomPending >= 120) { zoomPending -= 120; zoomIn() }
+        while (zoomPending <= -120) { zoomPending += 120; zoomOut() }
+    }
 
     function clock(seconds) {
         if (!seconds || seconds < 1)

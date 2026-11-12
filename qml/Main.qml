@@ -50,6 +50,15 @@ ApplicationWindow {
     property string markAllTitle: ""
     property bool confirmRemove: false
     property bool confirmQueue: false
+    // ALLAN'S DECISIONS: which dialogs start with Cancel selected (so Enter cancels) and
+    // which start on the confirm button, which is Omarchy Stable 4.5's default for all of them.
+    // Flip a line to change one dialog.
+    readonly property bool unsubscribeStartsOnCancel: false      // one podcast: starts on Unsubscribe
+    readonly property bool unsubscribeAllStep1StartsOnCancel: false // Unsubscribe from all, step 1: starts on Unsubscribe from all…
+    readonly property bool unsubscribeAllStep2StartsOnCancel: true  // Unsubscribe from all, final step: starts on Cancel
+    readonly property bool markAllStartsOnCancel: true           // Mark all as played (one podcast)
+    readonly property bool markEverythingStartsOnCancel: true    // every episode of every podcast (not built yet)
+    readonly property bool clearQueueStartsOnCancel: false       // starts on Clear queue
     // Unsubscribe from all: two steps, both must be confirmed.
     property bool confirmUnsubAll: false
     property bool confirmUnsubAll2: false
@@ -131,6 +140,10 @@ ApplicationWindow {
     property int historyIndex: 0
     readonly property var currentPage: history[Math.max(0, Math.min(historyIndex, history.length - 1))]
     readonly property string pageKind: currentPage.kind
+    // Keyboard grid wrap is fixed (no menu choice, saved ui.gridWrap is ignored):
+    // false = "rows" (Up/Down stay in their column). Flip here to change the app's mode;
+    // the nav tests set it per check.
+    property bool gridWrapFull: false
     readonly property bool canGoBack: modalOpen || explore.previewOpen || explorePage.regionOpen || historyIndex > 0
     readonly property bool canGoForward: !modalOpen && historyIndex < history.length - 1
     readonly property bool modalOpen: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
@@ -507,7 +520,7 @@ ApplicationWindow {
     // was last left, or on its first item. Arrow keys never leave a zone: they
     // wrap inside it. A zone is one or more areas (a row of buttons or a grid);
     // Now Playing's content stacks transport / controls / seek / notes, and
-    // Up/Down step between those. Grid wrap (backend.gridWrapFull):
+    // Up/Down step between those. Grid wrap (win.gridWrapFull, fixed):
     //   rows: absolute. Left/Right wrap within the row; Up/Down always stay in
     //         the same column and wrap top<->bottom of that column (a short last
     //         row that lacks the column is skipped, never clamped).
@@ -678,7 +691,7 @@ ApplicationWindow {
         var dir = (k === Qt.Key_Left || k === Qt.Key_Up) ? -1 : 1
         var horiz = k === Qt.Key_Left || k === Qt.Key_Right
         var j = i
-        if (backend.gridWrapFull) {
+        if (win.gridWrapFull) {
             if (horiz) j = (i + dir + n) % n
             else if (dir > 0) j = i + c < n ? i + c : (col + 1) % c
             else if (i - c >= 0) j = i - c
@@ -960,12 +973,14 @@ ApplicationWindow {
             nowPlayingPage.applyArtZoom(delta)
             return true
         }
-        if (pageKind !== "shelf" && pageKind !== "show")
+        if (pageKind !== "shelf" && pageKind !== "show" && pageKind !== "queue")
             return false
         if (pageKind === "show") {
             var page = activeShow()
             if (page)
                 page.applyZoomDelta(delta)
+        } else if (pageKind === "queue") {
+            queuePage.applyZoomDelta(delta)
         } else {
             shelfView.applyZoomDelta(delta)
         }
@@ -982,9 +997,11 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
-            if (pageKind === "show") {
+            if (pageKind === "queue") {
+                queuePage.zoomIn()
+            } else if (pageKind === "show") {
                 var page = win.activeShow()
                 if (page)
                     page.zoomIn()
@@ -996,9 +1013,11 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.ZoomOut]
         context: Qt.ApplicationShortcut
-        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show")
+        enabled: !modalOpen && !helpOpen && (pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
-            if (pageKind === "show") {
+            if (pageKind === "queue") {
+                queuePage.zoomOut()
+            } else if (pageKind === "show") {
                 var page = win.activeShow()
                 if (page)
                     page.zoomOut()
@@ -1162,7 +1181,8 @@ ApplicationWindow {
         anchors.fill: parent
         id: dialogScrim
         visible: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
-        color: Qt.rgba(0, 0, 0, 0.45)
+        // Omarchy Stable 4.5 scrim: the theme background at 70%. A click on it cancels.
+        color: Qt.alpha(theme.background, 0.7)
         PopupFadeIn { host: dialogScrim }
 
         MouseArea {
@@ -1174,28 +1194,37 @@ ApplicationWindow {
             id: dialog
             anchors.centerIn: parent
             visible: dialogScrim.visible
-            title: addOpen ? "Add a feed"
-                   : confirmUnsubAll2 ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast" : " podcasts") + "?"
-                   : ""
-            detail: confirmUnsubAll2 ? "This can't be undone." : ""
-            destructive: confirmUnsubAll2 || confirmQueue || confirmRemove
-            startOnCancel: confirmUnsubAll2
-            initialFocusItem: addOpen ? feedField : null
-            message: addOpen ? ""
+            // Messages are questions that name the thing; the button carries the verb.
+            message: addOpen ? "Which feed do you want to add?"
                      : confirmUnsubAll
                      ? "Unsubscribe from all podcasts?"
                      : confirmUnsubAll2
-                     ? ""
+                     ? "Unsubscribe from all " + unsubAllCount + (unsubAllCount === 1 ? " podcast?" : " podcasts?")
                      : confirmQueue
-                     ? "Clear the queue? " + backend.queueCount + (backend.queueCount === 1 ? " episode" : " episodes") + " will be removed from it."
+                     ? "Clear the queue (" + backend.queueCount + (backend.queueCount === 1 ? " episode)?" : " episodes)?")
                      : confirmRemove
-                     ? "Unsubscribe from " + unsubscribeTitle + "? Playback history for this show goes with it."
+                     ? "Unsubscribe from " + unsubscribeTitle + "?"
                      : "Mark every episode of " + markAllTitle + " as played?"
+            detail: confirmUnsubAll2 ? "This can't be undone."
+                    : confirmRemove ? "Playback history for this show goes with it."
+                    : ""
+            // Adding is not destructive: the confirm button takes the accent, not the urgent colour.
+            // Mark all as played can't be undone in one step, so it is destructive too, and so are
+            // both steps of Unsubscribe from all (Allan, 2026-11-12).
+            destructive: !addOpen
+            // Per-dialog start (see the decisions above); 4.5's own default is the confirm button.
+            startOnCancel: addOpen ? false
+                           : confirmUnsubAll ? unsubscribeAllStep1StartsOnCancel
+                           : confirmUnsubAll2 ? unsubscribeAllStep2StartsOnCancel
+                           : confirmQueue ? clearQueueStartsOnCancel
+                           : confirmRemove ? unsubscribeStartsOnCancel
+                           : markAllStartsOnCancel
+            initialFocusItem: addOpen ? feedField : null
             // Step 1 of Unsubscribe from all only leads to step 2, which shows the
-            // podcast count and the final, destructive button.
+            // podcast count (in the question and on the final, destructive button).
             actionLabel: addOpen ? "Add"
                          : confirmUnsubAll ? "Unsubscribe from all\u2026"
-                         : confirmUnsubAll2 ? "Unsubscribe from all"
+                         : confirmUnsubAll2 ? "Unsubscribe from all (" + unsubAllCount + ")"
                          : confirmQueue ? "Clear queue"
                          : confirmRemove ? "Unsubscribe" : "Mark all as played"
             onCanceled: closeModals()
@@ -1289,14 +1318,14 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         // Reset this page's art size to its default (defaults match library.cpp).
         enabled: !modalOpen && !helpOpen
-                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show")
+                 && (pageKind === "nowPlaying" || pageKind === "shelf" || pageKind === "show" || pageKind === "queue")
         onActivated: {
             if (pageKind === "nowPlaying")
                 backend.setNowPlayingArtScale(1.0)
-            else if (pageKind === "show")
-                backend.setEpisodeListSize(2)
+            else if (pageKind === "show" || pageKind === "queue")
+                backend.setListCoverSize(2)
             else if (backend.shelfView === "list")
-                backend.setShelfListSize(0)
+                backend.setListCoverSize(2)
             else
                 backend.setShelfColumns(6)
         }

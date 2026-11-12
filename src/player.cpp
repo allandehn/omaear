@@ -721,6 +721,21 @@ QVariantMap PlayerService::State()
     state.insert(QStringLiteral("played"), m_episode.played);
     state.insert(QStringLiteral("error"), m_error);
     state.insert(QStringLiteral("description"), m_description);
+    // Play pressed but no audio yet: head bytes still arriving, source not bound, or
+    // FFmpeg probing/rebuffering. bufferPercent is the share of the start gate
+    // (kMinBufferBytes) already downloaded, or -1 when that stage is over.
+    bool loading = false;
+    int bufferPercent = -1;
+    if (m_episode.id != 0 && m_error.isEmpty() && m_autoPlayPending) {
+        const auto media = m_player->mediaStatus();
+        loading = !m_sourceBound
+            || m_player->playbackState() != QMediaPlayer::PlayingState
+            || media == QMediaPlayer::LoadingMedia || media == QMediaPlayer::StalledMedia;
+        if (loading && !m_sourceBound && m_buffer)
+            bufferPercent = int(qMin<qint64>(100, m_buffer->availableBytes() * 100 / kMinBufferBytes));
+    }
+    state.insert(QStringLiteral("loading"), loading);
+    state.insert(QStringLiteral("bufferPercent"), bufferPercent);
     return state;
 }
 
@@ -1782,6 +1797,23 @@ int runPlayer(int argc, char **argv)
         const int removed = HttpFileBuffer::purgeEpisodes(ids);
         library.markCacheMigrationDone(QStringLiteral("audio_cache_static_fallback"));
         qInfo("[omaear-cache] static-fallback fix: removed %d cached Audioboom episode files", removed);
+    }
+    // One-time: AdsWizz / Simplecast audio cached with campaign query (and
+    // therefore a player-stitched file) is dropped so the next play fetches
+    // the plain file. Played marks and positions are untouched.
+    if (!library.cacheMigrationDone(QStringLiteral("audio_cache_adswizz_noaw"))) {
+        QList<qint64> ids;
+        for (const QString &frag : {QStringLiteral("simplecastaudio.com"),
+                                    QStringLiteral("awCollectionId"),
+                                    QStringLiteral("awEpisodeId")}) {
+            for (qint64 id : library.episodeIdsViaHost(frag)) {
+                if (!ids.contains(id))
+                    ids.append(id);
+            }
+        }
+        const int removed = HttpFileBuffer::purgeEpisodes(ids);
+        library.markCacheMigrationDone(QStringLiteral("audio_cache_adswizz_noaw"));
+        qInfo("[omaear-cache] AdsWizz plain-audio fix: removed %d cached episode files", removed);
     }
     QTimer::singleShot(400, &service, &PlayerService::considerExit);
     return app.exec();

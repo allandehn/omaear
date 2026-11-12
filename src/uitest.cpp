@@ -2,6 +2,8 @@
 // Drives the real window with synthetic mouse events delivered to THIS
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QElapsedTimer>
 #include <QCursor>
 #include <QGuiApplication>
@@ -19,6 +21,35 @@
 #include <functional>
 
 namespace {
+// Throwaway-HOME theme files, for the live-theme checks (HOME is the test's own tree).
+QString themeDir() { return QDir::homePath() + QStringLiteral("/.local/state/omarchy/current/theme"); }
+void writeFile(const QString &path, const QString &text)
+{
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(text.toUtf8());
+}
+void themeWrite(const QString &name, const QString &text) { writeFile(themeDir() + QLatin1Char('/') + name, text); }
+void userShellWrite(const QString &text) { writeFile(QDir::homePath() + QStringLiteral("/.config/omarchy/shell.toml"), text); }
+// Replace the theme directory as a whole (new dir built beside it, then renamed over).
+void themeSwapDir(const QString &n1, const QString &t1, const QString &n2, const QString &t2)
+{
+    const QString dir = themeDir();
+    const QString fresh = dir + QStringLiteral(".next");
+    QDir(fresh).removeRecursively();
+    writeFile(fresh + QLatin1Char('/') + n1, t1);
+    writeFile(fresh + QLatin1Char('/') + n2, t2);
+    QDir(dir + QStringLiteral(".old")).removeRecursively();
+    QDir().rename(dir, dir + QStringLiteral(".old"));
+    QDir().rename(fresh, dir);
+    QDir(dir + QStringLiteral(".old")).removeRecursively();
+}
+void themeRemove()
+{
+    QDir(themeDir()).removeRecursively();
+    QFile::remove(QDir::homePath() + QStringLiteral("/.config/omarchy/shell.toml"));
+}
 struct UiTest {
     QQuickWindow *win = nullptr;
     QQmlApplicationEngine *engine = nullptr;
@@ -231,8 +262,10 @@ void startUiTest(QQmlApplicationEngine &engine)
             {200, [t]() { t->eval("dialog.accepted()"); }},
             {700, [t, grab]() {
                 t->expect(t->eval("confirmUnsubAll2 && dialog.selectedIndex === 0").toBool(), "step 2 starts on Cancel");
-                t->expect(t->eval("dialog.title === 'Unsubscribe from all ' + unsubAllCount + (unsubAllCount === 1 ? ' podcast?' : ' podcasts?')"
-                                  " && dialog.detail === \"This can't be undone.\"").toBool(), "step 2 title has the count");
+                t->expect(t->eval("dialog.message === 'Unsubscribe from all ' + unsubAllCount + (unsubAllCount === 1 ? ' podcast?' : ' podcasts?')"
+                                  " && dialog.detail === \"This can't be undone.\""
+                                  " && dialog.actionLabel === 'Unsubscribe from all (' + unsubAllCount + ')'").toBool(),
+                          "step 2 question and button carry the count");
                 grab("unsubscribe-all-step2");
             }},
             {200, [t]() { t->eval("win.closeModals(); feedField.text = ''; win.addOpen = true"); }},
@@ -296,10 +329,10 @@ void startUiTest(QQmlApplicationEngine &engine)
         const QString feeds = qEnvironmentVariable("OMAEAR_UI_TEST_FEEDS");
         // Grid math on a stand-in grid: 7 items, 3 columns (rows 0-2, 3-5, 6).
         auto gk = [t](int n, int c, int from, const char *k, bool full = false) {
-            return t->eval(QStringLiteral("(function(){ var keep = backend.gridWrapFull;"
-                " if (keep !== %5) backend.toggleGridWrap();"
+            return t->eval(QStringLiteral("(function(){ var keep = win.gridWrapFull;"
+                " win.gridWrapFull = %5;"
                 " var g = { navCount: %1, navColumns: %2, kbdIndex: %3, setNavIndex: function(j) { this.kbdIndex = j } };"
-                " win.navGridKey(g, Qt.%4); if (backend.gridWrapFull !== keep) backend.toggleGridWrap(); return g.kbdIndex })()")
+                " win.navGridKey(g, Qt.%4); win.gridWrapFull = keep; return g.kbdIndex })()")
                 .arg(n).arg(c).arg(from).arg(QLatin1String(k)).arg(full ? "true" : "false")).toInt();
         };
         t->steps = {
@@ -362,6 +395,19 @@ void startUiTest(QQmlApplicationEngine &engine)
             {1500, [t]() {
                 t->expect(!t->eval("activeShow().kbdRing").toBool() && !t->eval("win.navShown").toBool(),
                           "mouse mode: entering a page shows no key ring");
+                // Info open: the page behind gets no hover highlight.
+                t->eval("helpOpen = true");
+                t->hover(QPointF(5, 5));
+                t->hover(t->centerOf("activeShow().rowItemAt(0)"));
+            }},
+            {300, [t]() {
+                t->expect(t->eval("activeShow().hoverRaw === -1").toBool(), "Info open: hovering the page behind highlights nothing");
+                t->eval("helpOpen = false");
+                t->hover(QPointF(5, 5));
+                t->hover(t->centerOf("activeShow().rowItemAt(0)"));
+            }},
+            {300, [t]() {
+                t->expect(t->eval("activeShow().hoverRaw === 0").toBool(), "Info closed: the same hover highlights the row again");
                 t->key(Qt::Key_Down);
             }},
             {300, [t]() {
@@ -468,16 +514,194 @@ void startUiTest(QQmlApplicationEngine &engine)
             fprintf(stderr, "[uitest] cover 1 center %.1f,%.1f is %s the open menu\n",
                     cover1.x(), cover1.y(), outside ? "outside" : "INSIDE");
             t->expect(outside, "cover 1 center is outside the menu opened for cover 0");
+            // Omarchy 4.5 menu card: 4px padding, 28px rows, at least 150px wide, a disabled row at 45%.
+            t->expect(t->eval("shelfView.coverMenuObject.padding === 4 && shelfView.coverMenuObject.width >= 150").toBool(),
+                      "menu card: 4px padding, at least 150px wide");
+            t->expect(t->eval("(function(){ var m = shelfView.coverMenuObject, n = 0;"
+                              " for (var i = 0; i < m.count; ++i) { var e = m.itemAt(i);"
+                              "   if (e.text === undefined || !e.visible) continue; ++n;"
+                              "   if (e.height !== Math.round(28 * theme.textScale)) return false;"
+                              "   if (e.leftPadding !== 10) return false; }"
+                              " return n >= 5 })()").toBool(), "menu rows are 28px with 10px left padding");
+            t->expect(t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                              " for (var i = 0; i < m.count; ++i) { var e = m.itemAt(i);"
+                              "   if (e.text === undefined || !e.visible) continue;"
+                              "   if (e.enabled !== (e.contentItem.opacity === 1.0)) return false;"
+                              "   if (!e.enabled && e.contentItem.opacity !== 0.45) return false; }"
+                              " return true })()").toBool(), "menu: disabled rows are at 45% opacity, enabled rows at full");
+            t->expect(t->eval("(function(){ var m = shelfView.coverMenuObject; var sep = 0;"
+                              " for (var i = 0; i < m.count; ++i) { var e = m.itemAt(i);"
+                              "   if (e.text === undefined && e.visible) { if (e.height !== 11) return false; ++sep; } }"
+                              " return sep >= 2 })()").toBool(), "menu separators are 11px slots");
             t->click(cover1, Qt::RightButton);
         }},
         {1000 + t->dwellMs, [t]() {
             t->expect(t->eval("shelfView.coverMenuOpen").toBool()
                       && t->eval("shelfView.coverMenuShow").toDouble() == t->eval("backend.shows.showIdAt(1)").toDouble(),
                       "right-click on cover 1 reopens the menu for cover 1");
-            t->click(QPointF(700, 450), Qt::LeftButton); // somewhere on the shelf
+            // Somewhere on the shelf, clear of the 4.5-sized menu (about 200x210 at cover 1).
+            t->click(QPointF(700, 700), Qt::LeftButton);
         }},
         {900 + t->dwellMs, [t]() {
             t->expect(!t->eval("shelfView.coverMenuOpen").toBool(), "left-click elsewhere closes the menu");
+            // Keyboard: the menu key opens it with the first usable row lit; Down moves the
+            // cursor; Escape closes it.
+            t->eval("shelfView.kbdIndex = 0; shelfView.openNavMenu()");
+        }},
+        {600, [t]() {
+            t->expect(t->eval("shelfView.coverMenuOpen && shelfView.coverMenuObject.currentIndex >= 0").toBool(),
+                      "menu opened from the keyboard has a cursor row");
+            const int first = t->eval("shelfView.coverMenuObject.currentIndex").toInt();
+            t->expect(t->eval("(function(){ var e = shelfView.coverMenuObject.itemAt(shelfView.coverMenuObject.currentIndex);"
+                              " return e.highlighted && e.cursor && e.contentItem.color.toString() === theme.accent.toString() })()").toBool(),
+                      "keyboard cursor row: accent text");
+            // Moving the cursor (what Down does in the open menu; the offscreen window keeps
+            // key focus on a hidden item here, so the move is made on the menu itself).
+            t->eval("shelfView.coverMenuObject.currentIndex = shelfView.coverMenuObject.currentIndex + 1");
+            t->expect(t->eval(QStringLiteral("(function(){ var m = shelfView.coverMenuObject; var a = m.itemAt(%1), b = m.itemAt(m.currentIndex);"
+                                             " return m.currentIndex > %1 && b.cursor && b.contentItem.color.toString() === theme.accent.toString()"
+                                             " && !a.cursor && a.contentItem.color.toString() === theme.foreground.toString() })()").arg(first)).toBool(),
+                      "moving the menu cursor lights the next row in accent and releases the old one");
+            t->key(Qt::Key_Escape);
+        }},
+        {600, [t]() {
+            t->expect(!t->eval("shelfView.coverMenuOpen").toBool(), "Escape closes the menu");
+            // Dialogs (Omarchy 4.5 ConfirmDialog): keys and default selection.
+            t->eval("win.confirmUnsubscribe(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {500, [t]() {
+            // Single Unsubscribe starts on the confirm button (Allan's decision), urgent colour.
+            t->expect(t->eval("confirmRemove && dialog.visible && dialog.selectedIndex === 1 && !dialog.startOnCancel").toBool(),
+                      "start: Unsubscribe (one podcast) starts on Unsubscribe");
+            t->expect(t->eval("dialog.message === 'Unsubscribe from Alpha Show?' && dialog.actionLabel === 'Unsubscribe'").toBool(),
+                      "Unsubscribe dialog: question names the show, button carries the verb");
+            t->expect(t->eval("dialog.actionTone.toString() === theme.urgent.toString()").toBool(), "destructive confirm uses the urgent colour");
+            t->expect(t->eval("dialog.width <= 370 && dialog.border.width === 1 && dialog.radius === theme.rounding").toBool(),
+                      "dialog card: at most 370 wide, 1px border, live corner radius");
+            t->expect(t->eval("dialog.cancelButton.width >= 88 && dialog.cancelButton.height === Math.round(34 * theme.textScale)"
+                              " && dialog.actionButton.width >= 88 && dialog.cancelButton.radius === 0").toBool(),
+                      "dialog buttons: at least 88x34, square");
+            t->expect(t->eval("dialog.cancelButton.mapToItem(dialog, 0, 0).x < dialog.actionButton.mapToItem(dialog, 0, 0).x"
+                              " && Math.abs(dialog.actionButton.mapToItem(dialog, dialog.actionButton.width, 0).x - (dialog.width - 18)) < 1").toBool(),
+                      "dialog buttons: Cancel left, action rightmost at the 18px padding");
+            t->key(Qt::Key_Left);
+            t->expect(t->eval("dialog.selectedIndex === 0").toBool(), "dialog: Left swaps the selection to Cancel");
+            t->key(Qt::Key_Right);
+            t->expect(t->eval("dialog.selectedIndex === 1").toBool(), "dialog: Right swaps it back");
+            t->key(Qt::Key_Tab);
+            t->expect(t->eval("dialog.selectedIndex === 0").toBool(), "dialog: Tab swaps");
+            t->key(Qt::Key_Backtab);
+            t->expect(t->eval("dialog.selectedIndex === 1").toBool(), "dialog: Shift+Tab swaps");
+            t->key(Qt::Key_H, QStringLiteral("h"));
+            t->expect(t->eval("dialog.selectedIndex === 0").toBool(), "dialog: h swaps");
+            t->key(Qt::Key_L, QStringLiteral("l"));
+            t->expect(t->eval("dialog.selectedIndex === 1").toBool(), "dialog: l swaps");
+            t->key(Qt::Key_H, QStringLiteral("h"));
+            t->key(Qt::Key_Return);   // Enter on Cancel: closes, removes nothing
+        }},
+        {500, [t]() {
+            t->expect(t->eval("!confirmRemove && !dialog.visible && backend.showCount >= 2").toBool(), "dialog: Enter on Cancel closes it and removes nothing");
+            t->eval("win.confirmUnsubscribeAll()");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("confirmUnsubAll && dialog.selectedIndex === 1 && !dialog.startOnCancel").toBool(), "start: Unsubscribe from all step 1 starts on the confirm button");
+            t->expect(t->eval("dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()").toBool(), "Unsubscribe from all step 1 confirm uses the urgent colour");
+            t->eval("dialog.accepted()");   // Enter would only move to step 2
+        }},
+        {500, [t]() {
+            t->expect(t->eval("confirmUnsubAll2 && dialog.selectedIndex === 0 && dialog.destructive").toBool(),
+                      "start: Unsubscribe from all step 2 starts on Cancel, urgent confirm");
+            t->key(Qt::Key_Escape);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!confirmUnsubAll2 && !dialog.visible && backend.showCount >= 2").toBool(), "dialog: Escape cancels");
+            t->eval("win.confirmMarkShow(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("confirmAll && dialog.selectedIndex === 0 && dialog.startOnCancel").toBool(), "start: Mark all as played starts on Cancel");
+            t->expect(t->eval("dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()").toBool(), "Mark all as played confirm uses the urgent colour");
+            t->key(Qt::Key_Escape);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!confirmAll").toBool(), "dialog: Escape cancels (Mark all as played)");
+            t->eval("win.confirmQueue = true");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("confirmQueue && dialog.selectedIndex === 1 && !dialog.startOnCancel && dialog.destructive").toBool(),
+                      "start: Clear queue keeps the 4.5 default, on the confirm button");
+            t->key(Qt::Key_Escape);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!confirmQueue").toBool(), "dialog: Escape cancels (Clear queue)");
+            t->eval("feedField.text = ''; win.addOpen = true");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("addOpen && dialog.selectedIndex === 1 && !dialog.startOnCancel && feedField.activeFocus").toBool(),
+                      "start: Add feed focuses the field, confirm selected");
+            t->expect(t->eval("!dialog.destructive && dialog.actionTone.toString() === theme.accent.toString()").toBool(), "non-destructive confirm (Add) uses the accent");
+            t->eval("win.closeModals(); win.confirmUnsubscribe(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {500, [t]() {
+            // A click on the scrim (outside the card) cancels.
+            t->click(QPointF(40, 600), Qt::LeftButton);
+        }},
+        {500 + t->dwellMs, [t]() {
+            t->expect(t->eval("!confirmRemove").toBool(), "dialog: a click on the scrim cancels");
+        }},
+        // Live theme: the app watches the theme files, so rewriting them under the throwaway HOME
+        // must recolour the open window (this is how an Omarchy theme switch reaches it).
+        {200, [t]() {
+            themeWrite(QStringLiteral("colors.toml"), QStringLiteral("mode = \"dark\"\naccent = \"#ff5500\"\nbackground = \"#112233\"\nforeground = \"#ddeeff\"\nred = \"#aa0000\"\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.background.toString() === '#112233' && theme.foreground.toString() === '#ddeeff' && theme.accent.toString() === '#ff5500'").toBool(),
+                      "theme: a new colors.toml (first one, dirs created) recolours the app");
+            t->expect(t->eval("theme.popupBackground.toString() === '#112233' && theme.popupText.toString() === '#ddeeff' && theme.border.toString() === '#ff5500'").toBool(),
+                      "theme: popups follow background and foreground, the border falls back to the accent");
+            themeWrite(QStringLiteral("colors.toml"), QStringLiteral("mode = \"light\"\naccent = \"#1e66f5\"\nbackground = \"#eff1f5\"\nforeground = \"#4c4f69\"\nred = \"#d20f39\"\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.background.toString() === '#eff1f5' && theme.foreground.toString() === '#4c4f69' && !theme.darkMode").toBool(),
+                      "theme: rewriting colors.toml in place switches dark to light");
+            // Omarchy writes the generated shell.toml next to it: popups.border = hyprland.active-border.
+            themeWrite(QStringLiteral("shell.toml"), QStringLiteral("[hyprland]\nactive-border = \"rgba(33ccffee) rgba(00ff99ee) 45deg\"\n[popups]\nbackground = \"#eff1f5\"\ntext = \"#4c4f69\"\nborder = \"hyprland.active-border\"\nborder-alpha = 1.0\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.border.toString() === '#33ccff'").toBool(), "theme: popups.border resolves hyprland.active-border to its first stop");
+            // A whole-directory swap, like a theme switch replacing current/theme.
+            themeSwapDir(QStringLiteral("colors.toml"), QStringLiteral("mode = \"dark\"\naccent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\nforeground = \"#a9b1d6\"\nred = \"#f7768e\"\n"),
+                         QStringLiteral("shell.toml"), QStringLiteral("[popups]\nborder = \"accent\"\n"));
+        }},
+        {1200, [t]() {
+            t->expect(t->eval("theme.background.toString() === '#1a1b26' && theme.darkMode && theme.border.toString() === '#7aa2f7'").toBool(),
+                      "theme: swapping the whole theme directory recolours the app (border = accent role)");
+            // A user override in ~/.config/omarchy/shell.toml wins; it is picked up with the next change.
+            userShellWrite(QStringLiteral("[popups]\nborder = \"#123456\"\nborder-alpha = 0.5\n"));
+            themeWrite(QStringLiteral("colors.toml"), QStringLiteral("mode = \"dark\"\naccent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\nforeground = \"#a9b1d6\"\nred = \"#f7768e\"\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.border.toString() === '#80123456' || theme.border.toString() === '#123456'").toBool()
+                      && qAbs(t->eval("theme.border.a").toDouble() - 0.5) < 0.01, "theme: user shell.toml overrides the border and its alpha");
+            // The open menu really draws with the live theme colours.
+            t->eval("shelfView.openEmptyMenu()");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                              " return m.background.color.toString() === theme.popupBackground.toString()"
+                              " && m.background.border.color.toString() === theme.border.toString()"
+                              " && m.background.radius === theme.rounding })()").toBool(),
+                      "menu card follows the live theme (background, border, radius)");
+            t->expect(t->eval("(function(){ var m = shelfView.coverMenuObject; var e = m.itemAt(m.count - 1);"
+                              " for (var i = 0; i < m.count; ++i) { e = m.itemAt(i); if (e.text !== undefined && e.enabled && e.visible && !e.cursor) break }"
+                              " return e.contentItem.color.toString() === theme.popupText.toString() })()").toBool(),
+                      "menu row text follows the live theme");
+            // Theme files gone: back to the defaults, border = accent.
+            themeRemove();
+            t->eval("win.openPopup && win.openPopup.close()");
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.border.toString() === theme.accent.toString() && theme.popupBackground.toString() === theme.background.toString()").toBool(),
+                      "theme: with the files gone, the popup border is the accent again");
         }},
     };
     t->run(0);

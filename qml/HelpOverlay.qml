@@ -32,8 +32,10 @@ Item {
     visible: open
     PopupFadeIn { host: root }
 
+    // hoverEnabled so the page behind gets no hover highlight while Info is open.
     MouseArea {
         anchors.fill: parent
+        hoverEnabled: true
         onClicked: root.dismiss()
         onWheel: (wheel) => wheel.accepted = true
     }

@@ -994,6 +994,13 @@ void Backend::startPlayerService()
         return;
     }
     m_startingPlayer = true;
+    // A cold start can take a second or two; say so (restoring the last episode at launch stays quiet).
+    for (const auto &call : std::as_const(m_pendingPlayerCalls)) {
+        if (call.method != QStringLiteral("LoadPaused")) {
+            setStatus(QStringLiteral("Starting player…"));
+            break;
+        }
+    }
 
     // Wait for the player on the bus without processEvents — nesting that from a
     // QML click handler can flush deleteLater while a ListView delegate's signal
@@ -1254,12 +1261,6 @@ void Backend::toggleMotionTryout()
     emit motionTryoutChanged();
 }
 
-void Backend::toggleGridWrap()
-{
-    m_library.setGridWrapFull(!m_library.gridWrapFull());
-    emit gridWrapChanged();
-}
-
 void Backend::toggleMono()
 {
     m_playerMono = !m_playerMono;
@@ -1321,31 +1322,17 @@ void Backend::setShelfColumns(int columns)
     emit shelfLayoutChanged();
 }
 
-int Backend::shelfListSize() const
+int Backend::listCoverSize() const
 {
-    return m_library.shelfListSize();
+    return m_library.listCoverSize();
 }
 
-void Backend::setShelfListSize(int size)
+void Backend::setListCoverSize(int size)
 {
     const int next = qBound(0, size, 4);
-    if (next == m_library.shelfListSize())
+    if (next == m_library.listCoverSize())
         return;
-    m_library.setShelfListSize(next);
-    emit shelfLayoutChanged();
-}
-
-int Backend::episodeListSize() const
-{
-    return m_library.episodeListSize();
-}
-
-void Backend::setEpisodeListSize(int size)
-{
-    const int next = qBound(0, size, 4);
-    if (next == m_library.episodeListSize())
-        return;
-    m_library.setEpisodeListSize(next);
+    m_library.setListCoverSize(next);
     emit shelfLayoutChanged();
 }
 
@@ -1549,8 +1536,10 @@ void Backend::applyPlayerState(const QVariantMap &state)
         : m_library.volume();
     const double position = state.value(QStringLiteral("position")).toDouble();
     const double duration = state.value(QStringLiteral("duration")).toDouble();
+    const bool loading = state.value(QStringLiteral("loading")).toBool();
+    const int bufferProgress = state.value(QStringLiteral("bufferPercent"), -1).toInt();
 
-    const bool structural = episodeId != m_playerEpisodeId || showId != m_playerShowId
+    const bool structural = loading != m_playerLoading || bufferProgress != m_playerBufferProgress || episodeId != m_playerEpisodeId || showId != m_playerShowId
         || title != m_playerTitle || showTitle != m_playerShowTitle || art != m_playerArt
         || status != m_playerStatus || error != m_playerError || played != m_playerPlayed
         || description != m_playerDescription
@@ -1571,6 +1560,8 @@ void Backend::applyPlayerState(const QVariantMap &state)
     m_playerDescription = description;
     m_playerStatus = status.isEmpty() ? QStringLiteral("stopped") : status;
     m_playerError = error;
+    m_playerLoading = loading;
+    m_playerBufferProgress = bufferProgress;
     m_playerPlayed = played;
     m_playerRate = rate > 0 ? rate : 1;
     m_playerVolume = qBound(0.0, volume, 1.0);

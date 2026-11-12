@@ -18,6 +18,10 @@
 // ffmpeg, mpv and VLC send). If a host refuses that identity, the
 // downloader retries once with kAudioAppUserAgent. Feeds,
 // artwork and Explore keep the app's own identity.
+//
+// AdsWizz / Simplecast AIS classifies Lavf as a player and stitches ads when
+// the request still has awCollectionId / awEpisodeId. HttpFileBuffer keeps
+// Lavf but drops those campaign query items (and aid) for those URLs only.
 inline constexpr const char kAudioGenericUserAgent[] = "Lavf/61.1.100";
 inline constexpr const char kAudioAppUserAgent[] =
     "omaear/" OMAEAR_VERSION " (+https://github.com/allandehn/omaear)";

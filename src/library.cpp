@@ -769,16 +769,6 @@ void Library::setMotionTryout(bool on)
     setSetting(QStringLiteral("ui.motionTryout"), on ? QStringLiteral("1") : QStringLiteral("0"));
 }
 
-bool Library::gridWrapFull() const
-{
-    return setting(QStringLiteral("ui.gridWrap"), QStringLiteral("rows")) == QStringLiteral("full");
-}
-
-void Library::setGridWrapFull(bool on)
-{
-    setSetting(QStringLiteral("ui.gridWrap"), on ? QStringLiteral("full") : QStringLiteral("rows"));
-}
-
 bool Library::mono() const
 {
     return setting(QStringLiteral("playback.mono"), QStringLiteral("0")) == QStringLiteral("1");
@@ -843,35 +833,25 @@ void Library::setShelfColumns(int columns)
     setSetting(QStringLiteral("shelf.columns"), QString::number(qBound(1, columns, 10)));
 }
 
-int Library::shelfListSize() const
+int Library::listCoverSize() const
 {
-    // 0 is the original list cover. ShelfView keeps five sizes, 0 through 4.
-    bool ok = false;
-    const int value = setting(QStringLiteral("shelf.listSize"), QStringLiteral("0")).toInt(&ok);
-    if (!ok)
-        return 0;
-    return qBound(0, value, 4);
+    // One shared list-cover size for Shelf list, Episodes and Queue: five steps,
+    // 0 (44px) through 4 (160px); a new library starts at 2 (88px). Older
+    // libraries carried separate keys: the Episodes value (the template) wins,
+    // then the Shelf one, else 2.
+    for (const QString &key : {QStringLiteral("list.coverSize"), QStringLiteral("show.listSize"),
+                               QStringLiteral("shelf.listSize")}) {
+        bool ok = false;
+        const int value = setting(key, QString()).toInt(&ok);
+        if (ok)
+            return qBound(0, value, 4);
+    }
+    return 2;
 }
 
-void Library::setShelfListSize(int size)
+void Library::setListCoverSize(int size)
 {
-    setSetting(QStringLiteral("shelf.listSize"), QString::number(qBound(0, size, 4)));
-}
-
-int Library::episodeListSize() const
-{
-    // Same five steps as ShelfView list covers (0 through 4). 0 is the original
-    // 44px cover; a new library starts two steps above that.
-    bool ok = false;
-    const int value = setting(QStringLiteral("show.listSize"), QStringLiteral("2")).toInt(&ok);
-    if (!ok)
-        return 2;
-    return qBound(0, value, 4);
-}
-
-void Library::setEpisodeListSize(int size)
-{
-    setSetting(QStringLiteral("show.listSize"), QString::number(qBound(0, size, 4)));
+    setSetting(QStringLiteral("list.coverSize"), QString::number(qBound(0, size, 4)));
 }
 
 bool Library::shelfShowAll() const
@@ -1023,7 +1003,7 @@ bool Library::hasShow(qint64 showId) const
 
 double Library::nowPlayingArtScale() const
 {
-    // Fraction of the largest square that fits the Now Playing page (0.2 .. 1.0).
+    // Fraction of the Now Playing text column width the cover fills (0.2 .. 1.0).
     bool ok = false;
     const double value = setting(QStringLiteral("nowPlaying.artScale"), QStringLiteral("1")).toDouble(&ok);
     if (!ok)

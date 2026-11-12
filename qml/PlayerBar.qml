@@ -1,11 +1,13 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Window
 
 Rectangle {
     id: bar
     // Refresh busy used to disable transport / menus; leave them usable while
     // refresh runs. Spinner / StatusNote still use backend.busy elsewhere.
+    LoadingNote { id: loadingNote }
     signal nowPlayingRequested()
     signal nowPlayingCollapseRequested()
     color: theme.barBackground
@@ -267,6 +269,15 @@ Rectangle {
                         // enabled: !backend.busy
                         enabled: true
                         onClicked: backend.togglePlayback()
+                        BusyIndicator {
+                            // Play pressed, no audio yet: a ring around the glyph.
+                            anchors.centerIn: parent
+                            width: parent.implicitHeight - 4
+                            height: width
+                            visible: loadingNote.active
+                            running: visible
+                            Material.accent: theme.accent
+                        }
                     }
                     IconButton {
                         // Size tier (seek): shared centre line.
@@ -421,7 +432,8 @@ Rectangle {
 
             SelectableText {
                 width: parent.width
-                text: backend.playerError.length > 0 ? backend.playerError : backend.playerShowTitle
+                text: backend.playerError.length > 0 ? backend.playerError
+                      : loadingNote.active ? loadingNote.text : backend.playerShowTitle
                 color: backend.playerError.length > 0 ? theme.accent : theme.dim
                 font.pixelSize: theme.caption
                 wrapMode: TextEdit.NoWrap
@@ -656,14 +668,16 @@ Rectangle {
 
                         Rectangle {
                             anchors.fill: parent
-                            // Same highlight as AppMenuItem: square, theme.selection.
-                            color: rateRow.current || rateMouse.containsMouse ? theme.selection : "transparent"
+                            // Same hover as the menus: foreground at 8%, rows rounded like the card.
+                            // The current rate is the accent text (below), no fill.
+                            radius: theme.rounding
+                            color: rateMouse.containsMouse ? Qt.alpha(theme.foreground, 0.08) : "transparent"
                         }
 
                         Text {
                             anchors.centerIn: parent
                             text: bar.rateLabel(rateRow.rateValue)
-                            color: rateRow.current ? theme.accent : theme.foreground
+                            color: rateRow.current ? theme.accent : theme.popupText
                             font.features: { "tnum": 1 }
                             font.pixelSize: theme.body
                             font.weight: Font.Normal

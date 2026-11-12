@@ -9,9 +9,9 @@ Item {
     property double showId: 0
     property var episodeModel: null
     // Same five list-cover steps as ShelfView. 0 matches Shelf's original 44px.
-    // New libraries start at index 2 (Library::episodeListSize).
+    // New libraries start at index 2 (Library::listCoverSize, shared with Shelf list and Queue).
     readonly property var listCoverSteps: [44, 64, 88, 120, 160]
-    readonly property int listCoverBase: listCoverSteps[Math.max(0, Math.min(backend.episodeListSize, listCoverSteps.length - 1))]
+    readonly property int listCoverBase: listCoverSteps[Math.max(0, Math.min(backend.listCoverSize, listCoverSteps.length - 1))]
     readonly property real listCover: listCoverBase * theme.textScale
     readonly property real listRowHeight: listCover + 20 * theme.textScale
     readonly property int descriptionLimit: 140
@@ -100,11 +100,11 @@ Item {
     }
 
     function zoomIn() {
-        backend.setEpisodeListSize(backend.episodeListSize + 1)
+        backend.setListCoverSize(backend.listCoverSize + 1)
     }
 
     function zoomOut() {
-        backend.setEpisodeListSize(backend.episodeListSize - 1)
+        backend.setListCoverSize(backend.listCoverSize - 1)
     }
 
     function takeWheel(wheel) {
@@ -545,12 +545,10 @@ Item {
             onChosen: page.queueRequested()
         }
         AppMenuItem {
-            text: backend.motionTryout ? "Navigation animation: on" : "Navigation animation: off"
+            text: "Navigation animation"
+            markable: true
+            marked: backend.motionTryout
             onChosen: backend.toggleMotionTryout()
-        }
-        AppMenuItem {
-            text: backend.gridWrapFull ? "Grid wrap: full" : "Grid wrap: rows"
-            onChosen: backend.toggleGridWrap()
         }
         AppMenuSeparator {}
         AppMenuItem {

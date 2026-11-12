@@ -5,11 +5,12 @@ import QtQuick.Controls.Material
 Menu {
     id: menu
     font.family: "monospace"
-    font.pixelSize: theme.titleSize
+    font.pixelSize: theme.body
     font.weight: Font.Normal
-    padding: 1
-    topPadding: 4
-    bottomPadding: 4
+    // Omarchy Stable 4.5 popup card (dock menu): 4px padding inside the
+    // 1px-border card (AppPopupBackground), rows of 28px (AppMenuItem), at
+    // least 150px wide.
+    padding: 4
     Material.elevation: 0
     // Click-through: a press outside closes the menu (normal fade) and still
     // reaches whatever is under it (Back, another cover's right-click, …).
@@ -60,7 +61,7 @@ Menu {
             popup()
         for (var i = 0; i < count; ++i) {
             var entry = itemAt(i)
-            if (entry && entry.enabled && entry.text !== undefined && entry.text.length > 0) {
+            if (entry && entry.visible && entry.enabled && entry.text !== undefined && entry.text.length > 0) {
                 currentIndex = i
                 break
             }
@@ -69,14 +70,16 @@ Menu {
     }
 
     // List content reports no implicit width, so the panel would collapse to the border.
+    // Rows that are hidden (visible: false) don't widen it.
+    readonly property int minWidth: 150
     implicitWidth: {
         var widest = 0
         for (var i = 0; i < count; ++i) {
             var entry = itemAt(i)
-            if (entry)
+            if (entry && entry.visible)
                 widest = Math.max(widest, entry.implicitWidth)
         }
-        return Math.ceil(widest + leftPadding + rightPadding)
+        return Math.max(minWidth, Math.ceil(widest + leftPadding + rightPadding))
     }
 
     // Shared popup timing (Main: popupFadeInMs / popupFadeOutMs).

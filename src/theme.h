@@ -3,11 +3,14 @@
 #include <QDBusVariant>
 #include <QColor>
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QObject>
 #include <QProcess>
 #include <QTimer>
 #include <QVariant>
 #include <functional>
+
+class QDBusServiceWatcher;
 
 class Theme : public QObject {
     Q_OBJECT
@@ -19,6 +22,15 @@ class Theme : public QObject {
     Q_PROPERTY(QColor muted READ muted NOTIFY changed)
     Q_PROPERTY(QColor dim READ dim NOTIFY changed)
     Q_PROPERTY(QColor urgent READ urgent NOTIFY changed)
+    // Popup surfaces (menus, popups), read the way Omarchy's shell/Commons/Color.qml reads
+    // them: [popups] background / text / border (+ -alpha) from the generated theme
+    // shell.toml, with ~/.config/omarchy/shell.toml on top. border is normally
+    // "hyprland.active-border" (the theme's Hyprland border, first gradient stop,
+    // which Omarchy writes from colors.toml hyprland_active_border, else the accent).
+    // Unset or unreadable: background / foreground / accent.
+    Q_PROPERTY(QColor popupBackground READ popupBackground NOTIFY changed)
+    Q_PROPERTY(QColor popupText READ popupText NOTIFY changed)
+    Q_PROPERTY(QColor border READ border NOTIFY changed)
     // Tints derived from the live theme in OKLCH (recomputed in loadColors()).
     Q_PROPERTY(QColor barBackground READ barBackground NOTIFY changed)
     Q_PROPERTY(QColor pillBackground READ pillBackground NOTIFY changed)
@@ -50,6 +62,20 @@ public:
     QColor muted() const { return m_muted; }
     QColor dim() const { return m_dim; }
     QColor urgent() const { return m_urgent; }
+    QColor popupBackground() const { return m_popupBackground; }
+    QColor popupText() const { return m_popupText; }
+    QColor border() const { return m_border; }
+    // One colour token as Omarchy writes them: "rgba(33ccffee)", "rgb(7aa2f7)",
+    // "#7aa2f7", "0xee33ccff", "transparent"; opaque RGB, invalid when it is none of these.
+    static QColor parseShellColor(const QString &token);
+    // A shell.toml colour value, after Color.qml's flatColor: the first token that is not an
+    // angle ("rgba(a) rgba(b) 45deg" -> the first stop); a role name looks up shell.toml
+    // ("hyprland.active-border") or the palette (foreground, text, background, accent,
+    // urgent, muted). Invalid when nothing resolves.
+    static QColor resolveShellColor(const QString &value, const QHash<QString, QString> &shell,
+                                    const QHash<QString, QColor> &palette);
+    // shell.toml as a flat "section.key" -> string dictionary (Color.qml parseShell).
+    static QHash<QString, QString> parseShellToml(const QString &text);
     QColor barBackground() const { return m_barBackground; }
     QColor pillBackground() const { return m_pillBackground; }
     // Shift a colour's OKLCH lightness by dL and scale its chroma by cScale,
@@ -90,6 +116,7 @@ private:
                               const std::function<void(const QVariant &)> &handler);
     void requestTextScale();
     void applyTextScale(qreal scale);
+    void watchPortal();
 
     QColor m_background = QColor("#101010");
     QColor m_foreground = QColor("#eeeeee");
@@ -109,10 +136,14 @@ private:
     int m_display = 24;
     QFileSystemWatcher m_watcher;
     QColor m_urgent = QColor("#e06c75");
+    QColor m_border = QColor("#5584aa");
+    QColor m_popupBackground = QColor("#101010");
+    QColor m_popupText = QColor("#eeeeee");
     QColor m_barBackground = QColor("#0d0d0d");
     QColor m_pillBackground = QColor("#0b0b0b");
     int m_rounding = 0;          // last good value; Omarchy default is square
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
     QProcess m_roundingProc;
     QTimer m_roundingPoll;
+    QDBusServiceWatcher *m_portalWatcher = nullptr;
 };

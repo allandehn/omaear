@@ -27,6 +27,10 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QDir>
+#include <QFileInfo>
+#include <pwd.h>
+#include <unistd.h>
 
 // "?" is Shift+/ on a US layout and a different key elsewhere. Match the
 // character, and Key_Question when the platform reports that instead of text.
@@ -153,6 +157,29 @@ private:
 int runSelfTest(int argc, char **argv);
 void startUiTest(QQmlApplicationEngine &engine);
 
+// The UI test rewrites and deletes Omarchy theme files under $HOME
+// (~/.local/state/omarchy/current/theme, ~/.config/omarchy/shell.toml) and
+// uses the library in XDG_DATA_HOME. Refuse to run it unless HOME is a
+// throwaway home: it must hold the marker file release-validate-tree.sh
+// writes, and must not be the account's real home directory.
+static bool uiTestHomeIsThrowaway(QString *why)
+{
+    const QString home = QDir::homePath();
+    const QString canon = QFileInfo(home).canonicalFilePath();
+    if (const passwd *pw = getpwuid(getuid())) {
+        const QString real = QFileInfo(QString::fromLocal8Bit(pw->pw_dir)).canonicalFilePath();
+        if (!real.isEmpty() && canon == real) {
+            *why = QStringLiteral("HOME is your real home directory (%1)").arg(home);
+            return false;
+        }
+    }
+    if (!QFileInfo::exists(home + QStringLiteral("/.omaear-ui-test-home"))) {
+        *why = QStringLiteral("HOME (%1) has no .omaear-ui-test-home marker").arg(home);
+        return false;
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     startupTimer().start();
@@ -167,6 +194,16 @@ int main(int argc, char **argv)
         return runPlayer(argc, argv);
     if (args.contains(QStringLiteral("--self-test")))
         return runSelfTest(argc, argv);
+    if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST") == 1) {
+        QString why;
+        if (!uiTestHomeIsThrowaway(&why)) {
+            fprintf(stderr, "omaear: refusing to run the UI test: %s.\n"
+                            "It rewrites Omarchy theme files under HOME. Run it through "
+                            "scripts/release-validate-tree.sh, which gives it a throwaway HOME.\n",
+                    qPrintable(why));
+            return 3;
+        }
+    }
 
     // Launch "jump": with wp_fractional_scale Qt renders the first frame at the
     // output's integer scale (2), drops to 1 when the surface enters the output,

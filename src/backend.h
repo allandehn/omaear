@@ -49,6 +49,9 @@ class Backend : public QObject {
     Q_PROPERTY(QString playerArt READ playerArt NOTIFY playerStateChanged)
     Q_PROPERTY(QString playerStatus READ playerStatus NOTIFY playerStateChanged)
     Q_PROPERTY(QString playerError READ playerError NOTIFY playerStateChanged)
+    // Play pressed, audio not started yet; progress is 0-100 while the head downloads, else -1.
+    Q_PROPERTY(bool playerLoading READ playerLoading NOTIFY playerStateChanged)
+    Q_PROPERTY(int playerBufferProgress READ playerBufferProgress NOTIFY playerStateChanged)
     Q_PROPERTY(bool playerPlayed READ playerPlayed NOTIFY playerStateChanged)
     Q_PROPERTY(double playerRate READ playerRate NOTIFY playerStateChanged)
     Q_PROPERTY(double playerVolume READ playerVolume NOTIFY playerStateChanged)
@@ -56,15 +59,12 @@ class Backend : public QObject {
     Q_PROPERTY(bool queueAutoplay READ queueAutoplay NOTIFY queueAutoplayChanged)
     // Try-out: eased keyboard ring and cover lift (ui.motionTryout, on by default while testing).
     Q_PROPERTY(bool motionTryout READ motionTryout NOTIFY motionTryoutChanged)
-    // Keyboard grid wrap: false = "rows" (default), true = "full" (ui.gridWrap).
-    Q_PROPERTY(bool gridWrapFull READ gridWrapFull NOTIFY gridWrapChanged)
     Q_PROPERTY(QString playerDescription READ playerDescription NOTIFY playerStateChanged)
     Q_PROPERTY(double playerPosition READ playerPosition NOTIFY playerPositionChanged)
     Q_PROPERTY(double playerDuration READ playerDuration NOTIFY playerStateChanged)
     Q_PROPERTY(QString shelfView READ shelfView NOTIFY shelfLayoutChanged)
     Q_PROPERTY(int shelfColumns READ shelfColumns NOTIFY shelfLayoutChanged)
-    Q_PROPERTY(int shelfListSize READ shelfListSize NOTIFY shelfLayoutChanged)
-    Q_PROPERTY(int episodeListSize READ episodeListSize NOTIFY shelfLayoutChanged)
+    Q_PROPERTY(int listCoverSize READ listCoverSize NOTIFY shelfLayoutChanged)
     Q_PROPERTY(bool shelfShowAll READ shelfShowAll NOTIFY filterChanged)
     Q_PROPERTY(bool episodeShowAll READ episodeShowAll NOTIFY filterChanged)
     // Library size, not the eye-filtered shelf. Header chrome uses this so a
@@ -109,6 +109,8 @@ public:
     QString playerArt() const { return m_playerArt; }
     QString playerStatus() const { return m_playerStatus; }
     QString playerError() const { return m_playerError; }
+    bool playerLoading() const { return m_playerLoading; }
+    int playerBufferProgress() const { return m_playerBufferProgress; }
     bool playerPlayed() const { return m_playerPlayed; }
     double playerRate() const { return m_playerRate; }
     double playerVolume() const { return m_playerVolume; }
@@ -122,8 +124,6 @@ public:
     Q_INVOKABLE void toggleQueueAutoplay();
     bool motionTryout() const { return m_library.motionTryout(); }
     Q_INVOKABLE void toggleMotionTryout();
-    bool gridWrapFull() const { return m_library.gridWrapFull(); }
-    Q_INVOKABLE void toggleGridWrap();
     // Opens the default terminal running `omarchy update`. False if no terminal launcher.
     Q_INVOKABLE bool runSystemUpdate();
     // Quits the window and the player, then starts the new version.
@@ -132,8 +132,7 @@ public:
     double playerDuration() const { return m_playerDuration; }
     QString shelfView() const;
     int shelfColumns() const;
-    int shelfListSize() const;
-    int episodeListSize() const;
+    int listCoverSize() const;
     bool shelfShowAll() const;
     bool episodeShowAll() const;
     int showCount() const { return m_showCount; }
@@ -184,8 +183,7 @@ public:
     Q_INVOKABLE void toggleMono();
     Q_INVOKABLE void setShelfView(const QString &view);
     Q_INVOKABLE void setShelfColumns(int columns);
-    Q_INVOKABLE void setShelfListSize(int size);
-    Q_INVOKABLE void setEpisodeListSize(int size);
+    Q_INVOKABLE void setListCoverSize(int size);
     Q_INVOKABLE void setShelfShowAll(bool showAll);
     Q_INVOKABLE void setEpisodeShowAll(bool showAll);
     Q_INVOKABLE void markPlayed(qint64 episodeId, bool played);
@@ -249,7 +247,6 @@ public:
 signals:
     void queueAutoplayChanged();
     void motionTryoutChanged();
-    void gridWrapChanged();
     void monoChanged();
     void statusChanged();
     void busyChanged();
@@ -382,6 +379,8 @@ private:
     QString m_playerArt;
     QString m_playerStatus = QStringLiteral("stopped");
     QString m_playerError;
+    bool m_playerLoading = false;
+    int m_playerBufferProgress = -1;
     bool m_playerPlayed = false;
     double m_playerRate = 1;
     double m_playerVolume = 1;
