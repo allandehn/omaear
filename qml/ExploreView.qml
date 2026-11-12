@@ -15,6 +15,12 @@ Item {
     // ---- Keyboard navigation (driven by Main.qml) ---------------------------
     property bool kbdRing: false
     property int kbdIndex: 0
+    // Mouse hover drives the same ring + lift as the keyboard (and moves kbdIndex there),
+    // exactly like the Shelf: only after a real pointer move (win.pointerActive).
+    property int hoverRaw: -1
+    readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
+    onHoverIndexChanged: if (hoverIndex >= 0) kbdIndex = hoverIndex
+    readonly property bool ringShown: kbdRing || hoverIndex >= 0
     readonly property int navCount: grid.count
     readonly property int navColumns: columns
     readonly property Item searchFieldItem: searchField
@@ -41,6 +47,10 @@ Item {
         resultMenu.popupAt(tile)
     }
     function openNavItem() { if (navCount > 0) explore.openPreview(kbdIndex) }
+    // UI self-test hooks (OMAEAR_UI_TEST).
+    function tileItemAt(i) { return grid.itemAtIndex(i) }
+    readonly property bool resultMenuOpen: resultMenu.opened
+    readonly property Item glideRingItem: glideRing
     function typeIntoSearch(text) {
         searchField.forceActiveFocus()
         searchField.insert(searchField.cursorPosition, text)
@@ -54,13 +64,25 @@ Item {
         regionPopup.close()
         return true
     }
-    readonly property real columnFloor: 132 * theme.textScale
-    readonly property real galleryGap: 12
+    // Same gallery as the Shelf: its column floor and gap, and its column count
+    // setting (backend.shelfColumns), so covers have the Shelf's size at the same
+    // window width. Ctrl+wheel, Ctrl+= / Ctrl+- and Ctrl+0 size them here too.
+    readonly property int columnFloor: shelfView.columnFloor
+    readonly property real galleryGap: shelfView.galleryGap
     readonly property real galleryWidth: Math.max(1, width - 32)
-    readonly property int columns: Math.max(1, Math.min(10, Math.floor((galleryWidth + galleryGap) / (columnFloor + galleryGap))))
+    readonly property int columnsFit: Math.max(1, Math.floor((galleryWidth + galleryGap) / (columnFloor + galleryGap)))
+    readonly property int columns: Math.max(1, Math.min(10, Math.min(backend.shelfColumns, columnsFit)))
     readonly property real cellWidth: galleryWidth / columns
-    readonly property real coverSize: Math.max(columnFloor * 0.8, cellWidth - galleryGap)
+    readonly property real coverSize: Math.max(columnFloor, cellWidth - galleryGap)
     readonly property real cellHeight: coverSize + theme.titleSize * 2.4 + theme.caption * 1.4 + 26
+    property real zoomPending: 0
+    function zoomIn() { backend.setShelfColumns(Math.min(backend.shelfColumns, columns) - 1) }
+    function zoomOut() { if (backend.shelfColumns < 10) backend.setShelfColumns(backend.shelfColumns + 1) }
+    function applyZoomDelta(delta) {
+        zoomPending += delta
+        while (zoomPending >= 120) { zoomPending -= 120; zoomIn() }
+        while (zoomPending <= -120) { zoomPending += 120; zoomOut() }
+    }
 
     // Run an online search for text (handed over from library search).
     function searchFor(text) {
@@ -499,13 +521,41 @@ Item {
         model: explore.results
         cacheBuffer: Math.max(0, height)
 
+        // Navigation animation: the Shelf's gliding ring (CoverRing).
+        CoverRing {
+            id: glideRing
+            parent: grid.contentItem
+            z: 2
+            glide: true
+            cellIndex: page.kbdIndex
+            columns: page.columns
+            cellWidth: grid.cellWidth
+            cellHeight: grid.cellHeight
+            coverSize: page.coverSize
+            visible: backend.motionTryout && page.ringShown && grid.count > 0
+        }
+
         delegate: Item {
             id: tile
             required property int index
             required property var model
             readonly property Item coverArt: art
+            // UI self-test hooks.
+            readonly property real coverScale: cover.scale
+            readonly property Item keyRing: staticRing
+            readonly property Item badgeItem: badge
             width: grid.cellWidth
             height: grid.cellHeight
+            // Only the ringed or hovered cover lifts (transform + opacity only, always on;
+            // the Navigation animation setting only decides whether the ring glides).
+            readonly property bool lifted: !win.keyRepeating && page.ringShown && index === page.kbdIndex
+            z: lifted ? 1 : 0
+
+            CoverShadow {
+                lifted: tile.lifted
+                coverSize: page.coverSize
+                target: cover
+            }
 
             Column {
                 width: page.coverSize
@@ -516,6 +566,8 @@ Item {
                     id: cover
                     width: parent.width
                     height: width
+                    scale: tile.lifted ? 1.03 : 1
+                    Behavior on scale { NumberAnimation { duration: tile.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
@@ -558,20 +610,6 @@ Item {
                         onSourceChanged: fadeIn = !page.isCoverCached(source)
                         onStatusChanged: if (status === Image.Ready) page.markCoverCached(source)
                     }
-                    Rectangle {
-                        anchors.fill: parent
-                        color: theme.selection
-                        opacity: tileMouse.containsMouse && win.pointerActive ? 0.28 : 0
-                    }
-                    Rectangle {
-                        visible: page.kbdRing && tile.index === page.kbdIndex
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        radius: theme.rButton
-                        color: "transparent"
-                        border.width: 2
-                        border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
-                    }
                     // Subscribe badge: + / spinner / check.
                     Rectangle {
                         id: badge
@@ -582,7 +620,7 @@ Item {
                         height: width
                         radius: width / 2
                         color: tile.model.subscribed ? theme.accent : theme.background
-                        opacity: tile.model.subscribed || tile.model.adding || (tileMouse.containsMouse && win.pointerActive)
+                        opacity: tile.model.subscribed || tile.model.adding || (tileHover.hovered && win.pointerActive)
                                  || subscribeButton.hovered ? 0.95 : 0.8
                         IconButton {
                             id: subscribeButton
@@ -644,6 +682,27 @@ Item {
                         explore.openPreview(tile.index)
                     }
                 }
+            }
+            // Hover = key focus (like the Shelf): same ring and lift, no shading on the art.
+            // A HoverHandler, not the MouseArea: it keeps hovering over the Subscribe badge.
+            HoverHandler {
+                id: tileHover
+                enabled: !explore.previewOpen
+                onHoveredChanged: {
+                    if (hovered)
+                        page.hoverRaw = tile.index
+                    else if (page.hoverRaw === tile.index)
+                        page.hoverRaw = -1
+                }
+            }
+            // Keyboard ring: a quiet theme-foreground outline around the cover.
+            CoverRing {
+                id: staticRing
+                visible: !backend.motionTryout && page.ringShown && tile.index === page.kbdIndex
+                scale: cover.scale // hugs the lifted cover
+                x: (parent.width - page.coverSize) / 2 - 4
+                y: -4
+                coverSize: page.coverSize
             }
         }
     }

@@ -355,26 +355,17 @@ Item {
         model: backend.shows
         cacheBuffer: Math.max(0, height)
 
-        // Navigation animation: one keyboard ring that glides between covers (~120 ms, eased
-        // both ends). A Behavior retargets from wherever it is, so fast presses never queue.
-        Rectangle {
-            id: glideRing
+        // Navigation animation: one keyboard ring that glides between covers (CoverRing).
+        CoverRing {
             parent: grid.contentItem
             z: 2
-            readonly property int col: shelf.kbdIndex % Math.max(1, shelf.columns)
-            readonly property int row: Math.floor(shelf.kbdIndex / Math.max(1, shelf.columns))
+            glide: true
+            cellIndex: shelf.kbdIndex
+            columns: shelf.columns
+            cellWidth: grid.cellWidth
+            cellHeight: grid.cellHeight
+            coverSize: shelf.coverSize
             visible: backend.motionTryout && shelf.ringShown && grid.count > 0
-            x: col * grid.cellWidth + (grid.cellWidth - shelf.coverSize) / 2 - 4
-            y: row * grid.cellHeight - 4
-            width: shelf.coverSize + 8
-            height: shelf.coverSize + 8
-            radius: theme.rButton
-            color: "transparent"
-            border.width: 2
-            border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
-            scale: win.keyRepeating ? 1 : 1.03 // hugs the lifted cover
-            Behavior on x { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
-            Behavior on y { enabled: glideRing.visible; NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
         }
 
         delegate: Item {
@@ -388,18 +379,10 @@ Item {
                 && shelf.ringShown && index === shelf.kbdIndex
             z: lifted ? 1 : 0
 
-            // Pre-baked soft shadow (static PNG); only its opacity and scale animate.
-            BorderImage {
-                visible: opacity > 0
-                x: (parent.width - shelf.coverSize) / 2 - 24
-                y: -24
-                width: shelf.coverSize + 48
-                height: shelf.coverSize + 48
-                source: "qrc:/cover-shadow.png"
-                border { left: 32; right: 32; top: 32; bottom: 32 }
-                opacity: tileItem.lifted ? 1 : 0
-                scale: cover.scale
-                Behavior on opacity { NumberAnimation { duration: tileItem.lifted ? 120 : 100; easing.type: Easing.OutQuad } }
+            CoverShadow {
+                lifted: tileItem.lifted
+                coverSize: shelf.coverSize
+                target: cover
             }
 
             Column {
@@ -521,17 +504,12 @@ Item {
                 }
             }
             // Keyboard ring: a quiet theme-foreground outline around the cover.
-            Rectangle {
+            CoverRing {
                 visible: !backend.motionTryout && shelf.ringShown && index === shelf.kbdIndex
                 scale: cover.scale // hugs the lifted cover
                 x: (parent.width - shelf.coverSize) / 2 - 4
                 y: -4
-                width: shelf.coverSize + 8
-                height: shelf.coverSize + 8
-                radius: theme.rButton
-                color: "transparent"
-                border.width: 2
-                border.color: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.7)
+                coverSize: shelf.coverSize
             }
         }
     }
