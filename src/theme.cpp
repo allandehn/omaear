@@ -7,6 +7,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusServiceWatcher>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -187,16 +188,21 @@ Theme::Theme(QObject *parent)
     loadColors();
     loadType();
     watchColors();
-    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this]() {
-        loadColors();
-        loadType();
-        watchColors();
-    });
-    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
-        loadColors();
-        loadType();
-        watchColors();
-    });
+    // Omarchy stages the new theme in current/next-theme, then rm -rf current/theme
+    // and mv next-theme into its place. The first filesystem event often arrives
+    // mid-swap (the old theme is still current, or files are half-written).
+    // Re-watching immediately can also drop later events. Coalesce: restart a
+    // short trailing debounce on every event, then re-watch, reload, and
+    // confirm once ~300 ms later if the files changed during that reload.
+    m_reloadDebounce.setSingleShot(true);
+    m_reloadDebounce.setInterval(200);
+    connect(&m_reloadDebounce, &QTimer::timeout, this, &Theme::reloadAfterQuiet);
+    m_confirmReload.setSingleShot(true);
+    m_confirmReload.setInterval(300);
+    connect(&m_confirmReload, &QTimer::timeout, this, &Theme::confirmReload);
+    const auto onThemeDirChange = [this]() { m_reloadDebounce.start(); };
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, onThemeDirChange);
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, onThemeDirChange);
 
     // Subscribe by path only: AddMatch does not start a service. Watch for the
     // portal appearing later (a real session may start it after we do) so the
@@ -455,6 +461,41 @@ void Theme::loadType()
     m_heading = heading;
     m_display = display;
     emit changed();
+}
+
+QByteArray Theme::themeContentHash() const
+{
+    QCryptographicHash h(QCryptographicHash::Sha256);
+    const QString home = QDir::homePath();
+    for (const QString &p : {home + QStringLiteral("/.local/state/omarchy/current/theme/colors.toml"),
+                             home + QStringLiteral("/.local/state/omarchy/current/theme/shell.toml"),
+                             home + QStringLiteral("/.config/omarchy/shell.toml")}) {
+        h.addData(p.toUtf8());
+        QFile f(p);
+        if (f.open(QIODevice::ReadOnly))
+            h.addData(f.readAll());
+    }
+    return h.result();
+}
+
+void Theme::reloadAfterQuiet()
+{
+    watchColors();
+    loadColors();
+    loadType();
+    m_loadedThemeHash = themeContentHash();
+    m_confirmReload.start();
+}
+
+void Theme::confirmReload()
+{
+    watchColors();
+    const QByteArray now = themeContentHash();
+    if (now == m_loadedThemeHash)
+        return;
+    loadColors();
+    loadType();
+    m_loadedThemeHash = now;
 }
 
 void Theme::watchColors()

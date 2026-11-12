@@ -1,6 +1,7 @@
 // Headless UI self-test (OMAEAR_UI_TEST=1, offscreen, temp library only).
 // Drives the real window with synthetic mouse events delivered to THIS
 // process's QQuickWindow, then quits with 0 (pass) or 1 (fail).
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QLinearGradient>
@@ -22,6 +23,7 @@
 #include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QThread>
 #include <QTimer>
 #include <QEventLoop>
 #include <algorithm>
@@ -88,6 +90,50 @@ void themeSwapDir(const QString &n1, const QString &t1, const QString &n2, const
     QDir().rename(dir, dir + QStringLiteral(".old"));
     QDir().rename(fresh, dir);
     QDir(dir + QStringLiteral(".old")).removeRecursively();
+}
+// Omarchy's omarchy-theme-set: stage into current/next-theme, then
+// rm -rf current/theme and mv next-theme into its place, then write theme.name.
+// The event loop must run between staging and the swap, or the watcher never
+// sees the mid-swap state that left OmaEar one theme behind.
+QString themeCurrentDir() { return QDir::homePath() + QStringLiteral("/.local/state/omarchy/current"); }
+void themeOmarchyStage(const QString &colors, const QString &shell)
+{
+    const QString next = themeCurrentDir() + QStringLiteral("/next-theme");
+    QDir(next).removeRecursively();
+    writeFile(next + QStringLiteral("/colors.toml"), colors);
+    if (!shell.isEmpty())
+        writeFile(next + QStringLiteral("/shell.toml"), shell);
+    // A real theme has many generated files, so rm -rf takes long enough for
+    // the event loop to run mid-swap (load a missing/partial theme, re-watch,
+    // and drop the final mv). Pad both the staged dir and the current one.
+    const QString pad = QString(2048, QLatin1Char('x'));
+    for (int i = 0; i < 80; ++i) {
+        writeFile(next + QStringLiteral("/pad-%1").arg(i), pad);
+        writeFile(themeDir() + QStringLiteral("/pad-%1").arg(i), pad);
+    }
+}
+void themeOmarchyCommit()
+{
+    const QString cur = themeCurrentDir() + QStringLiteral("/theme");
+    const QString next = themeCurrentDir() + QStringLiteral("/next-theme");
+    QDir(cur).removeRecursively();
+    QDir().rename(next, cur);
+    writeFile(themeCurrentDir() + QStringLiteral("/theme.name"), QStringLiteral("test-new\n"));
+}
+// Run the real Omarchy sequence concurrently with the UI event loop: stage
+// next-theme (the first watcher event often fires while the old theme is still
+// current), wait a short time like omarchy-theme-set's templates step, then
+// rm -rf theme and mv next-theme into its place.
+void themeOmarchySwapInBackground(const QString &colors, const QString &shell, int delayMs)
+{
+    auto *thr = QThread::create([colors, shell, delayMs]() {
+        themeOmarchyStage(colors, shell);
+        if (delayMs > 0)
+            QThread::msleep(static_cast<unsigned long>(delayMs));
+        themeOmarchyCommit();
+    });
+    QObject::connect(thr, &QThread::finished, thr, &QObject::deleteLater);
+    thr->start();
 }
 void themeRemove()
 {
@@ -1079,9 +1125,47 @@ void startUiTest(QQmlApplicationEngine &engine)
                               " for (var i = 0; i < m.count; ++i) { e = m.itemAt(i); if (e.text !== undefined && e.enabled && e.visible && !e.cursor) break }"
                               " return e.contentItem.color.toString() === theme.popupText.toString() })()").toBool(),
                       "menu row text follows the live theme");
+            t->eval("win.openPopup && win.openPopup.close()");
+            // Drop the user shell.toml from the previous step so the new theme's
+            // own colours (including the border) are what we assert.
+            QFile::remove(QDir::homePath() + QStringLiteral("/.config/omarchy/shell.toml"));
+            // Omarchy swap: stage next-theme first so the watcher can fire while
+            // the old theme is still current, then rm+mv like omarchy-theme-set.
+            // Three concurrent Omarchy swaps. An unfixed watcher often lands on
+            // the previous theme or the defaults after a mid-swap load; any one
+            // miss fails the test. The debounce fix must follow every swap.
+            themeOmarchySwapInBackground(
+                QStringLiteral("mode = \"light\"\naccent = \"#d7263d\"\nbackground = \"#f4f1de\"\nforeground = \"#2b2d42\"\nred = \"#c1121f\"\n"),
+                QStringLiteral("[hyprland]\nactive-border = \"#3d5a80\"\n[popups]\nbackground = \"#f4f1de\"\ntext = \"#2b2d42\"\nborder = \"hyprland.active-border\"\nborder-alpha = 1.0\n"),
+                50);
+        }},
+        {800, [t]() {
+            const QString got = t->eval("theme.background.toString() + ' ' + theme.foreground.toString() + ' ' + theme.accent.toString() + ' dark=' + theme.darkMode + ' border=' + theme.border.toString()").toString();
+            qWarning().noquote() << "[uitest] omarchy-swap 1 colours:" << got;
+            t->expect(got == QStringLiteral("#f4f1de #2b2d42 #d7263d dark=false border=#3d5a80"),
+                      "theme: after an Omarchy-style directory swap, the app has the new colours");
+            themeOmarchySwapInBackground(
+                QStringLiteral("mode = \"dark\"\naccent = \"#7c5cbf\"\nbackground = \"#1b1424\"\nforeground = \"#e6d5f2\"\nred = \"#e85d75\"\n"),
+                QStringLiteral("[hyprland]\nactive-border = \"#9b72cf\"\n[popups]\nbackground = \"#1b1424\"\ntext = \"#e6d5f2\"\nborder = \"hyprland.active-border\"\nborder-alpha = 1.0\n"),
+                50);
+        }},
+        {800, [t]() {
+            const QString got = t->eval("theme.background.toString() + ' ' + theme.foreground.toString() + ' ' + theme.accent.toString() + ' dark=' + theme.darkMode + ' border=' + theme.border.toString()").toString();
+            qWarning().noquote() << "[uitest] omarchy-swap 2 colours:" << got;
+            t->expect(got == QStringLiteral("#1b1424 #e6d5f2 #7c5cbf dark=true border=#9b72cf"),
+                      "theme: a second Omarchy-style swap follows to the newest colours");
+            themeOmarchySwapInBackground(
+                QStringLiteral("mode = \"light\"\naccent = \"#0b6e4f\"\nbackground = \"#f0efe9\"\nforeground = \"#1c1c1a\"\nred = \"#a4161a\"\n"),
+                QStringLiteral("[hyprland]\nactive-border = \"#2a9d8f\"\n[popups]\nbackground = \"#f0efe9\"\ntext = \"#1c1c1a\"\nborder = \"hyprland.active-border\"\nborder-alpha = 1.0\n"),
+                50);
+        }},
+        {800, [t]() {
+            const QString got = t->eval("theme.background.toString() + ' ' + theme.foreground.toString() + ' ' + theme.accent.toString() + ' dark=' + theme.darkMode + ' border=' + theme.border.toString()").toString();
+            qWarning().noquote() << "[uitest] omarchy-swap 3 colours:" << got;
+            t->expect(got == QStringLiteral("#f0efe9 #1c1c1a #0b6e4f dark=false border=#2a9d8f"),
+                      "theme: a third Omarchy-style swap follows to the newest colours");
             // Theme files gone: back to the defaults, border = accent.
             themeRemove();
-            t->eval("win.openPopup && win.openPopup.close()");
         }},
         {900, [t]() {
             t->expect(t->eval("theme.border.toString() === theme.accent.toString() && theme.popupBackground.toString() === theme.background.toString()").toBool(),

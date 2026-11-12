@@ -112,6 +112,9 @@ private:
     void loadColors();
     void loadType();
     void watchColors();
+    void reloadAfterQuiet();
+    void confirmReload();
+    QByteArray themeContentHash() const;
     void requestPortalSetting(const QString &nameSpace, const QString &key,
                               const std::function<void(const QVariant &)> &handler);
     void requestTextScale();
@@ -145,5 +148,9 @@ private:
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
     QProcess m_roundingProc;
     QTimer m_roundingPoll;
+    // Trailing debounce for Omarchy theme swaps (see Theme::Theme).
+    QTimer m_reloadDebounce;
+    QTimer m_confirmReload;
+    QByteArray m_loadedThemeHash;
     QDBusServiceWatcher *m_portalWatcher = nullptr;
 };
