@@ -8,7 +8,7 @@ SelectableText {
 
     // Fixed box, elided text: a long show name never pushes anything around.
     text: elider.elidedText
-    color: theme.dim
+    color: theme.popupText
     wrapMode: TextEdit.NoWrap
     clip: true
     // Animated visibility; a host may show it on a container instead.
@@ -31,8 +31,10 @@ SelectableText {
         elideWidth: Math.max(0, note.width)
     }
 
+    // Same duration and easing as menus/popups (win.popupFadeInMs / popupFadeOutMs),
+    // but no scale: the pill updates in place.
     Behavior on fade {
-        NumberAnimation { duration: 500 }
+        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
     }
 
     onUpdatingChanged: {

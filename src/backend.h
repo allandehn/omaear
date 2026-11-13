@@ -245,6 +245,8 @@ public:
     QString updateUrl() const { return m_updateUrl; }
     // Help overlay: refresh the GitHub release check when the last one is older than 10 minutes.
     Q_INVOKABLE void requestUpdateCheck();
+    // UI tests and screenshots: set the status pill's message and busy flag.
+    Q_INVOKABLE void showStatus(const QString &status, bool busy);
 
     // Artwork actions (Now Playing art, shelf covers). episodeId != 0 means that
     // episode's art (falling back to its show cover); otherwise the show cover.
