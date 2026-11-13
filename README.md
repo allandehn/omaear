@@ -4,6 +4,8 @@ OmaEar is a podcast player for [Omarchy](https://omarchy.org). It keeps a shelf 
 
 Designed together by [Allan Dehn](https://github.com/allandehn) and [Grok](https://x.ai).
 
+*These screenshots are from an earlier version. New ones are coming soon.*
+
 ![OmaEar shelf with a few shows and an episode playing](assets/screenshots/shelf.png)
 
 ![Now Playing](assets/screenshots/now-playing.png)
