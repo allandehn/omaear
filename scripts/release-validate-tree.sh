@@ -50,6 +50,15 @@ CONF
 mkdir -p "$WORK/bus"
 sed -i "s|@WORK@|$WORK|" "$DBUS_CONF"
 
+# A desktop session (Omarchy, for one) exports XDG_STATE_HOME and friends.
+# Every run below must still get its own throwaway dir for each XDG_* the UI
+# test guard checks, so pretend we inherited real-home values for all of them.
+# If run_app ever stops overriding one, the UI test guard refuses and this
+# script fails here instead of on a real release.
+export XDG_DATA_HOME="$WORK/inherited-real-home/.local/share" XDG_CONFIG_HOME="$WORK/inherited-real-home/.config" \
+  XDG_CACHE_HOME="$WORK/inherited-real-home/.cache" XDG_STATE_HOME="$WORK/inherited-real-home/.local/state" \
+  XDG_RUNTIME_DIR="$WORK/inherited-real-home/run"
+
 # One isolated run of the app. $1 = home dir (made fresh by the caller), the
 # rest is the command inside dbus-run-session.
 run_app() {
@@ -57,14 +66,14 @@ run_app() {
   ( cd "$SRC" && env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK -u NIRI_SOCKET \
       -u DBUS_SESSION_BUS_ADDRESS -u QT_QPA_PLATFORMTHEME -u QT_STYLE_OVERRIDE -u QT_QUICK_CONTROLS_STYLE \
       -u XDG_CURRENT_DESKTOP -u XDG_SESSION_DESKTOP -u DESKTOP_SESSION -u XDG_SESSION_TYPE -u GTK_MODULES -u GDK_BACKEND \
-      HOME="$home/home" XDG_DATA_HOME="$home/data" XDG_CONFIG_HOME="$home/config" XDG_CACHE_HOME="$home/cache" XDG_RUNTIME_DIR="$home/run" \
+      HOME="$home/home" XDG_DATA_HOME="$home/data" XDG_CONFIG_HOME="$home/config" XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state" XDG_RUNTIME_DIR="$home/run" \
       QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 "$@" )
 }
 
 new_home() {
   local h=$WORK/home-$1
   rm -rf "$h"
-  mkdir -p "$h"/{home,data/omaear,config,cache} && mkdir -m 700 "$h/run"
+  mkdir -p "$h"/{home,data/omaear,config,cache,state} && mkdir -m 700 "$h/run"
   : >"$h/home/.omaear-ui-test-home"   # lets the UI test run here (see uiTestHomeIsThrowaway)
   : >"$h/.omaear-ui-test-root"        # marks $h, HOME's parent, as the throwaway root
   printf '%s\n' "$h"
