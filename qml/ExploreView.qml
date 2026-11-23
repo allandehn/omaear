@@ -20,7 +20,12 @@ Item {
     property int hoverRaw: -1
     readonly property int hoverIndex: win.pointerActive ? hoverRaw : -1
     onHoverIndexChanged: if (hoverIndex >= 0) kbdIndex = hoverIndex
+    // Keep the ring lit while the pointer stays in the gallery, including the
+    // one-frame gap as HoverHandler leaves one tile and enters the next.
+    // Otherwise ringShown drops, CoverRing's Behavior is disabled, and the
+    // ring jumps instead of gliding (the Shelf often keeps kbdRing from keys).
     readonly property bool ringShown: kbdRing || hoverIndex >= 0
+                                      || (win.pointerActive && gridHover.hovered)
     readonly property int navCount: grid.count
     readonly property int navColumns: columns
     readonly property Item searchFieldItem: searchField
@@ -520,6 +525,12 @@ Item {
         FastWheel { }
         model: explore.results
         cacheBuffer: Math.max(0, height)
+
+        // Stays hovered across tile-to-tile moves so the gliding ring does not hide.
+        HoverHandler {
+            id: gridHover
+            enabled: !explore.previewOpen
+        }
 
         // Navigation animation: the Shelf's gliding ring (CoverRing).
         CoverRing {

@@ -643,6 +643,19 @@ void startUiTest(QQmlApplicationEngine &engine)
                     t->eval("backend.toggleMotionTryout()");
                 t->expect(t->eval("explorePage.glideRingItem.visible && !explorePage.tileItemAt(6).keyRing.visible").toBool(),
                           "Explore: Navigation animation on -> one gliding ring");
+                t->hover(t->centerOf("explorePage.tileItemAt(5).coverArt"));
+            }},
+            {200, [t]() {
+                t->expect(t->eval("explorePage.kbdIndex === 5 && explorePage.glideRingItem.visible").toBool(),
+                          "Explore: ring settled on tile 5 with Navigation animation on");
+                t->hover(t->centerOf("explorePage.tileItemAt(6).coverArt"));
+                t->expect(t->eval(
+                              "(function(){"
+                              "  var r = explorePage.glideRingItem, w = explorePage.cellWidth, s = explorePage.coverSize, c = explorePage.columns;"
+                              "  function xAt(i){ var col = i % Math.max(1, c); return col * w + (w - s) / 2 - 4; }"
+                              "  return r.visible && r.x !== xAt(6);"
+                              "})()").toBool(),
+                          "Explore: Navigation animation on -> ring glides to the next tile");
                 t->eval("backend.toggleMotionTryout()");
                 t->expect(t->eval("!explorePage.glideRingItem.visible && explorePage.tileItemAt(6).keyRing.visible").toBool(),
                           "Explore: Navigation animation off -> static ring on the tile");
