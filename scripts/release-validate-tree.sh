@@ -29,26 +29,12 @@ done
 
 # The desktop's theme variables are dropped too: with QT_QPA_PLATFORMTHEME=gtk3
 # (or a desktop that picks it) Qt loads GTK, which has no display here and
-# breaks the run. The private bus has no service directories, so nothing on it
-# can activate desktop services such as xdg-desktop-portal.
-DBUS_CONF=$WORK/dbus-session.conf
-cat >"$DBUS_CONF" <<'CONF'
-<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:tmpdir=@WORK@/bus</listen>
-  <auth>EXTERNAL</auth>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-CONF
-# The bus socket lives in the work dir, never in the real /tmp.
-mkdir -p "$WORK/bus"
-sed -i "s|@WORK@|$WORK|" "$DBUS_CONF"
+# breaks the run. The private bus comes from scripts/isolated-session.sh, which
+# has no service directories, so nothing on it can activate desktop services
+# such as xdg-desktop-portal. The bus socket lives in $WORK/bus, never in the
+# real /tmp.
+ISOLATED=$SRC/scripts/isolated-session.sh
+[[ -x $ISOLATED ]] || die "missing $ISOLATED"
 
 # A desktop session (Omarchy, for one) exports XDG_STATE_HOME and friends.
 # Every run below must still get its own throwaway dir for each XDG_* the UI
@@ -60,7 +46,7 @@ export XDG_DATA_HOME="$WORK/inherited-real-home/.local/share" XDG_CONFIG_HOME="$
   XDG_RUNTIME_DIR="$WORK/inherited-real-home/run"
 
 # One isolated run of the app. $1 = home dir (made fresh by the caller), the
-# rest is the command inside dbus-run-session.
+# rest is the command inside isolated-session.sh.
 run_app() {
   local home=$1; shift
   ( cd "$SRC" && env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK -u NIRI_SOCKET \
@@ -127,7 +113,7 @@ SQL
 ui_run() {
   local name=$1 home=$2 limit=$3; shift 3
   local log=$WORK/uitest-$name.log
-  if ! run_app "$home" "$@" timeout "$limit" dbus-run-session --config-file="$DBUS_CONF" -- ./omaear >"$log" 2>&1; then
+  if ! run_app "$home" "$@" timeout "$limit" "$ISOLATED" --work-dir "$WORK" -- ./omaear >"$log" 2>&1; then
     grep -E 'FAIL' "$log" >&2 || tail -15 "$log" >&2
     die "UI test '$name' failed (log: $log)"
   fi
@@ -142,7 +128,7 @@ reported=$(cd "$SRC" && ./omaear --version)
 [[ $reported == "omaear $VER" ]] || die "built binary reports '$reported', not 'omaear $VER'"
 
 H=$(new_home self)
-run_app "$H" timeout 180 dbus-run-session --config-file="$DBUS_CONF" -- ./omaear --self-test >"$WORK/selftest.log" 2>&1 \
+run_app "$H" timeout 180 "$ISOLATED" --work-dir "$WORK" -- ./omaear --self-test >"$WORK/selftest.log" 2>&1 \
   || { tail -15 "$WORK/selftest.log" >&2; die "self-test failed (log: $WORK/selftest.log)"; }
 echo "Self-test: ok"
 
@@ -153,7 +139,7 @@ printf 'accent = "#123456"\n' >"$H/home/.local/state/omarchy/current/theme/color
 printf '[popups]\n' >"$H/home/.config/omarchy/shell.toml"
 guard_sum() { (cd "$H/home" && find . -type f | sort | xargs sha256sum); }
 before=$(guard_sum)
-rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 ./omaear >"$WORK/uitest-guard.log" 2>&1 || rc=$?
+rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 ./omaear >"$WORK/uitest-guard.log" 2>&1 || rc=$?
 [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard.log" && [[ $(guard_sum) == "$before" ]] \
   || { cat "$WORK/uitest-guard.log" >&2; die "UI test did not refuse a HOME without the marker (exit $rc)"; }
 echo "UI test guard: refuses a normal HOME"
@@ -163,7 +149,7 @@ H=$(new_home guard-noroot); rm -f "$H/.omaear-ui-test-root"
 printf 'canary\n' >"$H/data/omaear/library.db"
 root_sum() { (cd "$1" && find . -type f | sort | xargs sha256sum); }
 before=$(root_sum "$H")
-rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 ./omaear >"$WORK/uitest-guard-noroot.log" 2>&1 || rc=$?
+rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 ./omaear >"$WORK/uitest-guard-noroot.log" 2>&1 || rc=$?
 if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-noroot.log" && grep -q 'no .omaear-ui-test-root marker' "$WORK/uitest-guard-noroot.log" && [[ $(root_sum "$H") == "$before" ]]; }; then
   cat "$WORK/uitest-guard-noroot.log" >&2
   die "UI test did not refuse a root without the root marker (exit $rc)"
@@ -177,7 +163,7 @@ echo "UI test guard: refuses a root without the marker"
 H=$(new_home guard-shared)
 printf 'canary\n' >"$H/data/omaear/library.db"
 before=$(root_sum "$H")
-rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 TMPDIR="$H" ./omaear >"$WORK/uitest-guard-shared.log" 2>&1 || rc=$?
+rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 TMPDIR="$H" ./omaear >"$WORK/uitest-guard-shared.log" 2>&1 || rc=$?
 if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-shared.log" && grep -q 'is a shared directory' "$WORK/uitest-guard-shared.log" && [[ $(root_sum "$H") == "$before" ]]; }; then
   cat "$WORK/uitest-guard-shared.log" >&2
   die "UI test did not refuse a shared directory as the root (exit $rc)"
@@ -191,7 +177,7 @@ echo "UI test guard: refuses a shared directory as the root"
 NOHOME=/tmp/omaear-guard-nonexistent-$$-$RANDOM
 [[ ! -e $NOHOME ]] || die "$NOHOME exists"
 H=$(new_home guard-tmp)
-rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 HOME="$NOHOME" ./omaear >"$WORK/uitest-guard-tmp.log" 2>&1 || rc=$?
+rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 HOME="$NOHOME" ./omaear >"$WORK/uitest-guard-tmp.log" 2>&1 || rc=$?
 if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-tmp.log" && grep -q 'is a shared directory' "$WORK/uitest-guard-tmp.log" && [[ ! -e $NOHOME ]]; }; then
   cat "$WORK/uitest-guard-tmp.log" >&2
   die "UI test did not refuse a HOME directly under /tmp (exit $rc)"
@@ -212,7 +198,7 @@ else
   H=$(new_home guard-realhome)
   printf 'canary\n' >"$H/data/omaear/library.db"
   before=$(root_sum "$H")
-  rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 HOME="$RH_SUB" ./omaear >"$WORK/uitest-guard-realhome.log" 2>&1 || rc=$?
+  rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 HOME="$RH_SUB" ./omaear >"$WORK/uitest-guard-realhome.log" 2>&1 || rc=$?
   if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-realhome.log" && grep -q 'real home directory or contains it' "$WORK/uitest-guard-realhome.log" && [[ $(root_sum "$H") == "$before" ]]; }; then
     cat "$WORK/uitest-guard-realhome.log" >&2
     die "UI test did not refuse a HOME directly under the real home (exit $rc)"
@@ -229,7 +215,7 @@ mkdir -p "$OUT/omaear"
 printf 'canary\n' >"$OUT/omaear/library.db"
 xdg_sum() { (cd "$OUT" && find . -type f | sort | xargs sha256sum); }
 xdg_before=$(xdg_sum)
-rc=0; run_app "$H" timeout 60 dbus-run-session --config-file="$DBUS_CONF" -- env OMAEAR_UI_TEST=1 XDG_DATA_HOME="$OUT" ./omaear >"$WORK/uitest-guard-xdg.log" 2>&1 || rc=$?
+rc=0; run_app "$H" timeout 60 "$ISOLATED" --work-dir "$WORK" -- env OMAEAR_UI_TEST=1 XDG_DATA_HOME="$OUT" ./omaear >"$WORK/uitest-guard-xdg.log" 2>&1 || rc=$?
 if ! { [[ $rc -eq 3 ]] && grep -q 'refusing to run the UI test' "$WORK/uitest-guard-xdg.log" && grep -q 'XDG_DATA_HOME' "$WORK/uitest-guard-xdg.log" && [[ $(xdg_sum) == "$xdg_before" ]]; }; then
   cat "$WORK/uitest-guard-xdg.log" >&2
   die "UI test did not refuse an XDG dir outside the throwaway root (exit $rc)"
