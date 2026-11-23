@@ -246,6 +246,16 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
     }
 }
 
+void warmCoverNow(const QString &path, const QList<int> &sides)
+{
+    if (path.isEmpty() || !QFileInfo::exists(path))
+        return;
+    for (int side : sides) {
+        if (side > 0)
+            loadCover(path, side, side);
+    }
+}
+
 bool hasFlatRoundedCorners(const QImage &image)
 {
     const int w = image.width(), h = image.height();

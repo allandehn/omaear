@@ -434,22 +434,14 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: tileImage; radius: cover.coverRadius }
+                    layer.effect: CoverClip { art: tileImage.front; radius: cover.coverRadius }
                     Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
-                    Image {
+                    CoverImage {
                         id: tileImage
                         anchors.fill: parent
                         source: model.cover
-                        fillMode: Image.PreserveAspectCrop
-                        // Fixed decode size: resizing the window never reloads; the GPU scales.
-                        // Sync only when prewarmed in memory (paints with the first frame).
-                        asynchronous: !coverCache.ready(model.cover, coverCache.tileSide)
-                        cache: true
-                        smooth: true
-                        mipmap: true
-                        sourceSize.width: coverCache.tileSide / Screen.devicePixelRatio
-                        sourceSize.height: coverCache.tileSide / Screen.devicePixelRatio
+                        sourceSide: coverCache.tileSide
                         visible: model.cover !== ""
                     }
                     Rectangle {
@@ -598,20 +590,14 @@ Item {
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
-                layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
+                layer.effect: CoverClip { art: rowCover.front; radius: rowArt.coverRadius }
                 Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, Qt.rgba(rowHover.color.r, rowHover.color.g, rowHover.color.b, rowHover.opacity)); z: -1 } // backing: follows the row background (hover, selection, highlight)
 
-                Image {
+                CoverImage {
                     id: rowCover
                     anchors.fill: parent
                     source: model.cover
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: !coverCache.ready(model.cover, coverCache.rowSide)
-                    cache: true
-                    smooth: true
-                    mipmap: true
-                    sourceSize.width: coverCache.rowSide / Screen.devicePixelRatio
-                    sourceSize.height: coverCache.rowSide / Screen.devicePixelRatio
+                    sourceSide: coverCache.rowSide
                     visible: model.cover !== ""
                 }
                 Rectangle {

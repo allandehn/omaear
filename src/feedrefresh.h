@@ -23,6 +23,7 @@ struct FeedRefreshResult {
     qint64 showId = 0;
     QString title;
     QString imageUrl;
+    bool coverUrlChanged = false; // true when the stored image URL was replaced
     // Diagnostics (tests, logs).
     bool conditional = false;   // validators were sent
     bool stoppedEarly = false;  // parsing ended at known episodes

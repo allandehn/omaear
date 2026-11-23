@@ -346,7 +346,7 @@ private:
     void discardEpisodeModel(qint64 showId);
     void enqueue(const QStringList &urls, bool manual = false);
     void fetchNext();
-    void downloadCover(qint64 showId, const QString &imageUrl);
+    void downloadCover(qint64 showId, const QString &imageUrl, bool replace = false);
     void downloadEpisodeCover(qint64 episodeId, const QString &imageUrl);
     void ensureEpisodeCovers(const QList<EpisodeRow> &rows);
     void enqueueEpisodeCover(qint64 episodeId, const QString &imageUrl, bool front);

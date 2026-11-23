@@ -69,6 +69,16 @@ QString cachedCoverPath(const QString &dir, qint64 id, const QString &ext, bool 
         .arg(ext);
 }
 
+bool coverBytesMatch(const QString &path, const QByteArray &bytes)
+{
+    if (path.isEmpty() || bytes.isEmpty())
+        return false;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() != bytes.size())
+        return false;
+    return file.readAll() == bytes;
+}
+
 QString episodeCoverUrl(const EpisodeRow &row)
 {
     if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
@@ -844,7 +854,7 @@ void Backend::refresherFinished(FeedRefresher *refresher, const QString &url, co
     m_shows.setRefreshError(r.showId, {}); // a good refresh clears the cover's warning
     m_runLastTitle = r.title;
     if (!r.imageUrl.isEmpty())
-        downloadCover(r.showId, r.imageUrl);
+        downloadCover(r.showId, r.imageUrl, r.coverUrlChanged);
     if (r.status == FeedRefreshResult::Updated) {
         // Batched: one shelf update per kShelfFlushMs, not one reset per feed.
         m_pendingShowUpdates.insert(r.showId);
@@ -934,17 +944,17 @@ void Backend::finishRun(bool stopped)
         setStatus({});
 }
 
-void Backend::downloadCover(qint64 showId, const QString &imageUrl)
+void Backend::downloadCover(qint64 showId, const QString &imageUrl, bool replace)
 {
     if (showId == 0 || imageUrl.isEmpty())
         return;
     const bool fresh = m_freshShowCovers.contains(showId);
-    // Skip when the library already points at a file on disk (refresh must not re-hit the CDN).
-    // upsertShow clears image_path when the remote URL changes, so a new cover still downloads.
-    // fresh is Ctrl+click force-reload: fetch again even if a file is already on disk,
-    // and write it to a new path before dropping the old one, so the current cover stays
-    // on screen until the new file is ready. A failed fetch leaves the old file in place.
-    if (!fresh) {
+    // Skip when a file is already on disk, unless this is a Ctrl+click
+    // force-reload (fresh) or the feed's image URL just changed (replace).
+    // The current file stays until the fetch finishes: identical bytes keep
+    // the same path; different bytes are written to a new path, prewarmed,
+    // then swapped in. A failed fetch leaves the old file in place.
+    if (!fresh && !replace) {
         const QString existing = m_library.showImage(showId);
         if (!existing.isEmpty() && QFileInfo::exists(existing))
             return;
@@ -982,7 +992,13 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl)
         if (currentUrl != imageUrl) {
             finish();
             if (!currentUrl.isEmpty())
-                downloadCover(showId, currentUrl);
+                downloadCover(showId, currentUrl, true);
+            return;
+        }
+        const QString previous = m_library.showImage(showId);
+        if (coverBytesMatch(previous, bytes)) {
+            m_freshShowCovers.remove(showId);
+            finish();
             return;
         }
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
@@ -990,7 +1006,10 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl)
         QDir().mkpath(dir);
         const QString ext = coverExtension(
             bytes, reply->header(QNetworkRequest::ContentTypeHeader).toString());
-        const QString path = cachedCoverPath(dir, showId, ext, fresh);
+        // A replacement of an existing file always uses a new path so the
+        // currently displayed Image can keep serving the old file until the
+        // new source is Ready (and so Qt Quick cannot reuse a stale pixmap).
+        const QString path = cachedCoverPath(dir, showId, ext, fresh || !previous.isEmpty());
         QFile file(path);
         if (!file.open(QIODevice::WriteOnly)) {
             finish();
@@ -1002,21 +1021,17 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl)
             QFile::remove(path);
             return;
         }
-        const QString previous = m_library.showImage(showId);
-        if (fresh) {
-            // Force update: regenerate thumbs at display size from the new file;
-            // the full-size original is never kept decoded.
-            dropCoverThumbs(previous);
-            dropCoverThumbs(path);
-        }
-        if (!previous.isEmpty() && previous != path)
-            QFile::remove(previous);
+        warmCoverNow(path, {kCoverTileSide, kCoverRowSide});
         m_library.setShowImage(showId, imageUrl, path);
         m_freshShowCovers.remove(showId);
         finish();
         reloadShows();
         if (m_openShowId == showId)
             reloadEpisodes();
+        if (!previous.isEmpty() && previous != path) {
+            dropCoverThumbs(previous);
+            QFile::remove(previous);
+        }
         if (m_playerShowId == showId)
             refreshPlayerArt();
     });
@@ -1215,8 +1230,14 @@ void Backend::startEpisodeCoverDownload(qint64 episodeId, const QString &imageUr
         }
 
         const QString previous = current.imagePath;
-        if (!previous.isEmpty() && previous != path)
-            QFile::remove(previous);
+        if (coverBytesMatch(previous, bytes)) {
+            if (path != previous)
+                QFile::remove(path);
+            m_freshEpisodeCovers.remove(episodeId);
+            done();
+            return;
+        }
+        warmCoverNow(path, {kCoverRowSide, kCoverTileSide});
         m_library.setEpisodeImage(episodeId, imageUrl, path);
         m_freshEpisodeCovers.remove(episodeId);
         // Point any open list at the file now. A later visit reads it from the
@@ -1227,6 +1248,10 @@ void Backend::startEpisodeCoverDownload(qint64 episodeId, const QString &imageUr
             refreshOpenEpisode();
         if (m_playerEpisodeId == episodeId)
             refreshPlayerArt();
+        if (!previous.isEmpty() && previous != path) {
+            dropCoverThumbs(previous);
+            QFile::remove(previous);
+        }
         done();
     });
 }

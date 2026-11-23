@@ -35,6 +35,7 @@
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
         <file alias="RefreshWarning.qml">qml/RefreshWarning.qml</file>
         <file alias="CoverBadges.qml">qml/CoverBadges.qml</file>
+        <file alias="CoverImage.qml">qml/CoverImage.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
         <file alias="icons/more-symbolic.svg">qml/icons/more-symbolic.svg</file>
         <file alias="icons/add-symbolic.svg">qml/icons/add-symbolic.svg</file>

@@ -22,8 +22,6 @@ Rectangle {
         ? Math.min(Math.round(theme.rButton * (size / referenceSize)), Math.round(size / 2))
         : 0
     color: theme.urgent
-    border.width: 1
-    border.color: theme.background
 
     function ink(swatch) {
         var l = 0.299 * swatch.r + 0.587 * swatch.g + 0.114 * swatch.b
