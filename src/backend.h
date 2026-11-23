@@ -181,6 +181,9 @@ public:
     // UI-test only: point a show at an already-local cover file. No-op unless
     // OMAEAR_UI_TEST=1.
     Q_INVOKABLE void setShowCoverPath(qint64 showId, const QString &path);
+    // UI-test only: set or clear a show's refresh-error badge. No-op unless
+    // OMAEAR_UI_TEST=1.
+    Q_INVOKABLE void setShowRefreshError(qint64 showId, const QString &reason);
     // Drop a speculative model's cache when that page was never opened.
     Q_INVOKABLE void dropWarmEpisodes(qint64 showId);
     Q_INVOKABLE void openEpisode(qint64 episodeId);

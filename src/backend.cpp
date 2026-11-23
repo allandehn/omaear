@@ -230,6 +230,15 @@ void Backend::setShowCoverPath(qint64 showId, const QString &path)
     reloadShows();
 }
 
+void Backend::setShowRefreshError(qint64 showId, const QString &reason)
+{
+    if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST") != 1)
+        return;
+    if (showId == 0 || !m_library.hasShow(showId))
+        return;
+    m_shows.setRefreshError(showId, reason);
+}
+
 void Backend::warmEpisodes(qint64 showId)
 {
     if (showId == 0 || !m_library.hasShow(showId))

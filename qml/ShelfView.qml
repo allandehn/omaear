@@ -470,23 +470,11 @@ Item {
                         color: theme.background
                         opacity: shelf.caughtUpVeil
                     }
-                    Rectangle {
-                        visible: model.unheard > 0
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.margins: 8
-                        radius: theme.rButton
-                        color: theme.accent
-                        height: 22 * theme.textScale
-                        width: Math.max(height, countLabel.implicitWidth + 12)
-                        Text {
-                            id: countLabel
-                            anchors.centerIn: parent
-                            text: model.unheard > 99 ? "99+" : model.unheard
-                            color: inkOnAccent(theme.accent)
-                            font.pixelSize: theme.caption
-                            font.weight: Font.Normal
-                        }
+                    CoverBadges {
+                        unheard: model.unheard
+                        refreshError: model.refreshError
+                        hoverArea: tileMouse
+                        margins: 8
                     }
                     // Refresh veil: left inactive so covers stay undimmed while refresh runs.
                     // Rectangle {
@@ -495,13 +483,6 @@ Item {
                     //     color: theme.background
                     //     opacity: shelf.refreshVeil
                     // }
-                    RefreshWarning {
-                        reason: model.refreshError
-                        hoverArea: tileMouse
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.margins: 8
-                    }
                 }
 
                 Text {
@@ -651,23 +632,11 @@ Item {
                     color: theme.background
                     opacity: shelf.caughtUpVeil
                 }
-                Rectangle {
-                    visible: model.unheard > 0
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.margins: parent.width >= 96 ? 8 : 4
-                    radius: theme.rButton
-                    color: theme.accent
-                    height: Math.min(22 * theme.textScale, parent.height * 0.5)
-                    width: Math.max(height, rowBadgeText.implicitWidth + 12)
-                    Text {
-                        id: rowBadgeText
-                        anchors.centerIn: parent
-                        text: model.unheard > 99 ? "99+" : model.unheard
-                        color: inkOnAccent(theme.accent)
-                        font.pixelSize: theme.caption
-                        font.weight: Font.Normal
-                    }
+                CoverBadges {
+                    unheard: model.unheard
+                    refreshError: model.refreshError
+                    hoverArea: rowMouse
+                    margins: parent.width >= 96 ? 8 : 4
                 }
                 // Refresh veil: left inactive so list covers stay undimmed while refresh runs.
                 // Rectangle {
@@ -676,14 +645,6 @@ Item {
                 //     color: theme.background
                 //     opacity: shelf.refreshVeil
                 // }
-                RefreshWarning {
-                    reason: model.refreshError
-                    hoverArea: rowMouse
-                    size: Math.min(22 * theme.textScale, parent.height * 0.5)
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.margins: parent.width >= 96 ? 8 : 4
-                }
             }
             Column {
                 anchors.left: rowArt.right
@@ -886,14 +847,6 @@ Item {
         anchors.bottom: showList.bottom
         anchors.right: parent.right
         anchors.rightMargin: 2
-    }
-
-    function inkOnAccent(swatch) {
-        var accentLuma = 0.299 * swatch.r + 0.587 * swatch.g + 0.114 * swatch.b
-        var backgroundLuma = 0.299 * theme.background.r + 0.587 * theme.background.g + 0.114 * theme.background.b
-        var foregroundLuma = 0.299 * theme.foreground.r + 0.587 * theme.foreground.g + 0.114 * theme.foreground.b
-        return Math.abs(accentLuma - backgroundLuma) > Math.abs(accentLuma - foregroundLuma)
-                ? theme.background : theme.foreground
     }
 
 }

@@ -15,7 +15,12 @@ Rectangle {
     visible: reason.length > 0
     width: size
     height: size
-    radius: theme.rounding > 0 ? Math.round(size / 2) : 0
+    // Same rule as the episodes counter (theme.rButton, 0 when Hyprland
+    // decoration:rounding is 0), scaled if this badge is a different size.
+    readonly property real referenceSize: 22 * theme.textScale
+    radius: theme.rounding > 0
+        ? Math.min(Math.round(theme.rButton * (size / referenceSize)), Math.round(size / 2))
+        : 0
     color: theme.urgent
     border.width: 1
     border.color: theme.background
@@ -29,8 +34,9 @@ Rectangle {
 
     Image {
         anchors.centerIn: parent
-        // Same optical lift as the status pill's warning in a circle badge.
-        anchors.verticalCenterOffset: theme.rounding > 0 ? -0.75 * (width / 18) : 0
+        // Lift only in a circle badge. The cover warning follows the counter
+        // (a slightly rounded square), so this stays 0 unless the radius is a circle.
+        anchors.verticalCenterOffset: radius >= Math.round(size / 2) ? -0.75 * (width / 18) : 0
         width: Math.round(badge.size * 0.68)
         height: width
         sourceSize: Qt.size(width, height)
