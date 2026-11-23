@@ -29,6 +29,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
 
@@ -42,7 +43,7 @@ const QString kPlayerIface = QStringLiteral("com.github.allanjorch.omaear.Player
 const QList<double> kRates = {1.0, 1.25, 1.5, 1.75, 2.0, 0.75};
 const QString kLastRefreshKey = QStringLiteral("refresh/lastSuccessMs");
 constexpr qint64 kAutoRefreshSkipMs = 30 * 60 * 1000; // skip launch refresh if last success within this window
-constexpr int kMaxEpisodeCoverDownloads = 6;
+constexpr int kMaxEpisodeCoverDownloads = 3;
 constexpr qint64 kUpdateHelpIntervalMs = 10 * 60 * 1000;
 constexpr qint64 kUpdateDayMs = 24LL * 60 * 60 * 1000;
 
@@ -1021,7 +1022,10 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl, bool replace
             QFile::remove(path);
             return;
         }
-        warmCoverNow(path, {kCoverTileSide, kCoverRowSide});
+        // Decode + thumbnail off the GUI thread (a big show cover took ~300 ms
+        // here). Only the path (by value) and the thread-safe cover cache are
+        // used; CoverImage keeps the old frame until the new source is Ready.
+        coverWarmPool()->start([path]() { warmCoverNow(path, {kCoverTileSide, kCoverRowSide}); });
         m_library.setShowImage(showId, imageUrl, path);
         m_freshShowCovers.remove(showId);
         finish();
@@ -1059,7 +1063,8 @@ void Backend::ensureEpisodeCovers(const QList<EpisodeRow> &rows)
     // show's remaining queue (capped at 6 in flight). The list only paints
     // those cached files, so the new show kept the show cover until a
     // description jump-the-queue download finished. Drop other shows' queued
-    // jobs (in-flight ones finish). A later visit re-queues via openShow.
+    // jobs (in-flight ones finish). Rows of a page that is shown again ask
+    // for their missing art again (ShowView requestEpisodeCover).
     // Keep a playing or open episode so a jump-the-queue job is not dropped.
     QSet<qint64> keep;
     keep.reserve(rows.size() + 2);
@@ -1082,13 +1087,24 @@ void Backend::ensureEpisodeCovers(const QList<EpisodeRow> &rows)
         m_episodeCoverQueue = kept;
         m_episodeCoverQueued = keptIds;
     }
-    for (const EpisodeRow &row : rows) {
-        if (row.imageUrl.isEmpty())
-            continue;
-        if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
-            continue;
-        enqueueEpisodeCover(row.id, row.imageUrl, false);
-    }
+    // Missing episode art is fetched on demand (requestEpisodeCover from a
+    // realized row), not for every episode of the show: a 585-episode feed
+    // used to queue 500+ downloads and as many decodes.
+}
+
+void Backend::requestEpisodeCover(qint64 episodeId)
+{
+    const EpisodeRow row = m_library.episode(episodeId);
+    if (row.id == 0 || row.imageUrl.isEmpty())
+        return;
+    if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
+        return;
+    enqueueEpisodeCover(row.id, row.imageUrl, true);
+}
+
+bool Backend::episodeCoverPending(qint64 episodeId) const
+{
+    return m_episodeCoverQueued.contains(episodeId) || m_episodeCoverDownloads.contains(episodeId);
 }
 
 void Backend::enqueueEpisodeCover(qint64 episodeId, const QString &imageUrl, bool front)
@@ -1237,7 +1253,10 @@ void Backend::startEpisodeCoverDownload(qint64 episodeId, const QString &imageUr
             done();
             return;
         }
-        warmCoverNow(path, {kCoverRowSide, kCoverTileSide});
+        // Decode + thumbnail off the GUI thread (a big show cover took ~300 ms
+        // here). Only the path (by value) and the thread-safe cover cache are
+        // used; CoverImage keeps the old frame until the new source is Ready.
+        coverWarmPool()->start([path]() { warmCoverNow(path, {kCoverRowSide, kCoverTileSide}); });
         m_library.setEpisodeImage(episodeId, imageUrl, path);
         m_freshEpisodeCovers.remove(episodeId);
         // Point any open list at the file now. A later visit reads it from the
@@ -1267,10 +1286,14 @@ void Backend::reloadArtwork(qint64 showId)
     m_showCoverGen[showId] = m_showCoverGen.value(showId) + 1;
     m_showCoverDownloads.remove(showId);
 
-    const auto episodes = m_library.episodes(showId);
+    // Re-check only episode art that is already on disk. Art never fetched
+    // stays on demand; a force refresh must not bulk-download every episode.
+    QList<EpisodeRow> episodes;
+    for (const auto &row : m_library.episodes(showId)) {
+        if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
+            episodes.append(row);
+    }
     for (const auto &row : episodes) {
-        if (row.imageUrl.isEmpty() && row.imagePath.isEmpty())
-            continue;
         if (!row.imageUrl.isEmpty())
             m_freshEpisodeCovers.insert(row.id);
         m_episodeCoverGen[row.id] = m_episodeCoverGen.value(row.id) + 1;
@@ -1281,7 +1304,7 @@ void Backend::reloadArtwork(qint64 showId)
     const QString imageUrl = m_library.showImageUrl(showId);
     if (!imageUrl.isEmpty())
         downloadCover(showId, imageUrl);
-    for (const auto &row : m_library.episodes(showId)) {
+    for (const auto &row : episodes) {
         if (!row.imageUrl.isEmpty())
             enqueueEpisodeCover(row.id, row.imageUrl, false);
     }

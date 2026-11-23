@@ -178,6 +178,9 @@ public:
     // image://covers/ URL for a show's on-disk art, or empty. Stable while the
     // show is not open, so a hidden pre-warmed page can load the fallback art.
     Q_INVOKABLE QString coverForShow(qint64 showId) const;
+    // A realized episode row with no local art asks for it (deduped, capped).
+    Q_INVOKABLE void requestEpisodeCover(qint64 episodeId);
+    Q_INVOKABLE bool episodeCoverPending(qint64 episodeId) const;
     // UI-test only: point a show at an already-local cover file. No-op unless
     // OMAEAR_UI_TEST=1.
     Q_INVOKABLE void setShowCoverPath(qint64 showId, const QString &path);

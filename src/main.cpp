@@ -4,6 +4,7 @@
 #include "search.h"
 #include <cstdio>
 #include "covercache.h"
+#include <QThreadPool>
 #include "iconprovider.h"
 #include "explore.h"
 #include "netaccess.h"
@@ -521,7 +522,12 @@ int main(int argc, char **argv)
     WindowInputFilter inputFilter;
     inputFilter.window = engine.rootObjects().constFirst();
     app.installEventFilter(&inputFilter);
-    return app.exec();
+    const int rc = app.exec();
+    // Let an in-flight cover warm (at most 2) finish before statics go away;
+    // queued ones are dropped.
+    coverWarmPool()->clear();
+    coverWarmPool()->waitForDone();
+    return rc;
 }
 
 #include "main.moc"

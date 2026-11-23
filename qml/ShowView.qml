@@ -427,6 +427,20 @@ Item {
                 readonly property string art: model.cover && model.cover !== ""
                                              ? model.cover
                                              : page.showArt
+                // Missing episode art is fetched while the page is shown: when the
+                // row is realized, and again each time a kept page comes back
+                // (opening another show drops this show's queued jobs, and a kept
+                // page updates rows in place). Requests are deduped. A hidden
+                // pre-warm page never asks.
+                function askCover() {
+                    if (page.visible && !model.cover && model.episodeId)
+                        backend.requestEpisodeCover(model.episodeId)
+                }
+                Component.onCompleted: askCover()
+                Connections {
+                    target: page
+                    function onVisibleChanged() { playWell.askCover() }
+                }
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
