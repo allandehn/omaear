@@ -932,7 +932,9 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl)
     const bool fresh = m_freshShowCovers.contains(showId);
     // Skip when the library already points at a file on disk (refresh must not re-hit the CDN).
     // upsertShow clears image_path when the remote URL changes, so a new cover still downloads.
-    // fresh is Ctrl+click force-reload: the file was deleted and must be fetched again.
+    // fresh is Ctrl+click force-reload: fetch again even if a file is already on disk,
+    // and write it to a new path before dropping the old one, so the current cover stays
+    // on screen until the new file is ready. A failed fetch leaves the old file in place.
     if (!fresh) {
         const QString existing = m_library.showImage(showId);
         if (!existing.isEmpty() && QFileInfo::exists(existing))
@@ -1127,14 +1129,10 @@ void Backend::pumpEpisodeCovers()
             }
             continue;
         }
-        if (fresh) {
-            if (!row.imagePath.isEmpty()) {
-                QFile::remove(row.imagePath);
-                m_library.clearEpisodeImagePath(job.episodeId);
-            }
-        } else if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath)) {
+        // fresh: keep the current file until startEpisodeCoverDownload writes a
+        // new path and then removes the previous one. A failed fetch leaves it.
+        if (!fresh && !row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
             continue;
-        }
         startEpisodeCoverDownload(job.episodeId, job.imageUrl, fresh);
     }
 }
@@ -1228,11 +1226,12 @@ void Backend::reloadArtwork(qint64 showId)
 {
     if (showId == 0)
         return;
-    // Supersede in-flight cover replies so they cannot write the file we just deleted.
+    // Keep the on-disk cover in place until a new file is written. A failed
+    // fetch then leaves the current art showing. Bump the generation so an
+    // in-flight reply cannot race the new download.
     m_freshShowCovers.insert(showId);
     m_showCoverGen[showId] = m_showCoverGen.value(showId) + 1;
     m_showCoverDownloads.remove(showId);
-    m_library.clearShowImagePath(showId);
 
     const auto episodes = m_library.episodes(showId);
     for (const auto &row : episodes) {
@@ -1243,12 +1242,7 @@ void Backend::reloadArtwork(qint64 showId)
         m_episodeCoverGen[row.id] = m_episodeCoverGen.value(row.id) + 1;
         m_episodeCoverDownloads.remove(row.id);
         dropQueuedEpisodeCover(row.id);
-        m_library.clearEpisodeImagePath(row.id);
     }
-
-    if (EpisodeModel *model = episodeModel(showId, false))
-        model->setRows(visibleEpisodes(showId));
-    reloadShows();
 
     const QString imageUrl = m_library.showImageUrl(showId);
     if (!imageUrl.isEmpty())
@@ -1257,8 +1251,6 @@ void Backend::reloadArtwork(qint64 showId)
         if (!row.imageUrl.isEmpty())
             enqueueEpisodeCover(row.id, row.imageUrl, false);
     }
-    if (m_playerShowId == showId)
-        refreshPlayerArt();
 }
 
 void Backend::refreshPlayerArt()

@@ -154,7 +154,7 @@ public:
     Q_INVOKABLE void addFeed(const QString &url);
     Q_INVOKABLE void importOpml(const QString &fileUrl);
     Q_INVOKABLE void exportOpml(const QString &fileUrl);
-    // forceArtwork is Ctrl+left-click: drop cached show and episode covers and fetch them again.
+    // forceArtwork is Ctrl+left-click: fetch show and episode covers again, then swap them in once the new files are ready.
     // A normal refresh leaves this false and must not re-download art that is already on disk.
     Q_INVOKABLE void refreshAll(bool forceArtwork = false);
     Q_INVOKABLE void refreshOpenShow(bool forceArtwork = false);

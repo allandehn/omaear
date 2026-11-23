@@ -130,7 +130,8 @@ public:
     void setShowImage(qint64 showId, const QString &imageUrl, const QString &imagePath);
     void setEpisodeImage(qint64 episodeId, const QString &imageUrl, const QString &imagePath);
     // Delete the cached file and clear image_path. The remote image URL stays,
-    // so a later download can run. A normal refresh does not call these.
+    // so a later download can run. Ctrl+click force-reload does not call these:
+    // it keeps the current file until the new one is ready.
     void clearShowImagePath(qint64 showId);
     void clearEpisodeImagePath(qint64 episodeId);
     bool removeShow(qint64 showId);
