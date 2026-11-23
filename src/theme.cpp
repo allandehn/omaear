@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "iconprovider.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -275,6 +276,15 @@ QString Theme::tintedSvg(const QString &name, const QColor &color) const
     QByteArray svg = file.readAll();
     const QByteArray hex = color.name(QColor::HexRgb).toLatin1();
     svg.replace("currentColor", hex);
+    return QStringLiteral("data:image/svg+xml;utf8,") + QString::fromLatin1(QUrl::toPercentEncoding(QString::fromUtf8(svg)));
+}
+
+QString Theme::tintedIcon(const QString &name, const QColor &color, bool round) const
+{
+    QByteArray svg = iconSvg(name, round);
+    if (svg.isEmpty())
+        return {};
+    svg.replace("currentColor", color.name(QColor::HexRgb).toLatin1());
     return QStringLiteral("data:image/svg+xml;utf8,") + QString::fromLatin1(QUrl::toPercentEncoding(QString::fromUtf8(svg)));
 }
 

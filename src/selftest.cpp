@@ -59,6 +59,7 @@ void check(bool ok, const char *what)
 }
 
 int runRefreshSelfTest(); // refreshtest.cpp
+int runParallelRefreshSelfTest(); // paralleltest.cpp
 
 int runSelfTest(int argc, char **argv)
 {
@@ -1493,6 +1494,8 @@ int runSelfTest(int argc, char **argv)
         waitUntil([&]() { return server.held.isEmpty(); }, 2000);
         server.close();
     }
+
+    g_fails += runParallelRefreshSelfTest();
 
     if (g_fails == 0) {
         printf("ok\n");

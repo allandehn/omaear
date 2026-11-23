@@ -18,6 +18,8 @@ struct Parsed {
 };
 }
 
+std::function<void(const QString &)> FeedRefresher::testBeforeParse;
+
 FeedRefresher::FeedRefresher(Library &library, QNetworkAccessManager &network, QObject *parent)
     : QObject(parent)
     , m_library(library)
@@ -42,12 +44,27 @@ bool FeedRefresher::backedOff(const FeedState &state, qint64 nowSecs)
 void FeedRefresher::done(const QString &feedUrl, const FeedRefreshResult &result)
 {
     m_busy = false;
+    m_reply = nullptr;
+    m_cancel.reset();
     emit finished(feedUrl, result);
+}
+
+void FeedRefresher::cancel()
+{
+    if (!m_busy || !m_cancel)
+        return;
+    m_cancel->store(true);
+    // abort() delivers finished() (synchronously in practice); the handler
+    // sees the flag and reports Cancelled without touching the library.
+    if (m_reply)
+        m_reply->abort();
 }
 
 void FeedRefresher::start(const QString &feedUrl, bool manual, bool plainEncoding)
 {
     m_busy = true;
+    auto cancel = std::make_shared<std::atomic_bool>(false);
+    m_cancel = cancel;
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     const FeedState state = m_library.feedState(feedUrl);
     const bool full = manual || state.showId == 0 || state.fullAt <= 0 || state.fullAt > now
@@ -72,13 +89,21 @@ void FeedRefresher::start(const QString &feedUrl, bool manual, bool plainEncodin
     }
 
     QNetworkReply *reply = m_network.get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, feedUrl, state, full, conditional]() {
+    m_reply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, feedUrl, state, full, conditional, cancel]() {
         reply->deleteLater();
+        m_reply = nullptr;
         FeedRefreshResult result;
         result.conditional = conditional;
+        if (cancel->load()) {
+            result.status = FeedRefreshResult::Cancelled;
+            done(feedUrl, result);
+            return;
+        }
         if (reply->error() != QNetworkReply::NoError) {
             result.status = FeedRefreshResult::NetworkError;
             result.error = reply->errorString();
+            result.networkError = int(reply->error());
             result.decompressionFailed = result.error.startsWith(QStringLiteral("Decompression failed"));
             done(feedUrl, result);
             return;
@@ -107,22 +132,32 @@ void FeedRefresher::start(const QString &feedUrl, bool manual, bool plainEncodin
         auto promise = std::make_shared<QPromise<Parsed>>();
         QFuture<Parsed> future = promise->future();
         promise->start();
-        QThreadPool::globalInstance()->start([promise, body, base, known, full]() {
+        QThreadPool::globalInstance()->start([promise, body, base, known, full, cancel, feedUrl]() {
             Parsed out;
+            if (testBeforeParse)
+                testBeforeParse(feedUrl);
             FeedParseOptions options;
-            options.knownGuids = &known;
-            options.stopAfterKnown = kStopAfterKnown;
-            out.show = parseFeed(body, base, &out.error, full ? nullptr : &options, &out.stoppedEarly);
+            options.knownGuids = full ? nullptr : &known; // no early stop on a full parse
+            options.stopAfterKnown = full ? 0 : kStopAfterKnown;
+            options.cancel = cancel.get();
+            out.show = parseFeed(body, base, &out.error, &options, &out.stoppedEarly);
             promise->addResult(std::move(out));
             promise->finish();
         });
         auto *watcher = new QFutureWatcher<Parsed>(this);
         connect(watcher, &QFutureWatcher<Parsed>::finished, this,
-                [this, watcher, feedUrl, meta, conditional]() mutable {
+                [this, watcher, feedUrl, meta, conditional, cancel]() mutable {
             watcher->deleteLater();
             Parsed parsed = watcher->result();
             FeedRefreshResult result;
             result.conditional = conditional;
+            // Stopped while parsing, or after the parse but before this save
+            // began: skip the save, the show stays exactly as it was.
+            if (cancel->load()) {
+                result.status = FeedRefreshResult::Cancelled;
+                done(feedUrl, result);
+                return;
+            }
             if (!parsed.show) {
                 result.status = FeedRefreshResult::ParseError;
                 result.error = parsed.error;

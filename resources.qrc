@@ -33,6 +33,7 @@
         <file alias="AppTip.qml">qml/AppTip.qml</file>
         <file alias="FastWheel.qml">qml/FastWheel.qml</file>
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>
+        <file alias="RefreshWarning.qml">qml/RefreshWarning.qml</file>
         <file alias="icons/queue-symbolic.svg">qml/icons/queue-symbolic.svg</file>
         <file alias="icons/more-symbolic.svg">qml/icons/more-symbolic.svg</file>
         <file alias="icons/add-symbolic.svg">qml/icons/add-symbolic.svg</file>
@@ -50,6 +51,7 @@
         <file alias="icons/status-refresh.svg">qml/icons/status-refresh.svg</file>
         <file alias="icons/status-check.svg">qml/icons/status-check.svg</file>
         <file alias="icons/status-warning.svg">qml/icons/status-warning.svg</file>
+        <file alias="icons/stop-symbolic.svg">qml/icons/stop-symbolic.svg</file>
         <file alias="icons/omaear.svg">assets/icons/omaear.svg</file>
     </qresource>
 </RCC>

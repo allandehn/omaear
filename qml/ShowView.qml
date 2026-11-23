@@ -264,14 +264,33 @@ Item {
                 onClicked: backend.setEpisodeShowAll(!backend.episodeShowAll)
             }
             IconButton {
+                id: showRefresh
+                // Any refresh running (this show or the whole shelf): Stop, like
+                // the shelf toolbar. Our stop glyph over the clear theme glyph,
+                // never dimmed or spinning; a click stops the run at once.
+                readonly property bool stopMode: backend.busy
                 icon.name: "view-refresh-symbolic"
-                tip: "Refresh this show  ·  Ctrl+click reloads artwork"
+                glyph: stopMode ? "transparent" : theme.foreground
+                tip: stopMode ? "Stop refreshing" : "Refresh this show  ·  Ctrl+click reloads artwork"
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
                         reloadArtwork = backend.controlHeld()
                 }
-                onClicked: backend.refreshOpenShow(reloadArtwork)
+                onClicked: {
+                    if (stopMode)
+                        backend.stopRefresh()
+                    else
+                        backend.refreshOpenShow(reloadArtwork)
+                }
+                Image {
+                    anchors.centerIn: parent
+                    visible: showRefresh.stopMode
+                    width: showRefresh.icon.width
+                    height: showRefresh.icon.height
+                    sourceSize: Qt.size(width, height)
+                    source: theme.tintedIcon("stop-symbolic.svg", theme.foreground, theme.rounding > 0)
+                }
             }
             // Same set and order as the Shelf bar: eye, refresh, +, ⋯.
             IconButton {

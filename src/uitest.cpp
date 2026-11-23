@@ -16,6 +16,9 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -671,6 +674,181 @@ void startUiTest(QQmlApplicationEngine &engine)
         t->run(0);
         return;
     }
+    // The show page's refresh/stop button and the first visible cover warning.
+#define SHOW_REFRESH_JS "(function(){ function find(it){ if (!it) return null;" \
+    " if (it.stopMode !== undefined && it.visible && it.tip !== undefined && it !== shelfView.navItems()[1]) return it;" \
+    " for (var k = 0; k < it.children.length; ++k) { var f = find(it.children[k]); if (f) return f; } return null; }" \
+    " return find(win.contentItem); })()"
+#define WARNING_JS "(function(){ function find(it){ if (!it) return null;" \
+    " if (it.reason !== undefined && it.visible) return it;" \
+    " for (var k = 0; k < it.children.length; ++k) { var f = find(it.children[k]); if (f) return f; } return null; }" \
+    " for (var i = 0; i < shelfView.navCount; ++i) { var w = find(shelfView.coverItemAt(i)); if (w) return w; }" \
+    " return null; })()"
+    // OMAEAR_UI_TEST_REFRESH_SHOTS=<dir>: refresh-all UX shots against a local
+    // fixture server (OMAEAR_UI_TEST_REFRESH_CTL=http://127.0.0.1:<port>, which
+    // holds the slow feeds until /_release and fails /bad until /_fixbad). The
+    // library is seeded by the caller. Starts mid launch-refresh, so it does not
+    // wait for the shelf to settle. Not part of the gate.
+    const QString refreshShots = qEnvironmentVariable("OMAEAR_UI_TEST_REFRESH_SHOTS");
+    if (!refreshShots.isEmpty()) {
+        QDir().mkpath(refreshShots);
+        const QString ctlBase = qEnvironmentVariable("OMAEAR_UI_TEST_REFRESH_CTL");
+        auto *ctlNet = new QNetworkAccessManager(t->win);
+        auto ctl = [ctlNet, ctlBase](const char *what) {
+            QNetworkReply *reply = ctlNet->get(QNetworkRequest(QUrl(ctlBase + QLatin1String(what))));
+            QObject::connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+        };
+        auto grab = [t, refreshShots](const char *name) {
+            const QImage img = t->win->grabWindow();
+            t->expect(img.save(refreshShots + QLatin1Char('/') + QLatin1String(name) + QStringLiteral(".png")), name);
+            // Close-ups: the pill and the toolbar refresh/stop control.
+            auto crop = [&](const QString &js, const char *suffix, int pad, int zoom = 1) {
+                auto *item = qvariant_cast<QQuickItem *>(t->eval(js));
+                if (!item || !item->isVisible())
+                    return;
+                const QPointF tl = item->mapToScene(QPointF(0, 0));
+                const int x = qMax(0, int(tl.x()) - pad), y = qMax(0, int(tl.y()) - pad);
+                const int w = qMin(img.width() - x, int(item->width()) + pad * 2);
+                const int h = qMin(img.height() - y, int(item->height()) + pad * 2);
+                QImage part = img.copy(x, y, w, h);
+                if (zoom > 1)
+                    part = part.scaled(w * zoom, h * zoom, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+                part.save(refreshShots + QLatin1Char('/') + QLatin1String(name) + QLatin1String(suffix));
+            };
+            crop(QStringLiteral("statusPill"), "-pill.png", 24);
+            crop(QStringLiteral("shelfView.navItems()[1]"), "-toolbar.png", 40);
+            crop(QStringLiteral("shelfView.navItems()[1]"), "-toolbar-x6.png", 4, 6);
+            crop(QStringLiteral(SHOW_REFRESH_JS), "-showbutton-x6.png", 4, 6);
+            crop(QStringLiteral(WARNING_JS), "-badge-x6.png", 6, 6);
+        };
+        auto state = [t](const char *label) {
+            const QString button = QStringLiteral("(shelfView.navItems()[1] || {})");
+            fprintf(stderr, "[uitest] %s: busy=%d quiet=%s pill=%d status='%s' stopMode=%s tip='%s'\n", label,
+                    t->eval("backend.busy").toBool(), qPrintable(t->eval("String(backend.refreshQuiet)").toString()),
+                    t->eval("statusPill.visible").toBool(), qPrintable(t->eval("backend.status").toString()),
+                    qPrintable(t->eval(QStringLiteral("String(%1.stopMode)").arg(button)).toString()),
+                    qPrintable(t->eval(QStringLiteral("String(%1.tip)").arg(button)).toString()));
+        };
+        const QString warning = QStringLiteral(WARNING_JS);
+        const QString showButton = QStringLiteral(SHOW_REFRESH_JS);
+        t->steps = {
+            {1500, [t, grab, state]() {
+                state("launch running");
+                t->expect(t->eval("backend.busy && backend.refreshQuiet === true && !statusPill.visible").toBool(),
+                          "launch refresh: busy, quiet, no pill");
+                grab("launch-running");
+            }},
+            {100, [ctl]() { ctl("/_release"); }},
+            {1500, [t, grab, state, warning]() {
+                state("launch end");
+                t->expect(t->eval("!backend.busy && statusPill.visible && backend.status === 'Updated 8 · 1 failed'").toBool(),
+                          "launch refresh: pill only at the end, on a failure");
+                t->expect(t->eval(warning + QStringLiteral(" !== null")).toBool(), "failed show has a cover warning");
+                grab("launch-end-failed");
+            }},
+            {100, [t, warning]() { t->hover(t->centerOf(warning)); }},
+            {900, [t, grab, warning]() {
+                t->expect(t->eval(warning + QStringLiteral(".hovered === true")).toBool(), "warning hovered");
+                t->expect(t->eval(warning + QStringLiteral(".reason === \"Couldn't refresh — feed not found\"")).toBool(),
+                          "badge tooltip: Couldn't refresh — feed not found");
+                fprintf(stderr, "[uitest] badge reason: %s\n", qPrintable(t->eval(warning + QStringLiteral(".reason")).toString()));
+                t->expect(t->eval(warning + QStringLiteral(".radius === (theme.rounding > 0 ? Math.round(") + warning
+                                  + QStringLiteral(".size / 2) : 0)")).toBool(),
+                          "badge: square at rounding 0, circle above");
+                grab("cover-warning-hover");
+            }},
+            {100, [t, ctl]() { t->hover(QPointF(5, 5)); ctl("/_holdall"); }},
+            {300, [t]() { t->eval("backend.refreshAll(false)"); }},
+            {500, [t, grab, state]() {
+                state("early run");
+                t->expect(t->eval("backend.busy && statusPill.visible && backend.status === 'Updating podcasts…'"
+                                  " && statusPill.jobBusy && !statusPill.jobError").toBool(),
+                          "early run: Updating podcasts… (no 0 of N), busy look");
+                grab("early-run");
+            }},
+            {100, [ctl]() { ctl("/_release"); }},
+            {1200, [t, grab, state]() {
+                state("manual running");
+                t->expect(t->eval("backend.busy && statusPill.visible"
+                                  " && backend.status === 'Updating 7 of 9 podcasts · 1 failed'").toBool(),
+                          "manual refresh: count pill with failed count");
+                t->expect(t->eval("statusPill.jobBusy && !statusPill.jobError"
+                                  " && statusPill.jobColor.toString() === theme.accent.toString()"
+                                  " && statusPill.border.color.toString() === theme.border.toString()").toBool(),
+                          "mid-run with failures keeps the calm busy look");
+                t->expect(t->eval("shelfView.navItems()[1].tip === 'Stop refreshing'"
+                                  " && shelfView.navItems()[1].stopMode === true").toBool(),
+                          "toolbar shows the stop control");
+                grab("manual-running");
+            }},
+            {100, [t]() { t->click(t->centerOf(QStringLiteral("shelfView.navItems()[1]")), Qt::LeftButton); }},
+            {350 + t->dwellMs, [t, grab, state]() {
+                state("stopped");
+                t->expect(t->eval("!backend.busy && backend.status === 'Stopped, 6 of 9 updated · 1 failed'").toBool(),
+                          "toolbar click stopped the run");
+                t->expect(t->eval("statusPill.jobError && statusPill.jobColor.toString() === theme.urgent.toString()").toBool(),
+                          "ended run with failures is red");
+                grab("stopped");
+            }},
+            {100, [t, ctl]() { ctl("/_fixbad"); ctl("/_nohold"); }},
+            {300, [t]() { t->eval("backend.refreshAll(false)"); }},
+            {2000, [t, grab, state, warning]() {
+                state("all ok");
+                t->expect(t->eval("!backend.busy && backend.status === 'All podcasts updated.'").toBool(),
+                          "clean run: All podcasts updated.");
+                t->expect(t->eval(warning + QStringLiteral(" === null")).toBool(), "warning cleared by a good refresh");
+                grab("all-updated");
+            }},
+            {100, [ctl]() { ctl("/_hold"); }},
+            {300, [t]() {
+                // A slow show, so its own refresh is still running for the shot.
+                t->eval("(function(){ for (var i = 0; i < shelfView.navCount; ++i) {"
+                        " var it = shelfView.coverItemAt(i);"
+                        " if (it && it.navTitle === 'Long Wave Radio') { win.openShowPage(backend.shows.showIdAt(i)); return; } } })()");
+            }},
+            {900, [t, grab, showButton]() {
+                t->expect(t->eval(showButton + QStringLiteral(".stopMode === false")).toBool(), "show page: refresh while idle");
+                grab("show-page-idle");
+            }},
+            {100, [t]() { t->eval("backend.refreshOpenShow(false)"); }},
+            {700, [t, grab, state, showButton]() {
+                state("single show");
+                t->expect(t->eval("backend.status === 'Updating Long Wave Radio…'").toBool(), "single show: Updating Show…");
+                t->expect(t->eval(showButton + QStringLiteral(".stopMode === true && ") + showButton
+                                  + QStringLiteral(".tip === 'Stop refreshing'")).toBool(),
+                          "show page: refresh button is Stop while busy");
+                grab("show-page-stop");
+            }},
+            {100, [t, showButton]() { t->click(t->centerOf(showButton), Qt::LeftButton); }},
+            {350 + t->dwellMs, [t, grab, state]() {
+                state("show page stopped");
+                t->expect(t->eval("!backend.busy && backend.status === 'Stopped, 0 of 1 updated'").toBool(),
+                          "show page stop click stopped the run");
+                grab("show-page-stopped");
+            }},
+            {100, [ctl]() { ctl("/_nohold"); ctl("/_breakbad"); }},
+            {300, [t]() {
+                t->eval("win.back(); (function(){ for (var i = 0; i < shelfView.navCount; ++i) {"
+                        " var it = shelfView.coverItemAt(i);"
+                        " if (it && it.navTitle === 'Broken Antenna') { win.openShowPage(backend.shows.showIdAt(i)); return; } } })()");
+            }},
+            {700, [t]() { t->eval("backend.refreshOpenShow(false)"); }},
+            {900 + t->dwellMs, [t, grab, state]() {
+                state("single show failed");
+                t->expect(t->eval("!backend.busy && statusPill.visible"
+                                  " && backend.status === \"Couldn't refresh Broken Antenna — feed not found\"").toBool(),
+                          "single show failure pill: Couldn't refresh Broken Antenna — feed not found");
+                t->expect(t->eval("statusPill.jobError && statusPill.jobColor.toString() === theme.urgent.toString()").toBool(),
+                          "single show failure pill is red");
+                t->expect(!t->eval("backend.status").toString().contains(QStringLiteral("127.0.0.1")),
+                          "single show failure pill has no technical error");
+                grab("single-show-failed");
+            }},
+            {400, [state]() { state("end"); }},
+        };
+        t->runFrom(0);
+        return;
+    }
     const QString shot = qEnvironmentVariable("OMAEAR_UI_TEST_SHOT");
     if (!shot.isEmpty()) {
         t->steps = {
@@ -704,7 +882,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         };
         t->steps = {
             {800, [t]() {
-                t->eval("backend.showStatus('Updating 3 of 12 feeds: Syntax', true)");
+                t->eval("backend.showStatus('Updating 3 of 12 podcasts', true)");
             }},
             {700, [grabPill]() { grabPill("busy"); }},
             {100, [t]() {
@@ -712,7 +890,7 @@ void startUiTest(QQmlApplicationEngine &engine)
             }},
             {200, [grabPill]() { grabPill("done"); }},
             {100, [t]() {
-                t->eval("backend.showStatus('Refresh finished with errors.', false)");
+                t->eval("backend.showStatus('Updated 10 · 2 failed', false)");
             }},
             {200, [grabPill]() { grabPill("error"); }},
         };
@@ -1297,7 +1475,7 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval("theme.accent.toString() === '#77baf3' && theme.green.toString() === '#a9c972' && theme.urgent.toString() === '#ff8e7c'").toBool(),
                       "status pill: job colour slots follow the theme");
             t->eval("theme.forceRounding(0)");
-            t->eval("backend.showStatus('Updating 3 of 12 feeds: Syntax', true)");
+            t->eval("backend.showStatus('Updating 3 of 12 podcasts', true)");
         }},
         {700, [t]() {
             t->expect(t->eval("statusPill.visible && statusPill.jobBusy && !statusPill.jobError"
@@ -1334,7 +1512,7 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval("statusPill.radius === 8 && statusBadge.radius === Math.round(statusPill.badgeSize / 2)"
                               " && statusPill.iconLift === 0").toBool(),
                       "status pill: rounding above 0 makes a rounded pill and a circle badge");
-            t->eval("backend.showStatus('Refresh finished with errors.', false)");
+            t->eval("backend.showStatus('Updated 10 · 2 failed', false)");
         }},
         {200, [t]() {
             t->expect(t->eval("statusPill.jobError && statusPill.jobColor.toString() === theme.urgent.toString()").toBool(),
@@ -1350,6 +1528,9 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval("statusPill.radius === 0 && statusBadge.radius === 0 && statusPill.iconLift === 0").toBool(),
                       "status pill: rounding 0 makes the badge square and does not lift the warning");
             t->expect(t->eval("statusPill.isErrorStatus('2 feeds couldn\\'t update')"
+                              " && statusPill.isErrorStatus('Updated 46 · 2 failed')"
+                              " && statusPill.isErrorStatus('Stopped, 6 of 9 updated · 1 failed')"
+                              " && !statusPill.isErrorStatus('Updating 30 of 48 podcasts · 2 failed')"
                               " && !statusPill.isErrorStatus('All podcasts updated.')"
                               " && !statusPill.isErrorStatus('Added to queue.')").toBool(),
                       "status pill: error wording is recognised, success is not");

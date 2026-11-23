@@ -5,6 +5,7 @@
 #include <QSet>
 #include <QString>
 #include <QUrl>
+#include <atomic>
 #include <optional>
 
 // Early stop for a refresh: parsing ends once `stopAfterKnown` items in a row
@@ -14,6 +15,9 @@
 struct FeedParseOptions {
     const QSet<QString> *knownGuids = nullptr;
     int stopAfterKnown = 0;
+    // Set from another thread to abandon the parse (a stopped refresh): parseFeed
+    // then returns nothing with the error "cancelled". Checked once per token.
+    const std::atomic_bool *cancel = nullptr;
 };
 
 std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QString *error,

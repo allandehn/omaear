@@ -1333,16 +1333,22 @@ ApplicationWindow {
                 readonly property int badgeSize: Math.round(30 * s)
                 readonly property int iconSize: Math.round(18 * s)
                 readonly property real iconLift: (theme.rounding > 0 && jobError) ? 0.75 * (iconSize / 18) : 0
-                readonly property bool jobBusy: backend.busy
+                // The launch refresh is quiet: its run never colours other messages busy.
+                readonly property bool jobBusy: backend.busy && !backend.refreshQuiet
                 readonly property bool jobError: !jobBusy && isErrorStatus(backend.status)
                 readonly property color jobColor: jobBusy ? theme.accent : jobError ? theme.urgent : theme.green
                 readonly property int badgeRadius: theme.rounding > 0 ? Math.round(badgeSize / 2) : 0
                 function isErrorStatus(s) {
                     var t = (s || "").toLowerCase()
+                    // Progress ("Updating 30 of 48 podcasts · 2 failed") keeps the calm
+                    // busy look; only a finished run with failures turns red.
+                    if (t.indexOf("updating") === 0)
+                        return false
                     return t.indexOf("error") >= 0
                         || t.indexOf("could not") >= 0
                         || t.indexOf("couldn't") >= 0
                         || t.indexOf("did not") >= 0
+                        || t.indexOf(" failed") >= 0
                         || t.indexOf("has no feeds") >= 0
                         || t.indexOf("no subscriptions") >= 0
                         || t.indexOf("no artwork") >= 0
@@ -1376,6 +1382,17 @@ ApplicationWindow {
                         source: theme.tintedSvg(statusPill.jobBusy ? "status-refresh.svg"
                                               : statusPill.jobError ? "status-warning.svg"
                                               : "status-check.svg", statusPill.jobColor)
+                        // The one moving thing while feeds update. A render-thread
+                        // animator: no bindings re-run per frame.
+                        RotationAnimator on rotation {
+                            id: statusSpin
+                            from: 0
+                            to: 360
+                            duration: 1100
+                            loops: Animation.Infinite
+                            running: statusPill.jobBusy && statusPill.visible
+                            onRunningChanged: if (!running) statusIcon.rotation = 0
+                        }
                     }
                 }
 

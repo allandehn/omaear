@@ -49,6 +49,8 @@ QVariant ShowModel::data(const QModelIndex &index, int role) const
         return localCoverSource(row.imagePath);
     case UnheardRole:
         return row.unheard;
+    case RefreshErrorRole:
+        return m_refreshErrors.value(row.id);
     default:
         return {};
     }
@@ -62,14 +64,73 @@ QHash<int, QByteArray> ShowModel::roleNames() const
         {AuthorRole, "author"},
         {CoverRole, "cover"},
         {UnheardRole, "unheard"},
+        {RefreshErrorRole, "refreshError"},
     };
 }
 
-void ShowModel::setRows(const QList<ShowRow> &rows)
+namespace {
+bool sameShow(const ShowRow &a, const ShowRow &b)
 {
+    return a.id == b.id && a.feedUrl == b.feedUrl && a.title == b.title && a.author == b.author
+        && a.imagePath == b.imagePath && a.unheard == b.unheard && a.newest == b.newest
+        && a.youngestUnheard == b.youngestUnheard;
+}
+}
+
+void ShowModel::setRows(const QList<ShowRow> &rows, Update how)
+{
+    QList<ShowRow> next = rows;
+    if (how == KeepOrder && !m_rows.isEmpty()) {
+        QHash<qint64, int> place;
+        for (int i = 0; i < m_rows.size(); ++i)
+            place.insert(m_rows.at(i).id, i);
+        QList<const ShowRow *> placed(m_rows.size(), nullptr);
+        QList<ShowRow> added;
+        for (const ShowRow &row : rows) {
+            const auto it = place.constFind(row.id);
+            if (it != place.cend())
+                placed[it.value()] = &row;
+            else
+                added.append(row);
+        }
+        next.clear();
+        next.reserve(rows.size());
+        for (const ShowRow *row : std::as_const(placed)) {
+            if (row)
+                next.append(*row);
+        }
+        next += added;
+    }
+    bool sameOrder = how != Reset && next.size() == m_rows.size();
+    for (int i = 0; sameOrder && i < next.size(); ++i)
+        sameOrder = next.at(i).id == m_rows.at(i).id;
+    if (sameOrder) {
+        // Same shows in the same places: update only the rows that changed, so
+        // delegates (and their decoded covers) stay put.
+        for (int i = 0; i < next.size(); ++i) {
+            if (sameShow(next.at(i), m_rows.at(i)))
+                continue;
+            m_rows[i] = next.at(i);
+            emit dataChanged(index(i), index(i));
+        }
+        return;
+    }
     beginResetModel();
-    m_rows = rows;
+    m_rows = next;
     endResetModel();
+}
+
+void ShowModel::setRefreshError(qint64 showId, const QString &reason)
+{
+    if (showId == 0)
+        return;
+    if (reason.isEmpty() ? !m_refreshErrors.remove(showId) : m_refreshErrors.value(showId) == reason)
+        return;
+    if (!reason.isEmpty())
+        m_refreshErrors.insert(showId, reason);
+    const int row = rowOf(showId);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {RefreshErrorRole});
 }
 
 EpisodeModel::EpisodeModel(QObject *parent)

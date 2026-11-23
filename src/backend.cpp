@@ -98,8 +98,10 @@ Backend::Backend(Library &library, QObject *parent)
     : QObject(parent)
     , m_library(library)
 {
-    m_refresher = new FeedRefresher(m_library, m_network, this);
-    connect(m_refresher, &FeedRefresher::finished, this, &Backend::feedRefreshed);
+    m_shelfFlush = new QTimer(this);
+    m_shelfFlush->setSingleShot(true);
+    m_shelfFlush->setInterval(kShelfFlushMs);
+    connect(m_shelfFlush, &QTimer::timeout, this, &Backend::flushShelf);
     m_playerRate = m_library.rate(); // already snapped to a preset
     // Migrate a speed saved before the quarter presets (0.5, 0.8, 1.2, 1.8…).
     if (qAbs(m_library.storedRate() - m_playerRate) > 0.001)
@@ -285,7 +287,10 @@ void Backend::reloadShows()
         m_showCount = rows.size();
         emit showCountChanged();
     }
-    m_shows.setRows(visibleShows(rows));
+    m_shows.setRows(visibleShows(rows),
+                    m_holdShelfOrder ? ShowModel::KeepOrder
+                    : m_settleShelf  ? ShowModel::InPlaceIfSameOrder
+                                     : ShowModel::Reset);
     if (m_openShowId != 0) {
         bool found = false;
         for (const auto &row : rows) {
@@ -430,8 +435,10 @@ void Backend::openShow(qint64 showId)
     // summaries here so cover fetches / cold opens cannot look like feed
     // failures. In-progress "Updating…" text and post-open statusChanged
     // (including a refresh that finishes after this) are left alone.
-    if (m_status == QStringLiteral("Refresh finished with errors.")
-        || m_status == QStringLiteral("All podcasts updated."))
+    if (!m_busy
+        && (m_status == QStringLiteral("All podcasts updated.")
+            || m_status.startsWith(QStringLiteral("Stopped, "))
+            || (m_status.startsWith(QStringLiteral("Updated ")) && m_status.endsWith(QStringLiteral(" failed")))))
         setStatus({});
     m_openShowId = showId;
     syncEpisodeModel(showId);
@@ -605,6 +612,20 @@ void Backend::removeOpenShow()
 
 void Backend::enqueue(const QStringList &urls, bool manual)
 {
+    if (!m_runActive) {
+        m_runActive = true;
+        m_runQuiet = m_launchRefresh;
+        m_fetchDone = 0;
+        m_runFailed = 0;
+        m_runSingleName.clear();
+        m_runLastError.clear();
+        m_runLastTitle.clear();
+        m_holdShelfOrder = true;
+    } else if (m_runQuiet && !m_launchRefresh) {
+        // The user asked for something while the launch refresh runs: show it.
+        m_runQuiet = false;
+        emit busyChanged();
+    }
     for (const QString &url : urls) {
         bool queued = false;
         for (auto &job : m_queue) {
@@ -614,52 +635,178 @@ void Backend::enqueue(const QStringList &urls, bool manual)
                 break;
             }
         }
+        for (auto it = m_inFlight.cbegin(); !queued && it != m_inFlight.cend(); ++it)
+            queued = it.value().url == url;
         if (!queued)
             m_queue.append(Job{url, false, manual});
     }
     fetchNext();
 }
 
+FeedRefresher *Backend::freeRefresher()
+{
+    for (FeedRefresher *r : std::as_const(m_refreshers)) {
+        if (!r->busy())
+            return r;
+    }
+    auto *r = new FeedRefresher(m_library, m_network, this);
+    connect(r, &FeedRefresher::finished, this,
+            [this, r](const QString &url, const FeedRefreshResult &result) { refresherFinished(r, url, result); });
+    m_refreshers.append(r);
+    return r;
+}
+
 void Backend::fetchNext()
 {
-    if (m_refresher->busy())
+    if (!m_runActive)
         return;
     // Automatic and refresh-all runs leave a feed alone that rarely changes and was
     // checked recently (FeedRefresher::backedOff). It counts as done and fine.
     const qint64 now = QDateTime::currentSecsSinceEpoch();
-    while (!m_queue.isEmpty() && !m_queue.first().manual) {
-        const FeedState state = m_library.feedState(m_queue.first().url);
-        if (!FeedRefresher::backedOff(state, now))
-            break;
-        const Job skipped = m_queue.takeFirst();
-        ++m_fetchDone;
-        noteShelfFeedResult(skipped.url, true);
-        qInfo().noquote() << "[omaear-refresh] skipped (rarely changes, checked recently):" << skipped.url;
-        downloadCover(state.showId, state.imageUrl); // no-op unless the cover file is missing
+    while (m_inFlight.size() < kMaxFeedRefreshes && !m_queue.isEmpty()) {
+        const Job job = m_queue.takeFirst();
+        if (!job.manual) {
+            const FeedState state = m_library.feedState(job.url);
+            if (FeedRefresher::backedOff(state, now)) {
+                ++m_fetchDone;
+                noteShelfFeedResult(job.url, true);
+                qInfo().noquote() << "[omaear-refresh] skipped (rarely changes, checked recently):" << job.url;
+                downloadCover(state.showId, state.imageUrl); // no-op unless the cover file is missing
+                continue;
+            }
+        }
+        FeedRefresher *refresher = freeRefresher();
+        m_inFlight.insert(refresher, job);
+        if (m_fetchDone + m_inFlight.size() + m_queue.size() == 1) {
+            m_runSingleName = m_library.feedState(job.url).title;
+            if (m_runSingleName.isEmpty())
+                m_runSingleName = QUrl(job.url).host();
+        }
+        refresher->start(job.url, job.manual, job.plainEncoding);
+        if (!m_runActive)
+            return; // finished synchronously and ended the run
     }
-    if (m_queue.isEmpty()) {
-        m_fetchDone = 0;
+    if (m_queue.isEmpty() && m_inFlight.isEmpty()) {
         // Single completion point: runs whether the last feed succeeded or failed.
-        if (m_shelfRefresh)
-            finishShelfRefresh();
-        setBusy(false);
+        finishRun(false);
         return;
     }
-    m_current = m_queue.takeFirst();
     setBusy(true);
-    // Feeds fetch one at a time: "Updating 3 of 40 feeds: Show name".
-    const int total = m_fetchDone + m_queue.size() + 1;
-    QString name = m_library.feedState(m_current.url).title;
-    if (name.isEmpty())
-        name = QUrl(m_current.url).host();
-    setStatus(total > 1 ? QStringLiteral("Updating %1 of %2 feeds: %3").arg(m_fetchDone + 1).arg(total).arg(name)
-                        : QStringLiteral("Updating %1…").arg(name));
-    m_refresher->start(m_current.url, m_current.manual, m_current.plainEncoding);
+    updateRunStatus();
 }
 
-void Backend::feedRefreshed(const QString &url, const FeedRefreshResult &r)
+void Backend::updateRunStatus()
 {
-    const Job job = m_current;
+    if (!m_runActive || m_runQuiet)
+        return; // launch refresh: no pill while it runs
+    const int total = m_fetchDone + m_inFlight.size() + m_queue.size();
+    QString text;
+    if (total <= 1) {
+        // One show (its own refresh button, a new feed, a one-show shelf).
+        text = QStringLiteral("Updating %1…").arg(m_runSingleName);
+    } else {
+        // Count only, no show names: several feeds are in flight at once.
+        // No "0 of 48": a plain line until the first feed finishes.
+        if (m_fetchDone == 0)
+            text = QStringLiteral("Updating podcasts…");
+        else
+            text = QStringLiteral("Updating %1 of %2 podcasts").arg(m_fetchDone).arg(total);
+        if (m_runFailed > 0)
+            text += QStringLiteral(" · %1 failed").arg(m_runFailed);
+    }
+    if (text != m_status)
+        setStatus(text);
+}
+
+QString Backend::refreshFailureReason(const FeedRefreshResult &r, const QString &showName)
+{
+    QString what;
+    switch (r.status) {
+    case FeedRefreshResult::ParseError:
+        what = QStringLiteral("couldn't read the feed");
+        break;
+    case FeedRefreshResult::SaveError:
+        what = QStringLiteral("couldn't save the show");
+        break;
+    default:
+        if (r.decompressionFailed) {
+            what = QStringLiteral("couldn't read the feed");
+            break;
+        }
+        switch (QNetworkReply::NetworkError(r.networkError)) {
+        case QNetworkReply::ContentNotFoundError:
+        case QNetworkReply::ContentGoneError:
+            what = QStringLiteral("feed not found");
+            break;
+        case QNetworkReply::HostNotFoundError:
+            what = QStringLiteral("server not found");
+            break;
+        case QNetworkReply::ContentAccessDenied:
+        case QNetworkReply::ContentOperationNotPermittedError:
+        case QNetworkReply::AuthenticationRequiredError:
+        case QNetworkReply::ProxyAuthenticationRequiredError:
+            what = QStringLiteral("access denied");
+            break;
+        case QNetworkReply::SslHandshakeFailedError:
+            what = QStringLiteral("secure connection failed");
+            break;
+        case QNetworkReply::InternalServerError:
+        case QNetworkReply::ServiceUnavailableError:
+        case QNetworkReply::UnknownServerError:
+        case QNetworkReply::OperationNotImplementedError:
+            what = QStringLiteral("server error");
+            break;
+        case QNetworkReply::TooManyRedirectsError:
+        case QNetworkReply::InsecureRedirectError:
+            what = QStringLiteral("too many redirects");
+            break;
+        default:
+            // Refused, closed, timed out (transfer timeout reports Canceled),
+            // temporary failures, proxy trouble: nothing usable came back.
+            what = QStringLiteral("server didn't respond");
+            break;
+        }
+    }
+    if (showName.isEmpty())
+        return QStringLiteral("Couldn't refresh — ") + what;
+    return QStringLiteral("Couldn't refresh %1 — %2").arg(showName, what);
+}
+
+void Backend::noteFeedFailed(const QString &url, const FeedRefreshResult &r, const QString &error, const QString &message)
+{
+    ++m_fetchDone;
+    ++m_runFailed;
+    noteShelfFeedResult(url, false, error);
+    if (!m_shelfRefresh || !m_shelfRefreshUrls.contains(url))
+        qWarning().noquote() << "[omaear-refresh] feed failed:" << url << "-" << error;
+    const FeedState state = m_library.feedState(url);
+    // A show we already have: the same plain reason as its cover badge, with
+    // its name. The technical error stays in the log. A brand-new feed being
+    // added keeps its own message (there is no show to name yet).
+    m_runLastError = state.showId != 0 ? refreshFailureReason(r, state.title.isEmpty() ? m_runSingleName : state.title)
+                                       : message;
+    if (state.showId != 0)
+        m_shows.setRefreshError(state.showId, refreshFailureReason(r));
+}
+
+void Backend::refresherFinished(FeedRefresher *refresher, const QString &url, const FeedRefreshResult &r)
+{
+    const auto it = m_inFlight.find(refresher);
+    if (it == m_inFlight.end()) {
+        // A stopped feed winding down: its run is over. Only a save that was
+        // already running when the stop came can still report Updated; show it.
+        if (r.status == FeedRefreshResult::Updated) {
+            m_pendingShowUpdates.insert(r.showId);
+            scheduleShelfFlush();
+        }
+        return;
+    }
+    const Job job = it.value();
+    m_inFlight.erase(it);
+    if (r.status == FeedRefreshResult::Cancelled) {
+        fetchNext();
+        return;
+    }
     if (r.status == FeedRefreshResult::NetworkError) {
         // Not a feed failure. Retry once uncompressed so one bad gzip
         // cannot keep the launch-refresh timestamp from ever advancing.
@@ -668,36 +815,114 @@ void Backend::feedRefreshed(const QString &url, const FeedRefreshResult &r)
             fetchNext();
             return;
         }
-        ++m_fetchDone;
-        noteShelfFeedResult(url, false, r.error);
-        setStatus(r.error);
+        noteFeedFailed(url, r, r.error, r.error);
         fetchNext();
         return;
     }
-    ++m_fetchDone;
     if (r.status == FeedRefreshResult::ParseError) {
-        noteShelfFeedResult(url, false, r.error.isEmpty() ? QStringLiteral("unparseable feed") : r.error);
-        setStatus(r.error.isEmpty() ? QStringLiteral("Could not read that feed.") : r.error);
+        noteFeedFailed(url, r, r.error.isEmpty() ? QStringLiteral("unparseable feed") : r.error,
+                       r.error.isEmpty() ? QStringLiteral("Could not read that feed.") : r.error);
         fetchNext();
         return;
     }
     if (r.status == FeedRefreshResult::SaveError) {
-        noteShelfFeedResult(url, false, QStringLiteral("could not save show"));
-        setStatus(QStringLiteral("Could not save that show."));
+        noteFeedFailed(url, r, QStringLiteral("could not save show"), QStringLiteral("Could not save that show."));
         fetchNext();
         return;
     }
+    ++m_fetchDone;
     noteShelfFeedResult(url, true);
+    m_shows.setRefreshError(r.showId, {}); // a good refresh clears the cover's warning
+    m_runLastTitle = r.title;
     if (!r.imageUrl.isEmpty())
         downloadCover(r.showId, r.imageUrl);
     if (r.status == FeedRefreshResult::Updated) {
-        reloadShows();
-        if (m_openShowId == r.showId)
-            openShow(r.showId);
+        // Batched: one shelf update per kShelfFlushMs, not one reset per feed.
+        m_pendingShowUpdates.insert(r.showId);
+        scheduleShelfFlush();
     }
-    if (m_queue.isEmpty() && !m_shelfRefresh)
-        setStatus(QStringLiteral("Updated %1.").arg(r.title));
     fetchNext();
+}
+
+void Backend::scheduleShelfFlush()
+{
+    if (!m_shelfFlush->isActive())
+        m_shelfFlush->start();
+}
+
+void Backend::flushShelf()
+{
+    m_shelfFlush->stop();
+    const QSet<qint64> changed = std::exchange(m_pendingShowUpdates, {});
+    reloadShows();
+    if (m_openShowId != 0 && changed.contains(m_openShowId))
+        openShow(m_openShowId);
+}
+
+void Backend::stopRefresh()
+{
+    if (!m_runActive)
+        return;
+    qInfo().noquote() << QStringLiteral("[omaear-refresh] stopped: %1 in flight, %2 queued")
+                             .arg(m_inFlight.size())
+                             .arg(m_queue.size());
+    // Detach first: a cancel may report back synchronously and must find no job.
+    const QList<FeedRefresher *> running = m_inFlight.keys();
+    const int remaining = m_inFlight.size() + m_queue.size();
+    m_inFlight.clear();
+    m_queue.clear();
+    for (FeedRefresher *r : running)
+        r->cancel();
+    m_stoppedTotal = m_fetchDone + remaining;
+    finishRun(true);
+}
+
+void Backend::finishRun(bool stopped)
+{
+    if (!m_runActive)
+        return;
+    const int done = m_fetchDone;
+    const int failed = m_runFailed;
+    const int total = stopped ? m_stoppedTotal : done;
+    const bool quiet = m_runQuiet;
+    m_runActive = false;
+    m_runQuiet = false;
+    // Apply what landed, then sort once.
+    m_holdShelfOrder = false;
+    m_settleShelf = true; // sort now; no reset if the order did not change
+    flushShelf();
+    m_settleShelf = false;
+    if (m_shelfRefresh) {
+        finishShelfRefresh(stopped);
+    }
+    const int ok = done - failed;
+    QString text;
+    if (stopped) {
+        text = QStringLiteral("Stopped, %1 of %2 updated").arg(ok).arg(total);
+        if (failed > 0)
+            text += QStringLiteral(" · %1 failed").arg(failed);
+    } else if (total <= 1 && failed > 0 && !m_shelfRefreshDone) {
+        text = m_runLastError; // a single show or a new feed: say what went wrong
+    } else if (failed > 0) {
+        text = QStringLiteral("Updated %1 · %2 failed").arg(ok).arg(failed);
+    } else if (m_shelfRefresh || m_shelfRefreshDone) {
+        text = QStringLiteral("All podcasts updated.");
+    } else if (total <= 1) {
+        text = m_runLastTitle.isEmpty() ? QString() : QStringLiteral("Updated %1.").arg(m_runLastTitle);
+    } else {
+        text = QStringLiteral("Updated %1 podcasts.").arg(ok);
+    }
+    m_shelfRefreshDone = false;
+    m_fetchDone = 0;
+    m_runFailed = 0;
+    setBusy(false);
+    // Launch refresh stays quiet unless something failed.
+    if (quiet && failed == 0)
+        text.clear();
+    if (!text.isEmpty())
+        setStatus(text);
+    else if (m_status.startsWith(QStringLiteral("Updating")))
+        setStatus({});
 }
 
 void Backend::downloadCover(qint64 showId, const QString &imageUrl)
@@ -1817,7 +2042,9 @@ void Backend::maybeAutoRefreshOnLaunch()
             return;
         }
     }
+    m_launchRefresh = true;
     refreshAll();
+    m_launchRefresh = false;
 }
 
 void Backend::noteShelfFeedResult(const QString &url, bool ok, const QString &error)
@@ -1832,11 +2059,12 @@ void Backend::noteShelfFeedResult(const QString &url, bool ok, const QString &er
     }
 }
 
-void Backend::finishShelfRefresh()
+void Backend::finishShelfRefresh(bool stopped)
 {
     const int ok = m_shelfRefreshOk;
     const int failed = m_shelfRefreshFailed;
     m_shelfRefresh = false;
+    m_shelfRefreshDone = true; // finishRun words the pill
     m_shelfRefreshUrls.clear();
     m_shelfRefreshOk = 0;
     m_shelfRefreshFailed = 0;
@@ -1845,14 +2073,14 @@ void Backend::finishShelfRefresh()
     // response) kept it from ever advancing, so every launch refreshed again.
     // Stamp whenever the refresh actually reached the network (any feed ok);
     // only a total failure (offline) leaves it alone so the next launch retries.
+    // A stopped run follows the same rule: stamp if any feed succeeded.
     if (ok > 0)
         noteSuccessfulShelfRefresh();
-    qInfo().noquote() << QStringLiteral("[omaear-refresh] shelf refresh done: %1 ok, %2 failed%3")
+    qInfo().noquote() << QStringLiteral("[omaear-refresh] shelf refresh %1: %2 ok, %3 failed%4")
+                             .arg(stopped ? QStringLiteral("stopped") : QStringLiteral("done"))
                              .arg(ok)
                              .arg(failed)
                              .arg(ok > 0 ? QStringLiteral(", stamped") : QStringLiteral(", not stamped"));
-    setStatus(failed > 0 ? QStringLiteral("Refresh finished with errors.")
-                         : QStringLiteral("All podcasts updated."));
 }
 
 void Backend::noteSuccessfulShelfRefresh()
