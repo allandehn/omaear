@@ -46,7 +46,9 @@
 - Headless only: `QT_QPA_PLATFORM=offscreen`, `QT_FORCE_STDERR_LOGGING=1`
   (otherwise logs go to the journal), a private D-Bus via `dbus-run-session`,
   and throwaway `XDG_DATA_HOME` / `XDG_CONFIG_HOME` / `XDG_CACHE_HOME`.
-- `./omaear --self-test` for the core tests; `OMAEAR_UI_TEST=1 ./omaear` for the
+- `./omaear --self-test` for the core tests; it refuses to start unless those
+  three XDG dirs are set and are not the real defaults (`~/.config`,
+  `~/.local/share`, `~/.cache`). `OMAEAR_UI_TEST=1 ./omaear` for the
   UI test. The UI test needs shows, so give it a throwaway library, never a copy
   of the real one. `scripts/release-validate-tree.sh SRC_DIR X.Y.Z WORK_DIR`
   does it all: it builds, runs the self-test, runs the UI test on a seeded
