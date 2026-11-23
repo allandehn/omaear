@@ -561,6 +561,17 @@ void startUiTest(QQmlApplicationEngine &engine)
                 // Explore like the Shelf: seeded results (no network here), then the same keys,
                 // ring, lift and sizing as the Shelf. Four columns pinned so rows are predictable.
                 seedExplore(*t->engine, 12);
+                {
+                    // Tile 11's cover is missing on the first fetch and back 0.3 s later:
+                    // the tile must retry and show it, not keep the letter.
+                    const QString seed = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/explore-seed/seed-11.png");
+                    QFile::rename(seed, seed + QStringLiteral(".off"));
+                    QTimer::singleShot(300, t->win, [seed]() { QFile::rename(seed + QStringLiteral(".off"), seed); });
+                    QTimer::singleShot(2600, t->win, [t]() {
+                        t->expect(t->eval("explorePage.tileItemAt(11) && explorePage.tileItemAt(11).coverArt.status === Image.Ready").toBool(),
+                                  "Explore: a cover that failed once retries and shows");
+                    });
+                }
                 t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
             }},
             {400, [t]() {

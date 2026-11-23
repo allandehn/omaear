@@ -19,7 +19,7 @@ Button {
     flat: true
     hoverEnabled: true
     text: caption
-    display: caption.length > 0 && icon.name.length > 0 ? AbstractButton.TextBesideIcon
+    display: caption.length > 0 && (icon.name.length > 0 || icon.source.toString().length > 0) ? AbstractButton.TextBesideIcon
            : caption.length > 0 ? AbstractButton.TextOnly
            : AbstractButton.IconOnly
     font.family: "monospace"
