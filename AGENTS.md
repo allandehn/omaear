@@ -44,8 +44,13 @@
 ## Testing
 
 - Headless only: `QT_QPA_PLATFORM=offscreen`, `QT_FORCE_STDERR_LOGGING=1`
-  (otherwise logs go to the journal), a private D-Bus via `dbus-run-session`,
+  (otherwise logs go to the journal), a private D-Bus via
+  `scripts/isolated-session.sh` (not a bare `dbus-run-session`: the default
+  session config activates xdg-desktop-portal, and ending the session can
+  make Omarchy show "Process crashed: xdg-desktop-portal-hyprland"),
   and throwaway `XDG_DATA_HOME` / `XDG_CONFIG_HOME` / `XDG_CACHE_HOME`.
+  For a visible test window, the same script is fine: it does not unset
+  `WAYLAND_DISPLAY` or change `HOME` / `XDG_RUNTIME_DIR`.
 - `./omaear --self-test` for the core tests; it refuses to start unless those
   three XDG dirs are set and are not the real defaults (`~/.config`,
   `~/.local/share`, `~/.cache`). `OMAEAR_UI_TEST=1 ./omaear` for the

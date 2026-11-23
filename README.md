@@ -111,6 +111,12 @@ XDG_CACHE_HOME=/tmp/omaear-selftest/cache \
 make install    # installs to ~/.local, no root needed
 ```
 
+On a real desktop, if you wrap a test run in a private D-Bus session so it
+does not appear in the top bar, use `scripts/isolated-session.sh`, not a bare
+`dbus-run-session`. The default session config can start
+xdg-desktop-portal-hyprland on that private bus, and Omarchy then shows
+"Process crashed: xdg-desktop-portal-hyprland" when the session ends.
+
 To build the Arch package yourself, use `packaging/PKGBUILD`, or run `packaging/build-local.sh` to build one from this checkout.
 
 Releases are made from an exact commit that is already merged to `main` and already carries the version: `scripts/release.sh --preview --sha <40-hex> --version X.Y.Z` (read only; `--dry-run` is the same), then `--validate` (build and test a temporary archive of that commit), then `--publish --notes FILE --repo-db MODE`, where `MODE` is `replace-with-only-this-package` (the new pacman database lists only this package) or `add-to-existing` (keeps the entries already in the database). It never commits or pushes `main`; see `AGENTS.md`. `scripts/release-flow-test.sh` tests the release script with mocked tools, and `--real-tools` adds real `makepkg`, `repo-add` and `gpg` with a throwaway key.

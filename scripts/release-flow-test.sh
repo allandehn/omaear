@@ -16,6 +16,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 RELEASE=$ROOT/scripts/release.sh
 VALIDATE=$ROOT/scripts/release-validate-tree.sh
+ISOLATED=$ROOT/scripts/isolated-session.sh
 REAL_TOOLS=0
 [[ ${1:-} == --real-tools ]] && REAL_TOOLS=1
 PASS=0
@@ -288,6 +289,7 @@ EOF2
   echo '<rss/>' >"$repo/tests/nav-feeds/b.xml"
   cp "$RELEASE" "$repo/scripts/release.sh"
   cp "$VALIDATE" "$repo/scripts/release-validate-tree.sh"
+  cp "$ISOLATED" "$repo/scripts/isolated-session.sh"
   chmod +x "$repo/scripts/"*.sh
   "$REAL_GIT" -C "$repo" init -q -b main
   "$REAL_GIT" -C "$repo" config user.email test@example.com
@@ -810,7 +812,7 @@ real_tools() {
   mkdir -p "$SRC" "$MOCKD/remote" "$LOGD"
   ( cd "$ROOT" && "$REAL_GIT" ls-files -z | tar --null -T - -cf - | tar -x -C "$SRC" )
   [[ -f $SRC/omaear.pro && -f $SRC/packaging/PKGBUILD ]] || { bad "real-tools: could not copy the tracked tree"; return 0; }
-  cp "$RELEASE" "$SRC/scripts/release.sh"; cp "$VALIDATE" "$SRC/scripts/release-validate-tree.sh"
+  cp "$RELEASE" "$SRC/scripts/release.sh"; cp "$VALIDATE" "$SRC/scripts/release-validate-tree.sh"; cp "$ISOLATED" "$SRC/scripts/isolated-session.sh"
   "$REAL_GIT" -C "$SRC" init -q -b main
   "$REAL_GIT" -C "$SRC" config user.email test@example.com
   "$REAL_GIT" -C "$SRC" config user.name test
