@@ -752,9 +752,10 @@ void startUiTest(QQmlApplicationEngine &engine)
                 t->expect(t->eval(warning + QStringLiteral(".reason === \"Couldn't refresh — feed not found\"")).toBool(),
                           "badge tooltip: Couldn't refresh — feed not found");
                 fprintf(stderr, "[uitest] badge reason: %s\n", qPrintable(t->eval(warning + QStringLiteral(".reason")).toString()));
-                t->expect(t->eval(warning + QStringLiteral(".radius === (theme.rounding > 0 ? Math.round(") + warning
-                                  + QStringLiteral(".size / 2) : 0)")).toBool(),
-                          "badge: square at rounding 0, circle above");
+                t->expect(t->eval(warning + QStringLiteral(".radius === (theme.rounding > 0 ? Math.min(Math.round(theme.rButton * (")
+                                  + warning + QStringLiteral(".size / (22 * theme.textScale))), Math.round(")
+                                  + warning + QStringLiteral(".size / 2)) : 0)")).toBool(),
+                          "badge: square at rounding 0, follows the counter radius above");
                 grab("cover-warning-hover");
             }},
             {100, [t, ctl]() { t->hover(QPointF(5, 5)); ctl("/_holdall"); }},
@@ -1198,6 +1199,61 @@ void startUiTest(QQmlApplicationEngine &engine)
         return;
     }
 
+    // OMAEAR_UI_TEST_BADGE_SHOTS=<dir>: crop the cover badges (counter + warning)
+    // at rounding 0 and 8, gallery and list. Not part of the gate.
+    const QString badgeShots = qEnvironmentVariable("OMAEAR_UI_TEST_BADGE_SHOTS");
+    if (!badgeShots.isEmpty()) {
+        QDir().mkpath(badgeShots);
+        auto cropCover = [t, badgeShots](const char *name) {
+            const QImage img = t->win->grabWindow();
+            t->expect(img.save(badgeShots + QLatin1Char('/') + QLatin1String(name) + QStringLiteral("-shelf.png")), name);
+            const QString js = QStringLiteral(
+                "(function(){ function find(it, name){ if (!it) return null;"
+                " if (it.objectName === name) return it;"
+                " for (var k = 0; k < it.children.length; ++k) {"
+                "  var f = find(it.children[k], name); if (f) return f; } return null; }"
+                " return find(shelfView.coverItemAt(0), 'coverBadges'); })()");
+            auto *item = qvariant_cast<QQuickItem *>(t->eval(js));
+            t->expect(item && item->isVisible(), "badge shot: cover badges visible");
+            if (!item || !item->isVisible())
+                return;
+            const QPointF tl = item->mapToScene(QPointF(0, 0));
+            const int pad = 8;
+            const int x = qMax(0, int(tl.x()) - pad), y = qMax(0, int(tl.y()) - pad);
+            const int w = qMin(img.width() - x, int(item->width()) + pad * 2);
+            const int h = qMin(img.height() - y, int(item->height()) + pad * 2);
+            QImage part = img.copy(x, y, w, h);
+            part.save(badgeShots + QLatin1Char('/') + QLatin1String(name) + QStringLiteral("-cover.png"));
+            part.scaled(w * 4, h * 4, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+                .save(badgeShots + QLatin1Char('/') + QLatin1String(name) + QStringLiteral("-cover-x4.png"));
+        };
+        t->steps = {
+            {1500, [t]() {
+                t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
+                t->eval("backend.setShowRefreshError(backend.shows.showIdAt(0), \"Couldn't refresh — feed not found\")");
+                t->eval("theme.forceRounding(0)");
+            }},
+            {400, [t, cropCover]() {
+                cropCover("gallery-r0");
+                t->eval("theme.forceRounding(8)");
+            }},
+            {400, [t, cropCover]() {
+                cropCover("gallery-r8");
+                t->eval("backend.setShelfView('list')");
+            }},
+            {500, [t, cropCover]() {
+                cropCover("list-r8");
+                t->eval("theme.forceRounding(0)");
+            }},
+            {400, [t, cropCover]() {
+                cropCover("list-r0");
+                t->expect(true, "badge shots written");
+            }},
+        };
+        t->run(0);
+        return;
+    }
+
     t->steps = {
         {1500, [t]() {
             t->expect(t->eval("pageKind").toString() == "shelf", "starts on shelf");
@@ -1221,6 +1277,86 @@ void startUiTest(QQmlApplicationEngine &engine)
         }},
         {1000 + t->dwellMs, [t]() {
             t->expect(t->eval("pageKind").toString() == "shelf", "one click on Back closes menu AND goes back");
+            t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
+            t->eval("backend.setShowRefreshError(backend.shows.showIdAt(0), \"Couldn't refresh — feed not found\")");
+            t->eval("theme.forceRounding(0)");
+        }},
+        {250, [t]() {
+            const QString js = QStringLiteral(
+                "(function(){ function find(it, name){ if (!it) return null;"
+                " if (it.objectName === name) return it;"
+                " for (var k = 0; k < it.children.length; ++k) {"
+                "  var f = find(it.children[k], name); if (f) return f; } return null; }"
+                " var cover = shelfView.coverItemAt(0);"
+                " var c = find(cover, 'unheardBadge'); var w = find(cover, 'refreshWarning');"
+                " if (!c || !w || !c.visible || !w.visible) return 'missing';"
+                " if (theme.rounding !== 0) return 'rounding';"
+                " if (c.radius !== 0 || w.radius !== 0) return 'radius ' + c.radius + ',' + w.radius;"
+                " if (Math.abs((w.x + w.width + 4) - c.x) > 0.5) return 'gap';"
+                " if (Math.abs(w.y - c.y) > 0.5) return 'y';"
+                " return 'ok'; })()");
+            t->expect(t->eval(js).toString() == "ok",
+                      "cover badges (gallery, rounding 0): square, warning just left of the counter");
+            t->eval("theme.forceRounding(8)");
+        }},
+        {250, [t]() {
+            const QString js = QStringLiteral(
+                "(function(){ function find(it, name){ if (!it) return null;"
+                " if (it.objectName === name) return it;"
+                " for (var k = 0; k < it.children.length; ++k) {"
+                "  var f = find(it.children[k], name); if (f) return f; } return null; }"
+                " var cover = shelfView.coverItemAt(0);"
+                " var c = find(cover, 'unheardBadge'); var w = find(cover, 'refreshWarning');"
+                " if (!c || !w || !c.visible || !w.visible) return 'missing';"
+                " var expect = theme.rounding > 0 ? theme.rButton : 0;"
+                " var wExpect = theme.rounding > 0"
+                "  ? Math.min(Math.round(theme.rButton * (w.size / (22 * theme.textScale))), Math.round(w.size / 2)) : 0;"
+                " if (c.radius !== expect || w.radius !== wExpect) return 'radius ' + c.radius + ',' + w.radius;"
+                " if (Math.abs((w.x + w.width + 4) - c.x) > 0.5) return 'gap';"
+                " if (Math.abs(w.y - c.y) > 0.5) return 'y';"
+                " return 'ok'; })()");
+            t->expect(t->eval(js).toString() == "ok",
+                      "cover badges (gallery, rounding 8): counter radius, warning just left of it");
+            t->eval("backend.setShelfView('list')");
+        }},
+        {400, [t]() {
+            const QString js = QStringLiteral(
+                "(function(){ function find(it, name){ if (!it) return null;"
+                " if (it.objectName === name) return it;"
+                " for (var k = 0; k < it.children.length; ++k) {"
+                "  var f = find(it.children[k], name); if (f) return f; } return null; }"
+                " var cover = shelfView.coverItemAt(0);"
+                " var c = find(cover, 'unheardBadge'); var w = find(cover, 'refreshWarning');"
+                " if (!c || !w || !c.visible || !w.visible) return 'missing';"
+                " var expect = theme.rounding > 0 ? theme.rButton : 0;"
+                " var wExpect = theme.rounding > 0"
+                "  ? Math.min(Math.round(theme.rButton * (w.size / (22 * theme.textScale))), Math.round(w.size / 2)) : 0;"
+                " if (c.radius !== expect || w.radius !== wExpect) return 'radius ' + c.radius + ',' + w.radius;"
+                " if (Math.abs((w.x + w.width + 4) - c.x) > 0.5) return 'gap';"
+                " if (Math.abs(w.y - c.y) > 0.5) return 'y';"
+                " return 'ok'; })()");
+            t->expect(t->eval(js).toString() == "ok",
+                      "cover badges (list, rounding 8): counter radius, warning just left of it");
+            t->eval("theme.forceRounding(0)");
+        }},
+        {250, [t]() {
+            const QString js = QStringLiteral(
+                "(function(){ function find(it, name){ if (!it) return null;"
+                " if (it.objectName === name) return it;"
+                " for (var k = 0; k < it.children.length; ++k) {"
+                "  var f = find(it.children[k], name); if (f) return f; } return null; }"
+                " var cover = shelfView.coverItemAt(0);"
+                " var c = find(cover, 'unheardBadge'); var w = find(cover, 'refreshWarning');"
+                " if (!c || !w || !c.visible || !w.visible) return 'missing';"
+                " if (c.radius !== 0 || w.radius !== 0) return 'radius ' + c.radius + ',' + w.radius;"
+                " if (Math.abs((w.x + w.width + 4) - c.x) > 0.5) return 'gap';"
+                " if (Math.abs(w.y - c.y) > 0.5) return 'y';"
+                " return 'ok'; })()");
+            t->expect(t->eval(js).toString() == "ok",
+                      "cover badges (list, rounding 0): square, warning just left of the counter");
+            t->eval("backend.setShowRefreshError(backend.shows.showIdAt(0), '')");
+            t->eval("backend.setShelfView('gallery'); backend.setShelfColumns(4)");
+            t->eval("theme.forceRounding(0)");
             t->click(t->centerOf("shelfView.coverItemAt(0)"), Qt::RightButton);
         }},
         {900 + t->dwellMs, [t]() {

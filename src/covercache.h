@@ -33,6 +33,9 @@ void pruneLegacyThumbs();
 
 // Background thread: decode these covers into the memory cache (startup).
 void prewarmCovers(const QStringList &paths, const QList<int> &sides);
+// Decode these sides of path into the memory cache on the calling thread, so
+// a just-written cover can be swapped in without an empty first frame.
+void warmCoverNow(const QString &path, const QList<int> &sides);
 
 // QML: true when source at side x side is already decoded in memory, so a
 // synchronous Image paints it with the delegate at zero cost.

@@ -154,7 +154,7 @@ public:
     Q_INVOKABLE void addFeed(const QString &url);
     Q_INVOKABLE void importOpml(const QString &fileUrl);
     Q_INVOKABLE void exportOpml(const QString &fileUrl);
-    // forceArtwork is Ctrl+left-click: drop cached show and episode covers and fetch them again.
+    // forceArtwork is Ctrl+left-click: fetch show and episode covers again, then swap them in once the new files are ready.
     // A normal refresh leaves this false and must not re-download art that is already on disk.
     Q_INVOKABLE void refreshAll(bool forceArtwork = false);
     Q_INVOKABLE void refreshOpenShow(bool forceArtwork = false);
@@ -181,6 +181,9 @@ public:
     // UI-test only: point a show at an already-local cover file. No-op unless
     // OMAEAR_UI_TEST=1.
     Q_INVOKABLE void setShowCoverPath(qint64 showId, const QString &path);
+    // UI-test only: set or clear a show's refresh-error badge. No-op unless
+    // OMAEAR_UI_TEST=1.
+    Q_INVOKABLE void setShowRefreshError(qint64 showId, const QString &reason);
     // Drop a speculative model's cache when that page was never opened.
     Q_INVOKABLE void dropWarmEpisodes(qint64 showId);
     Q_INVOKABLE void openEpisode(qint64 episodeId);
@@ -343,7 +346,7 @@ private:
     void discardEpisodeModel(qint64 showId);
     void enqueue(const QStringList &urls, bool manual = false);
     void fetchNext();
-    void downloadCover(qint64 showId, const QString &imageUrl);
+    void downloadCover(qint64 showId, const QString &imageUrl, bool replace = false);
     void downloadEpisodeCover(qint64 episodeId, const QString &imageUrl);
     void ensureEpisodeCovers(const QList<EpisodeRow> &rows);
     void enqueueEpisodeCover(qint64 episodeId, const QString &imageUrl, bool front);

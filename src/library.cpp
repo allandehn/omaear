@@ -466,19 +466,10 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, con
             db.rollback();
             return 0;
         }
-        // URL changed: drop cached path + file so downloadCover fetches the new cover.
-        if (imageUrl != parsed.imageUrl) {
-            if (!imagePath.isEmpty())
-                QFile::remove(imagePath);
-            imagePath.clear();
-            QSqlQuery clearPath(db);
-            clearPath.prepare(QStringLiteral("UPDATE shows SET image_path = '' WHERE id = ?"));
-            clearPath.addBindValue(showId);
-            if (!clearPath.exec()) {
-                db.rollback();
-                return 0;
-            }
-        }
+        // A new image URL updates image_url above but keeps the on-disk cover
+        // until a replacement file is installed. The caller still re-fetches
+        // (FeedRefreshResult::coverUrlChanged) and swaps only when the bytes
+        // actually change, so the shelf never blanks mid-refresh.
     } else {
         QSqlQuery insert(db);
         insert.prepare(QStringLiteral(

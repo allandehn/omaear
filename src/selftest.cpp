@@ -280,8 +280,8 @@ int runSelfTest(int argc, char **argv)
             ParsedShow moved = *parsed;
             moved.imageUrl = QStringLiteral("https://example.com/cover-v2.jpg");
             library.upsertShow(QStringLiteral("https://example.com/feed.xml"), moved);
-            check(library.showImage(showId).isEmpty(), "new cover URL clears image_path");
-            check(!QFileInfo::exists(coverPath), "stale cover file removed");
+            check(library.showImage(showId) == coverPath, "new cover URL keeps image_path until a replacement is installed");
+            check(QFileInfo::exists(coverPath), "cached cover file kept after image URL change");
             // Restore original URL for later episode checks.
             library.upsertShow(QStringLiteral("https://example.com/feed.xml"), *parsed);
         }
@@ -314,8 +314,10 @@ int runSelfTest(int argc, char **argv)
                 library.upsertShow(QStringLiteral("https://example.com/feed.xml"), *parsed);
             }
             {
-                // Force-reload contract: drop the file and image_path, keep the URL,
-                // and a same-URL upsert must not put the cached path back.
+                // clearShowImagePath / clearEpisodeImagePath: drop the file and
+                // image_path, keep the URL, and a same-URL upsert must not put
+                // the cached path back. Ctrl+click force-reload no longer uses
+                // these; it keeps the current file until the new one is ready.
                 const QString coverPath = dir.filePath(QStringLiteral("cover-force.jpg"));
                 QFile cover(coverPath);
                 check(cover.open(QIODevice::WriteOnly) && cover.write("force-show-cover") > 0,
@@ -1492,6 +1494,318 @@ int runSelfTest(int argc, char **argv)
         for (QTcpSocket *s : held)
             server.replyTo(s);
         waitUntil([&]() { return server.held.isEmpty(); }, 2000);
+        server.close();
+    }
+
+    {
+        // Ctrl+click force-reload must keep the current show and episode covers
+        // on disk (and in image_path) until a new file is written, then swap.
+        // A failed fetch leaves the old cover in place.
+        QByteArray oldJpeg;
+        QByteArray newJpeg;
+        {
+            QImage img(8, 8, QImage::Format_RGB32);
+            img.fill(Qt::darkGreen);
+            QBuffer buf(&oldJpeg);
+            check(buf.open(QIODevice::WriteOnly) && img.save(&buf, "JPEG", 90) && oldJpeg.size() > 32,
+                  "force-keep: old jpeg encodes");
+        }
+        {
+            QImage img(8, 8, QImage::Format_RGB32);
+            img.fill(Qt::magenta);
+            QBuffer buf(&newJpeg);
+            check(buf.open(QIODevice::WriteOnly) && img.save(&buf, "JPEG", 90) && newJpeg.size() > 32
+                      && newJpeg != oldJpeg,
+                  "force-keep: new jpeg encodes");
+        }
+
+        struct HoldCoverServer : QTcpServer {
+            QByteArray body;
+            QByteArray leftover;
+            QStringList paths;
+            QList<QTcpSocket *> held;
+            int status = 200;
+            void replyTo(QTcpSocket *s)
+            {
+                QByteArray resp = "HTTP/1.1 ";
+                if (status == 200) {
+                    resp += "200 OK\r\nContent-Type: image/jpeg\r\n"
+                            "Connection: close\r\nContent-Length: ";
+                    resp += QByteArray::number(body.size());
+                    resp += "\r\n\r\n";
+                    resp += body;
+                } else {
+                    resp += "500 Internal Server Error\r\nContent-Type: text/plain\r\n"
+                            "Connection: close\r\nContent-Length: 4\r\n\r\nfail";
+                }
+                s->write(resp);
+                s->flush();
+                s->disconnectFromHost();
+            }
+            HoldCoverServer()
+            {
+                connect(this, &QTcpServer::newConnection, this, [this]() {
+                    while (QTcpSocket *s = nextPendingConnection()) {
+                        connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                            leftover += s->readAll();
+                            const int end = leftover.indexOf("\r\n\r\n") >= 0
+                                ? leftover.indexOf("\r\n\r\n")
+                                : leftover.indexOf("\n\n");
+                            if (end < 0)
+                                return;
+                            const QByteArray req = leftover;
+                            leftover.clear();
+                            const QString first = QString::fromLatin1(req.split('\n').value(0)).trimmed();
+                            paths << first.section(QLatin1Char(' '), 1, 1);
+                            held.append(s);
+                        });
+                        connect(s, &QTcpSocket::disconnected, this, [this, s]() {
+                            held.removeAll(s);
+                            s->deleteLater();
+                        });
+                    }
+                });
+            }
+        };
+
+        QTemporaryDir dir;
+        check(dir.isValid(), "force-keep: temp dir");
+        Library library(dir.filePath(QStringLiteral("library.db")));
+        check(library.isOpen(), "force-keep: open library");
+
+        HoldCoverServer server;
+        server.body = newJpeg;
+        check(server.listen(QHostAddress::LocalHost, 0), "force-keep: server listens");
+        const QString origin = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        const QString coverUrl = origin + QStringLiteral("/cover.jpg");
+        const QString epUrl = origin + QStringLiteral("/ep.jpg");
+
+        ParsedShow show;
+        show.title = QStringLiteral("Force Keep");
+        show.author = QStringLiteral("Test");
+        show.imageUrl = coverUrl;
+        ParsedEpisode ep;
+        ep.guid = QStringLiteral("force-keep-ep");
+        ep.title = QStringLiteral("Episode");
+        ep.audioUrl = QStringLiteral("https://example.test/force-keep.mp3");
+        ep.imageUrl = epUrl;
+        ep.published = 1700000000;
+        show.episodes.append(ep);
+        // Feed URL is not on the hold server, so a force refresh of the feed
+        // fails on its own and cannot clear image_path via upsertShow.
+        const qint64 showId = library.upsertShow(QStringLiteral("http://127.0.0.1:1/no-feed.xml"), show);
+        check(showId != 0, "force-keep: insert show");
+        const qint64 epId = library.episodes(showId).value(0).id;
+        check(epId != 0, "force-keep: episode stored");
+
+        const QString showCover = dir.filePath(QStringLiteral("old-show.jpg"));
+        const QString epCover = dir.filePath(QStringLiteral("old-ep.jpg"));
+        {
+            QFile f(showCover);
+            check(f.open(QIODevice::WriteOnly) && f.write(oldJpeg) == oldJpeg.size(),
+                  "force-keep: write show cover");
+        }
+        {
+            QFile f(epCover);
+            check(f.open(QIODevice::WriteOnly) && f.write(oldJpeg) == oldJpeg.size(),
+                  "force-keep: write episode cover");
+        }
+        library.setShowImage(showId, coverUrl, showCover);
+        library.setEpisodeImage(epId, epUrl, epCover);
+
+        {
+            QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+            settings.setValue(QStringLiteral("refresh/lastSuccessMs"),
+                              QDateTime::currentMSecsSinceEpoch());
+            settings.sync();
+        }
+
+        auto waitUntil = [](const std::function<bool()> &ready, int ms) {
+            QElapsedTimer t;
+            t.start();
+            while (!ready() && t.elapsed() < ms) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+                QThread::msleep(5);
+            }
+            return ready();
+        };
+
+        auto readFile = [](const QString &path) {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+
+        {
+            Backend backend(library);
+            QCoreApplication::processEvents();
+            const QString shownBefore = backend.coverForShow(showId);
+            check(!shownBefore.isEmpty(), "force-keep: cover is shown before reload");
+
+            backend.refreshAll(true);
+            // The clear used to happen synchronously, before any reply. The
+            // current path and file must still be in place while the fetch is
+            // in flight, and coverForShow must still point at that file.
+            check(library.showImage(showId) == showCover, "force-keep: show path kept mid-flight");
+            check(QFileInfo::exists(showCover), "force-keep: show file kept mid-flight");
+            check(library.episode(epId).imagePath == epCover, "force-keep: episode path kept mid-flight");
+            check(QFileInfo::exists(epCover), "force-keep: episode file kept mid-flight");
+            check(backend.coverForShow(showId) == shownBefore, "force-keep: shown cover unchanged mid-flight");
+
+            check(waitUntil([&]() { return server.held.size() >= 2; }, 2000),
+                  "force-keep: show and episode cover fetches are in flight");
+            check(library.showImage(showId) == showCover && QFileInfo::exists(showCover),
+                  "force-keep: show cover still kept while held");
+            check(library.episode(epId).imagePath == epCover && QFileInfo::exists(epCover),
+                  "force-keep: episode cover still kept while held");
+
+            const auto held = server.held;
+            for (QTcpSocket *s : held)
+                server.replyTo(s);
+
+            const bool swapped = waitUntil([&]() {
+                const QString showPath = library.showImage(showId);
+                const QString epPath = library.episode(epId).imagePath;
+                return showPath != showCover && !showPath.isEmpty() && QFileInfo::exists(showPath)
+                    && epPath != epCover && !epPath.isEmpty() && QFileInfo::exists(epPath);
+            }, 4000);
+            check(swapped, "force-keep: new covers swap in once ready");
+            const QString newShowPath = library.showImage(showId);
+            const QString newEpPath = library.episode(epId).imagePath;
+            check(!QFileInfo::exists(showCover), "force-keep: old show file removed after swap");
+            check(!QFileInfo::exists(epCover), "force-keep: old episode file removed after swap");
+            check(readFile(newShowPath) == newJpeg, "force-keep: new show file has fetched bytes");
+            check(readFile(newEpPath) == newJpeg, "force-keep: new episode file has fetched bytes");
+            check(backend.coverForShow(showId) != shownBefore && !backend.coverForShow(showId).isEmpty(),
+                  "force-keep: shown cover updates after swap");
+            {
+                CoverCache covers;
+                const QString shown = backend.coverForShow(showId);
+                check(covers.ready(shown, kCoverTileSide) && covers.ready(shown, kCoverRowSide),
+                      "force-keep: swapped cover is prewarmed (no empty first frame)");
+            }
+
+            // A second force refresh of the same bytes must not change the
+            // path or the shown source (no reload, no blink).
+            const QString keptShowPath = library.showImage(showId);
+            const QString keptEpPath = library.episode(epId).imagePath;
+            const QString keptShown = backend.coverForShow(showId);
+            server.paths.clear();
+            server.body = newJpeg;
+            backend.refreshAll(true);
+            check(library.showImage(showId) == keptShowPath && QFileInfo::exists(keptShowPath),
+                  "force-keep: unchanged art keeps path mid-flight");
+            check(library.episode(epId).imagePath == keptEpPath && QFileInfo::exists(keptEpPath),
+                  "force-keep: unchanged episode art keeps path mid-flight");
+            check(waitUntil([&]() { return server.held.size() >= 2; }, 2000),
+                  "force-keep: unchanged-art fetches are in flight");
+            {
+                const auto heldSame = server.held;
+                for (QTcpSocket *s : heldSame)
+                    server.replyTo(s);
+            }
+            check(waitUntil([&]() { return server.held.isEmpty(); }, 2000),
+                  "force-keep: unchanged-art replies finished");
+            QCoreApplication::processEvents();
+            QThread::msleep(20);
+            QCoreApplication::processEvents();
+            check(library.showImage(showId) == keptShowPath && QFileInfo::exists(keptShowPath)
+                      && readFile(keptShowPath) == newJpeg,
+                  "force-keep: identical bytes keep the show cover path");
+            check(library.episode(epId).imagePath == keptEpPath && QFileInfo::exists(keptEpPath)
+                      && readFile(keptEpPath) == newJpeg,
+                  "force-keep: identical bytes keep the episode cover path");
+            check(backend.coverForShow(showId) == keptShown,
+                  "force-keep: identical bytes do not reload the shown cover");
+
+            QByteArray thirdJpeg;
+            {
+                QImage img(8, 8, QImage::Format_RGB32);
+                img.fill(Qt::cyan);
+                QBuffer buf(&thirdJpeg);
+                check(buf.open(QIODevice::WriteOnly) && img.save(&buf, "JPEG", 90)
+                          && thirdJpeg.size() > 32 && thirdJpeg != newJpeg,
+                      "force-keep: third jpeg encodes");
+            }
+            server.paths.clear();
+            server.body = thirdJpeg;
+            backend.refreshAll(true);
+            check(waitUntil([&]() { return server.held.size() >= 2; }, 2000),
+                  "force-keep: changed-art fetches are in flight");
+            {
+                const auto heldChanged = server.held;
+                for (QTcpSocket *s : heldChanged)
+                    server.replyTo(s);
+            }
+            const bool swappedAgain = waitUntil([&]() {
+                const QString showPath = library.showImage(showId);
+                const QString epPath = library.episode(epId).imagePath;
+                return showPath != keptShowPath && !showPath.isEmpty() && QFileInfo::exists(showPath)
+                    && epPath != keptEpPath && !epPath.isEmpty() && QFileInfo::exists(epPath);
+            }, 4000);
+            check(swappedAgain, "force-keep: changed art swaps to a new path");
+            check(!QFileInfo::exists(keptShowPath), "force-keep: previous show file removed after changed swap");
+            check(!QFileInfo::exists(keptEpPath), "force-keep: previous episode file removed after changed swap");
+            check(readFile(library.showImage(showId)) == thirdJpeg,
+                  "force-keep: changed show file has new bytes");
+            check(readFile(library.episode(epId).imagePath) == thirdJpeg,
+                  "force-keep: changed episode file has new bytes");
+            check(backend.coverForShow(showId) != keptShown && !backend.coverForShow(showId).isEmpty(),
+                  "force-keep: shown cover updates after changed swap");
+            {
+                CoverCache covers;
+                const QString shown = backend.coverForShow(showId);
+                check(covers.ready(shown, kCoverTileSide) && covers.ready(shown, kCoverRowSide),
+                      "force-keep: changed cover is prewarmed before the swap (no empty frame)");
+            }
+
+            // Restore the old files under new names so the failure case starts
+            // from a present cover again.
+            {
+                QFile f(showCover);
+                check(f.open(QIODevice::WriteOnly) && f.write(oldJpeg) == oldJpeg.size(),
+                      "force-keep: restore show cover for fail case");
+            }
+            {
+                QFile f(epCover);
+                check(f.open(QIODevice::WriteOnly) && f.write(oldJpeg) == oldJpeg.size(),
+                      "force-keep: restore episode cover for fail case");
+            }
+            library.setShowImage(showId, coverUrl, showCover);
+            library.setEpisodeImage(epId, epUrl, epCover);
+        }
+
+        // A second Backend so generations and in-flight sets start clean.
+        {
+            server.paths.clear();
+            server.status = 500;
+            Backend backend(library);
+            QCoreApplication::processEvents();
+            backend.refreshAll(true);
+            check(library.showImage(showId) == showCover && QFileInfo::exists(showCover),
+                  "force-keep: show path kept when fail fetch starts");
+            check(library.episode(epId).imagePath == epCover && QFileInfo::exists(epCover),
+                  "force-keep: episode path kept when fail fetch starts");
+            check(waitUntil([&]() { return server.held.size() >= 2; }, 2000),
+                  "force-keep: failing show and episode cover fetches are in flight");
+            const auto held = server.held;
+            for (QTcpSocket *s : held)
+                server.replyTo(s);
+            check(waitUntil([&]() { return server.held.isEmpty(); }, 2000),
+                  "force-keep: failing replies finished");
+            // Give the finished handlers a moment after the sockets drop.
+            QCoreApplication::processEvents();
+            QThread::msleep(20);
+            QCoreApplication::processEvents();
+            check(library.showImage(showId) == showCover && QFileInfo::exists(showCover)
+                      && readFile(showCover) == oldJpeg,
+                  "force-keep: failed fetch keeps the old show cover");
+            check(library.episode(epId).imagePath == epCover && QFileInfo::exists(epCover)
+                      && readFile(epCover) == oldJpeg,
+                  "force-keep: failed fetch keeps the old episode cover");
+            check(!backend.coverForShow(showId).isEmpty(),
+                  "force-keep: shown cover stays after a failed fetch");
+        }
+
         server.close();
     }
 

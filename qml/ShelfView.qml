@@ -434,22 +434,14 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: tileImage; radius: cover.coverRadius }
+                    layer.effect: CoverClip { art: tileImage.front; radius: cover.coverRadius }
                     Rectangle { anchors.fill: parent; color: theme.background; z: -1 } // backing: the surface the cover sits on
 
-                    Image {
+                    CoverImage {
                         id: tileImage
                         anchors.fill: parent
                         source: model.cover
-                        fillMode: Image.PreserveAspectCrop
-                        // Fixed decode size: resizing the window never reloads; the GPU scales.
-                        // Sync only when prewarmed in memory (paints with the first frame).
-                        asynchronous: !coverCache.ready(model.cover, coverCache.tileSide)
-                        cache: true
-                        smooth: true
-                        mipmap: true
-                        sourceSize.width: coverCache.tileSide / Screen.devicePixelRatio
-                        sourceSize.height: coverCache.tileSide / Screen.devicePixelRatio
+                        sourceSide: coverCache.tileSide
                         visible: model.cover !== ""
                     }
                     Rectangle {
@@ -470,23 +462,11 @@ Item {
                         color: theme.background
                         opacity: shelf.caughtUpVeil
                     }
-                    Rectangle {
-                        visible: model.unheard > 0
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.margins: 8
-                        radius: theme.rButton
-                        color: theme.accent
-                        height: 22 * theme.textScale
-                        width: Math.max(height, countLabel.implicitWidth + 12)
-                        Text {
-                            id: countLabel
-                            anchors.centerIn: parent
-                            text: model.unheard > 99 ? "99+" : model.unheard
-                            color: inkOnAccent(theme.accent)
-                            font.pixelSize: theme.caption
-                            font.weight: Font.Normal
-                        }
+                    CoverBadges {
+                        unheard: model.unheard
+                        refreshError: model.refreshError
+                        hoverArea: tileMouse
+                        margins: 8
                     }
                     // Refresh veil: left inactive so covers stay undimmed while refresh runs.
                     // Rectangle {
@@ -495,13 +475,6 @@ Item {
                     //     color: theme.background
                     //     opacity: shelf.refreshVeil
                     // }
-                    RefreshWarning {
-                        reason: model.refreshError
-                        hoverArea: tileMouse
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.margins: 8
-                    }
                 }
 
                 Text {
@@ -617,20 +590,14 @@ Item {
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
-                layer.effect: CoverClip { art: rowCover; radius: rowArt.coverRadius }
+                layer.effect: CoverClip { art: rowCover.front; radius: rowArt.coverRadius }
                 Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, Qt.rgba(rowHover.color.r, rowHover.color.g, rowHover.color.b, rowHover.opacity)); z: -1 } // backing: follows the row background (hover, selection, highlight)
 
-                Image {
+                CoverImage {
                     id: rowCover
                     anchors.fill: parent
                     source: model.cover
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: !coverCache.ready(model.cover, coverCache.rowSide)
-                    cache: true
-                    smooth: true
-                    mipmap: true
-                    sourceSize.width: coverCache.rowSide / Screen.devicePixelRatio
-                    sourceSize.height: coverCache.rowSide / Screen.devicePixelRatio
+                    sourceSide: coverCache.rowSide
                     visible: model.cover !== ""
                 }
                 Rectangle {
@@ -651,23 +618,11 @@ Item {
                     color: theme.background
                     opacity: shelf.caughtUpVeil
                 }
-                Rectangle {
-                    visible: model.unheard > 0
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.margins: parent.width >= 96 ? 8 : 4
-                    radius: theme.rButton
-                    color: theme.accent
-                    height: Math.min(22 * theme.textScale, parent.height * 0.5)
-                    width: Math.max(height, rowBadgeText.implicitWidth + 12)
-                    Text {
-                        id: rowBadgeText
-                        anchors.centerIn: parent
-                        text: model.unheard > 99 ? "99+" : model.unheard
-                        color: inkOnAccent(theme.accent)
-                        font.pixelSize: theme.caption
-                        font.weight: Font.Normal
-                    }
+                CoverBadges {
+                    unheard: model.unheard
+                    refreshError: model.refreshError
+                    hoverArea: rowMouse
+                    margins: parent.width >= 96 ? 8 : 4
                 }
                 // Refresh veil: left inactive so list covers stay undimmed while refresh runs.
                 // Rectangle {
@@ -676,14 +631,6 @@ Item {
                 //     color: theme.background
                 //     opacity: shelf.refreshVeil
                 // }
-                RefreshWarning {
-                    reason: model.refreshError
-                    hoverArea: rowMouse
-                    size: Math.min(22 * theme.textScale, parent.height * 0.5)
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.margins: parent.width >= 96 ? 8 : 4
-                }
             }
             Column {
                 anchors.left: rowArt.right
@@ -886,14 +833,6 @@ Item {
         anchors.bottom: showList.bottom
         anchors.right: parent.right
         anchors.rightMargin: 2
-    }
-
-    function inkOnAccent(swatch) {
-        var accentLuma = 0.299 * swatch.r + 0.587 * swatch.g + 0.114 * swatch.b
-        var backgroundLuma = 0.299 * theme.background.r + 0.587 * theme.background.g + 0.114 * theme.background.b
-        var foregroundLuma = 0.299 * theme.foreground.r + 0.587 * theme.foreground.g + 0.114 * theme.foreground.b
-        return Math.abs(accentLuma - backgroundLuma) > Math.abs(accentLuma - foregroundLuma)
-                ? theme.background : theme.foreground
     }
 
 }

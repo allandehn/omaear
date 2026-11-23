@@ -146,7 +146,8 @@ void FeedRefresher::start(const QString &feedUrl, bool manual, bool plainEncodin
         });
         auto *watcher = new QFutureWatcher<Parsed>(this);
         connect(watcher, &QFutureWatcher<Parsed>::finished, this,
-                [this, watcher, feedUrl, meta, conditional, cancel]() mutable {
+                [this, watcher, feedUrl, meta, conditional, cancel,
+                 previousImageUrl = state.imageUrl]() mutable {
             watcher->deleteLater();
             Parsed parsed = watcher->result();
             FeedRefreshResult result;
@@ -171,6 +172,7 @@ void FeedRefresher::start(const QString &feedUrl, bool manual, bool plainEncodin
             result.showId = m_library.upsertShow(feedUrl, *parsed.show, &meta);
             result.title = parsed.show->title;
             result.imageUrl = parsed.show->imageUrl;
+            result.coverUrlChanged = (previousImageUrl != parsed.show->imageUrl);
             result.status = result.showId == 0 ? FeedRefreshResult::SaveError : FeedRefreshResult::Updated;
             done(feedUrl, result);
         });
