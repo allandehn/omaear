@@ -427,6 +427,8 @@ Item {
                 readonly property string art: model.cover && model.cover !== ""
                                              ? model.cover
                                              : page.showArt
+                // Missing episode art is fetched when its row is realized.
+                Component.onCompleted: if (!model.cover && model.episodeId) backend.requestEpisodeCover(model.episodeId)
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true

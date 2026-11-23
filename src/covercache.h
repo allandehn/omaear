@@ -36,6 +36,10 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides);
 // Decode these sides of path into the memory cache on the calling thread, so
 // a just-written cover can be swapped in without an empty first frame.
 void warmCoverNow(const QString &path, const QList<int> &sides);
+// Small low-priority pool (2 threads) for warming downloaded covers, so a
+// burst of downloads cannot take every core.
+class QThreadPool;
+QThreadPool *coverWarmPool();
 
 // QML: true when source at side x side is already decoded in memory, so a
 // synchronous Image paints it with the delegate at zero cost.

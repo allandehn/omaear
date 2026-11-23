@@ -1458,17 +1458,26 @@ int runSelfTest(int argc, char **argv)
             return ready();
         };
 
+        auto requestAll = [&](qint64 showId) {
+            for (const auto &row : library.episodes(showId))
+                backend.requestEpisodeCover(row.id);
+        };
         backend.openShow(showA);
-        check(waitUntil([&]() { return server.held.size() >= 6; }, 2000),
-              "opening show A fills the 6 cover-download slots");
-        check(server.paths.size() == 6, "only 6 show A covers start at first");
+        waitUntil([]() { return false; }, 300);
+        check(server.paths.isEmpty(), "opening show A does not bulk-queue its episode covers");
+        // The rows ask for their art as they are realized.
+        requestAll(showA);
+        check(waitUntil([&]() { return server.held.size() >= 3; }, 2000),
+              "realized show A rows fill the 3 cover-download slots");
+        check(server.paths.size() == 3, "only 3 show A covers start at first");
         const bool firstWaveIsA = std::all_of(server.paths.cbegin(), server.paths.cend(),
                                               [](const QString &p) { return p.startsWith(QLatin1String("/a")); });
         check(firstWaveIsA, "first wave is show A");
 
         backend.openShow(showB);
+        requestAll(showB);
         QCoreApplication::processEvents();
-        check(server.paths.size() == 6 && server.held.size() == 6,
+        check(server.paths.size() == 3 && server.held.size() == 3,
               "opening show B leaves in-flight show A downloads running");
 
         // Free one slot. The next request must be show B, not the rest of A.
@@ -1484,7 +1493,7 @@ int runSelfTest(int argc, char **argv)
         }, 2000);
         check(startedB, "opening show B starts its covers on the next free slot");
         QStringList after;
-        for (int i = 6; i < server.paths.size(); ++i)
+        for (int i = 3; i < server.paths.size(); ++i)
             after << server.paths.at(i);
         const bool noMoreABeforeB = after.isEmpty()
             || after.at(0).startsWith(QLatin1String("/b"));
@@ -1591,11 +1600,20 @@ int runSelfTest(int argc, char **argv)
         ep.imageUrl = epUrl;
         ep.published = 1700000000;
         show.episodes.append(ep);
+        // Art never fetched: a force refresh must leave it on demand.
+        ParsedEpisode ep2 = ep;
+        ep2.guid = QStringLiteral("force-keep-ep-uncached");
+        ep2.audioUrl = QStringLiteral("https://example.test/force-keep-2.mp3");
+        ep2.imageUrl = origin + QStringLiteral("/ep2.jpg");
+        ep2.published = 1600000000;
+        show.episodes.append(ep2);
         // Feed URL is not on the hold server, so a force refresh of the feed
         // fails on its own and cannot clear image_path via upsertShow.
         const qint64 showId = library.upsertShow(QStringLiteral("http://127.0.0.1:1/no-feed.xml"), show);
         check(showId != 0, "force-keep: insert show");
-        const qint64 epId = library.episodes(showId).value(0).id;
+        qint64 epId = 0, ep2Id = 0;
+        for (const auto &row : library.episodes(showId))
+            (row.guid == ep2.guid ? ep2Id : epId) = row.id;
         check(epId != 0, "force-keep: episode stored");
 
         const QString showCover = dir.filePath(QStringLiteral("old-show.jpg"));
@@ -1650,6 +1668,9 @@ int runSelfTest(int argc, char **argv)
             check(library.episode(epId).imagePath == epCover, "force-keep: episode path kept mid-flight");
             check(QFileInfo::exists(epCover), "force-keep: episode file kept mid-flight");
             check(backend.coverForShow(showId) == shownBefore, "force-keep: shown cover unchanged mid-flight");
+            check(ep2Id != 0 && !backend.episodeCoverPending(ep2Id),
+                  "force-keep: force refresh does not queue an uncached episode cover");
+            check(backend.episodeCoverPending(epId), "force-keep: force refresh re-checks an on-disk episode cover");
 
             check(waitUntil([&]() { return server.held.size() >= 2; }, 2000),
                   "force-keep: show and episode cover fetches are in flight");

@@ -13,6 +13,7 @@
 #include <QHash>
 #include <QAtomicInt>
 #include <QThreadPool>
+#include <QThread>
 #include <QUrl>
 #include <QQuickWindow>
 
@@ -244,6 +245,17 @@ void prewarmCovers(const QStringList &paths, const QList<int> &sides)
             }, side == sides.constFirst() ? 1 : 0);
         }
     }
+}
+
+QThreadPool *coverWarmPool()
+{
+    static QThreadPool *pool = [] {
+        auto *p = new QThreadPool;
+        p->setMaxThreadCount(2);
+        p->setThreadPriority(QThread::LowPriority);
+        return p;
+    }();
+    return pool;
 }
 
 void warmCoverNow(const QString &path, const QList<int> &sides)
