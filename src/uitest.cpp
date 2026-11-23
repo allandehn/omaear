@@ -583,6 +583,10 @@ void startUiTest(QQmlApplicationEngine &engine)
                 t->eval("win.keyboardMode = true; win.navShown = true; win.navEnter(win.navFind(win.navAreas(), 'grid'), 'first')");
                 t->expect(t->eval("win.navArea === 'grid' && explorePage.kbdRing && explorePage.kbdIndex === 0").toBool(),
                           "Explore: results are a grid zone with the ring on the first tile");
+                t->expect(!t->eval("backend.motionTryout").toBool(),
+                          "Navigation animation defaults off");
+                t->expect(t->eval("!explorePage.glideRingItem.visible && explorePage.tileItemAt(0).keyRing.visible").toBool(),
+                          "Explore: default off -> static ring on the ringed tile");
                 t->key(Qt::Key_Right);
                 const bool right = t->eval("explorePage.kbdIndex === 1").toBool();
                 t->key(Qt::Key_Right);

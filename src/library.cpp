@@ -850,7 +850,8 @@ void Library::setQueueAutoplay(bool on)
 
 bool Library::motionTryout() const
 {
-    return setting(QStringLiteral("ui.motionTryout"), QStringLiteral("1")) == QStringLiteral("1");
+    // Off until the user turns "Navigation animation" on (Shelf and show ⋯ menus).
+    return setting(QStringLiteral("ui.motionTryout"), QStringLiteral("0")) == QStringLiteral("1");
 }
 
 void Library::setMotionTryout(bool on)
