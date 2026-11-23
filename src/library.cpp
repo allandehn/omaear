@@ -596,6 +596,8 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, con
         }
     }
 
+    if (testInsideUpsert)
+        testInsideUpsert(showId);
     if (!db.commit())
         return 0;
     return showId;

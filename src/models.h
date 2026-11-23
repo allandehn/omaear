@@ -13,7 +13,15 @@ public:
         AuthorRole,
         CoverRole,
         UnheardRole,
+        RefreshErrorRole,
     };
+
+    // KeepOrder: rows keep their current places (a refresh is running, nothing
+    //   may jump under the cursor); new shows go last. Unchanged ids update in
+    //   place, without a reset.
+    // InPlaceIfSameOrder: the real order, but no reset when it did not change.
+    // Reset: always rebuild.
+    enum Update { Reset, KeepOrder, InPlaceIfSameOrder };
 
     explicit ShowModel(QObject *parent = nullptr);
 
@@ -21,13 +29,16 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void setRows(const QList<ShowRow> &rows);
+    void setRows(const QList<ShowRow> &rows, Update how = Reset);
+    // Cover warning badge text after a failed refresh; empty clears it.
+    void setRefreshError(qint64 showId, const QString &reason);
     // Keyboard navigation on the shelf: map grid index <-> show id.
     Q_INVOKABLE qint64 showIdAt(int row) const;
     Q_INVOKABLE int rowOf(qint64 showId) const;
 
 private:
     QList<ShowRow> m_rows;
+    QHash<qint64, QString> m_refreshErrors;
 };
 
 class EpisodeModel : public QAbstractListModel {

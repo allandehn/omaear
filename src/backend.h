@@ -29,6 +29,9 @@ class Backend : public QObject {
     Q_PROPERTY(EpisodeModel *episodes READ episodes CONSTANT)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // The running feed refresh is the launch auto-refresh: no pill while it
+    // runs (the toolbar stop icon still shows); a pill at the end only on failures.
+    Q_PROPERTY(bool refreshQuiet READ refreshQuiet NOTIFY busyChanged)
     Q_PROPERTY(QString lastRefreshLabel READ lastRefreshLabel NOTIFY lastRefreshChanged)
     Q_PROPERTY(qint64 openShowId READ openShowId NOTIFY openShowChanged)
     Q_PROPERTY(QString openShowTitle READ openShowTitle NOTIFY openShowChanged)
@@ -92,6 +95,7 @@ public:
     EpisodeModel *episodes() { return &m_episodes; }
     QString status() const { return m_status; }
     bool busy() const { return m_busy; }
+    bool refreshQuiet() const { return m_busy && m_runQuiet; }
     QString lastRefreshLabel() const;
     qint64 openShowId() const { return m_openShowId; }
     QString openShowTitle() const { return m_openShowTitle; }
@@ -154,6 +158,15 @@ public:
     // A normal refresh leaves this false and must not re-download art that is already on disk.
     Q_INVOKABLE void refreshAll(bool forceArtwork = false);
     Q_INVOKABLE void refreshOpenShow(bool forceArtwork = false);
+    // Toolbar stop: queued feeds are dropped, downloads and parses in flight are
+    // abandoned; feeds that already finished keep their results. A save that is
+    // running is never interrupted (saves run on this thread, one transaction per
+    // show), and one that has not started is skipped. Ends the run at once.
+    Q_INVOKABLE void stopRefresh();
+    // Feed refreshes in flight at once (refresh-all). Potato-safe; see the plan.
+    static constexpr int kMaxFeedRefreshes = 4;
+    // Shelf model updates during a run are batched this long (ms).
+    static constexpr int kShelfFlushMs = 150;
     Q_INVOKABLE bool controlHeld() const;
     Q_INVOKABLE void openShow(qint64 showId);
     Q_INVOKABLE void closeShow();
@@ -308,7 +321,19 @@ private:
     void maybeAutoRefreshOnLaunch();
     void noteSuccessfulShelfRefresh();
     void noteShelfFeedResult(const QString &url, bool ok, const QString &error = {});
-    void finishShelfRefresh();
+    void finishShelfRefresh(bool stopped);
+    void finishRun(bool stopped);
+    void updateRunStatus();
+    void noteFeedFailed(const QString &url, const FeedRefreshResult &r, const QString &error, const QString &message);
+public:
+    // Short plain words for a failed cover's badge ("Couldn't refresh — feed
+    // not found"); the technical error goes to the log only.
+    static QString refreshFailureReason(const FeedRefreshResult &r, const QString &showName = {});
+private:
+    void scheduleShelfFlush();
+    void flushShelf();
+    FeedRefresher *freeRefresher();
+    void refresherFinished(FeedRefresher *refresher, const QString &url, const FeedRefreshResult &r);
     void reloadShows();
     void reloadEpisodes();
     QList<ShowRow> visibleShows(const QList<ShowRow> &rows) const;
@@ -317,7 +342,6 @@ private:
     void syncEpisodeModel(qint64 showId, bool fetchCovers = true);
     void discardEpisodeModel(qint64 showId);
     void enqueue(const QStringList &urls, bool manual = false);
-    void feedRefreshed(const QString &url, const FeedRefreshResult &r);
     void fetchNext();
     void downloadCover(qint64 showId, const QString &imageUrl);
     void downloadEpisodeCover(qint64 episodeId, const QString &imageUrl);
@@ -374,8 +398,26 @@ private:
     QHash<qint64, EpisodeModel *> m_episodeModels;
     AppNetworkAccessManager m_network; // HTTP/1.1 only, see netaccess.h
     QList<Job> m_queue;
-    FeedRefresher *m_refresher = nullptr;
-    Job m_current; // the feed being refreshed
+    // Up to kMaxFeedRefreshes in flight. A stopped refresher that is still
+    // winding down (its parse ending) is no longer in m_inFlight and is not reused
+    // until it reports back; a fresh one takes its slot.
+    QList<FeedRefresher *> m_refreshers;
+    QHash<FeedRefresher *, Job> m_inFlight;
+    bool m_runActive = false; // a run of the fetch queue is going
+    bool m_runQuiet = false;  // that run is the launch auto-refresh
+    bool m_launchRefresh = false; // set around the launch refreshAll()
+    QString m_runSingleName;  // the one show of a single-feed run
+    QString m_runLastError;   // last failure message of a single-feed run
+    QString m_runLastTitle;   // last updated show of the run
+    int m_runFailed = 0;
+    int m_stoppedTotal = 0;     // done + dropped, for "Stopped, 12 of 48 updated"
+    bool m_shelfRefreshDone = false; // the run included a refresh-all
+    // Shelf order is held while a run is going (nothing jumps under the cursor);
+    // updates land in place in batches and the sort is applied once at the end.
+    bool m_holdShelfOrder = false;
+    bool m_settleShelf = false;
+    QTimer *m_shelfFlush = nullptr;
+    QSet<qint64> m_pendingShowUpdates;
     bool m_shelfRefresh = false;
     int m_fetchDone = 0; // feeds finished in the current run of the fetch queue
     QSet<QString> m_shelfRefreshUrls; // feeds belonging to the running shelf refresh

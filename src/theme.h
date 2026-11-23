@@ -97,6 +97,9 @@ public:
     // Recolour a bundled SVG (currentColor -> the given colour) as a data URI
     // for Image.source. Rasterised once via sourceSize; no per-frame effect.
     Q_INVOKABLE QString tintedSvg(const QString &name, const QColor &color) const;
+    // Same, for a symbolic icon drawn like image://icons/: round joins when
+    // round is true (pass theme.rounding > 0 so the binding follows rounding).
+    Q_INVOKABLE QString tintedIcon(const QString &name, const QColor &color, bool round) const;
     bool darkMode() const { return m_darkMode; }
     qreal textScale() const { return m_textScale; }
     int caption() const { return m_caption; }

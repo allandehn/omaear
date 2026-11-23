@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <QHash>
 #include <QList>
 #include <QPair>
@@ -119,6 +121,9 @@ public:
 
     // One transaction: show row, new or changed episodes, and (with meta) the refresh bookkeeping.
     qint64 upsertShow(const QString &feedUrl, const ParsedShow &parsed, const FeedFetchMeta *meta = nullptr);
+    // Self-test only: called inside upsertShow's transaction, just before the
+    // commit (a test stops a refresh from here). Empty in the app.
+    std::function<void(qint64 showId)> testInsideUpsert;
     FeedState feedState(const QString &feedUrl) const;
     QSet<QString> knownGuids(qint64 showId) const;
     void noteFeedChecked(qint64 showId, qint64 now); // a 304: just the check time (skipped if under 10 min old)

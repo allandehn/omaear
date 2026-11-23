@@ -22,6 +22,7 @@ SOURCES += \
     src/growingmediadevice.cpp \
     src/selftest.cpp \
     src/refreshtest.cpp \
+    src/paralleltest.cpp \
     src/explore.cpp \
     src/updates.cpp \
     src/search.cpp \

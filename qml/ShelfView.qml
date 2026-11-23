@@ -276,34 +276,39 @@ Item {
             IconButton {
                 id: refreshButton
                 visible: actions.hasShows
+                // While feeds update this is the stop control: our own stop glyph at
+                // the same size, never dimmed or spinning (the pill badge is the one
+                // moving thing). A click stops the run at once.
+                readonly property bool stopMode: backend.busy
+                // The theme glyph stays put and turns clear; our stop glyph sits on
+                // top. Swapping icon.name/icon.source on the button could leave the
+                // old image showing when the theme lacks the name.
                 icon.name: "view-refresh-symbolic"
-                // tip: backend.busy ? "Refreshing…" : …
-                tip: backend.lastRefreshLabel.length
+                tip: stopMode ? "Stop refreshing"
+                     : backend.lastRefreshLabel.length
                      ? ("Refresh feeds — " + backend.lastRefreshLabel + "  ·  Ctrl+click reloads artwork")
                      : "Refresh feeds  ·  Ctrl+click reloads artwork"
-                // enabled: !backend.busy
                 enabled: true
-                // Navigation animation off: dim while refreshing instead of spinning.
-                glyph: backend.busy && !backend.motionTryout ? theme.dim : theme.foreground
+                glyph: stopMode ? "transparent" : theme.foreground
                 property bool reloadArtwork: false
                 onPressedChanged: {
                     if (pressed)
                         reloadArtwork = backend.controlHeld()
                 }
-                onClicked: backend.refreshAll(reloadArtwork)
-
-                // Spin only the glyph so the hover/press background stays still.
-                RotationAnimator {
-                    target: refreshButton.contentItem
-                    from: 0
-                    to: 360
-                    duration: 900
-                    loops: Animation.Infinite
-                    running: backend.busy && backend.motionTryout && refreshButton.visible
-                    onRunningChanged: {
-                        if (!running && refreshButton.contentItem)
-                            refreshButton.contentItem.rotation = 0
-                    }
+                onClicked: {
+                    if (stopMode)
+                        backend.stopRefresh()
+                    else
+                        backend.refreshAll(reloadArtwork)
+                }
+                Image {
+                    id: stopGlyph
+                    anchors.centerIn: parent
+                    visible: refreshButton.stopMode
+                    width: refreshButton.icon.width
+                    height: refreshButton.icon.height
+                    sourceSize: Qt.size(width, height)
+                    source: theme.tintedIcon("stop-symbolic.svg", theme.foreground, theme.rounding > 0)
                 }
             }
             // Add a podcast: opens Find new podcasts (search, or paste a feed URL there).
@@ -490,6 +495,13 @@ Item {
                     //     color: theme.background
                     //     opacity: shelf.refreshVeil
                     // }
+                    RefreshWarning {
+                        reason: model.refreshError
+                        hoverArea: tileMouse
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.margins: 8
+                    }
                 }
 
                 Text {
@@ -664,6 +676,14 @@ Item {
                 //     color: theme.background
                 //     opacity: shelf.refreshVeil
                 // }
+                RefreshWarning {
+                    reason: model.refreshError
+                    hoverArea: rowMouse
+                    size: Math.min(22 * theme.textScale, parent.height * 0.5)
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: parent.width >= 96 ? 8 : 4
+                }
             }
             Column {
                 anchors.left: rowArt.right

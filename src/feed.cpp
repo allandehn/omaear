@@ -200,6 +200,11 @@ std::optional<ParsedShow> parseFeed(const QByteArray &xml, const QUrl &base, QSt
     };
 
     while (!reader.atEnd()) {
+        if (options && options->cancel && options->cancel->load(std::memory_order_relaxed)) {
+            if (error)
+                *error = QStringLiteral("cancelled");
+            return std::nullopt;
+        }
         const auto token = reader.readNext();
         if (token == QXmlStreamReader::StartElement) {
             const QString name = reader.name().toString();
