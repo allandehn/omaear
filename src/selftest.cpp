@@ -1503,6 +1503,25 @@ int runSelfTest(int argc, char **argv)
         for (QTcpSocket *s : held)
             server.replyTo(s);
         waitUntil([&]() { return server.held.isEmpty(); }, 2000);
+
+        // Back to show A (a kept page): opening B dropped A's queued covers,
+        // and the rows ask again when the page is shown.
+        qint64 droppedA = 0;
+        for (const auto &row : library.episodes(showA)) {
+            if (row.imagePath.isEmpty() && !backend.episodeCoverPending(row.id)) {
+                droppedA = row.id;
+                break;
+            }
+        }
+        check(droppedA != 0, "opening show B dropped some queued show A covers");
+        backend.openShow(showA);
+        requestAll(showA);
+        check(droppedA != 0 && backend.episodeCoverPending(droppedA),
+              "returning to show A requests its dropped covers again");
+        const auto heldAgain = server.held;
+        for (QTcpSocket *s : heldAgain)
+            server.replyTo(s);
+        waitUntil([&]() { return server.held.isEmpty() && !backend.episodeCoverPending(droppedA); }, 4000);
         server.close();
     }
 

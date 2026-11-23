@@ -1063,7 +1063,8 @@ void Backend::ensureEpisodeCovers(const QList<EpisodeRow> &rows)
     // show's remaining queue (capped at 6 in flight). The list only paints
     // those cached files, so the new show kept the show cover until a
     // description jump-the-queue download finished. Drop other shows' queued
-    // jobs (in-flight ones finish). A later visit re-queues via openShow.
+    // jobs (in-flight ones finish). Rows of a page that is shown again ask
+    // for their missing art again (ShowView requestEpisodeCover).
     // Keep a playing or open episode so a jump-the-queue job is not dropped.
     QSet<qint64> keep;
     keep.reserve(rows.size() + 2);
