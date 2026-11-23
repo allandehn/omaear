@@ -462,6 +462,11 @@ int runSelfTest(int argc, char **argv)
         }
         check(library.shelfView() == QStringLiteral("gallery"), "shelf starts as gallery");
         check(library.shelfColumns() == 6, "shelf starts at six columns");
+        check(!library.motionTryout(), "navigation animation defaults off");
+        library.setMotionTryout(true);
+        check(library.motionTryout(), "navigation animation can be turned on");
+        library.setMotionTryout(false);
+        check(!library.motionTryout(), "navigation animation persists off");
         library.setShelfView(QStringLiteral("list"));
         library.setShelfColumns(0);
         check(library.shelfView() == QStringLiteral("list"), "shelf list");

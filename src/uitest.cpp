@@ -583,6 +583,10 @@ void startUiTest(QQmlApplicationEngine &engine)
                 t->eval("win.keyboardMode = true; win.navShown = true; win.navEnter(win.navFind(win.navAreas(), 'grid'), 'first')");
                 t->expect(t->eval("win.navArea === 'grid' && explorePage.kbdRing && explorePage.kbdIndex === 0").toBool(),
                           "Explore: results are a grid zone with the ring on the first tile");
+                t->expect(!t->eval("backend.motionTryout").toBool(),
+                          "Navigation animation defaults off");
+                t->expect(t->eval("!explorePage.glideRingItem.visible && explorePage.tileItemAt(0).keyRing.visible").toBool(),
+                          "Explore: default off -> static ring on the ringed tile");
                 t->key(Qt::Key_Right);
                 const bool right = t->eval("explorePage.kbdIndex === 1").toBool();
                 t->key(Qt::Key_Right);
@@ -639,6 +643,19 @@ void startUiTest(QQmlApplicationEngine &engine)
                     t->eval("backend.toggleMotionTryout()");
                 t->expect(t->eval("explorePage.glideRingItem.visible && !explorePage.tileItemAt(6).keyRing.visible").toBool(),
                           "Explore: Navigation animation on -> one gliding ring");
+                t->hover(t->centerOf("explorePage.tileItemAt(5).coverArt"));
+            }},
+            {200, [t]() {
+                t->expect(t->eval("explorePage.kbdIndex === 5 && explorePage.glideRingItem.visible").toBool(),
+                          "Explore: ring settled on tile 5 with Navigation animation on");
+                t->hover(t->centerOf("explorePage.tileItemAt(6).coverArt"));
+                t->expect(t->eval(
+                              "(function(){"
+                              "  var r = explorePage.glideRingItem, w = explorePage.cellWidth, s = explorePage.coverSize, c = explorePage.columns;"
+                              "  function xAt(i){ var col = i % Math.max(1, c); return col * w + (w - s) / 2 - 4; }"
+                              "  return r.visible && r.x !== xAt(6);"
+                              "})()").toBool(),
+                          "Explore: Navigation animation on -> ring glides to the next tile");
                 t->eval("backend.toggleMotionTryout()");
                 t->expect(t->eval("!explorePage.glideRingItem.visible && explorePage.tileItemAt(6).keyRing.visible").toBool(),
                           "Explore: Navigation animation off -> static ring on the tile");

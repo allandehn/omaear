@@ -61,7 +61,7 @@ class Backend : public QObject {
     Q_PROPERTY(double playerVolume READ playerVolume NOTIFY playerStateChanged)
     Q_PROPERTY(bool playerMono READ playerMono NOTIFY monoChanged)
     Q_PROPERTY(bool queueAutoplay READ queueAutoplay NOTIFY queueAutoplayChanged)
-    // Try-out: eased keyboard ring and cover lift (ui.motionTryout, on by default while testing).
+    // Navigation animation: gliding keyboard ring (ui.motionTryout, off by default).
     Q_PROPERTY(bool motionTryout READ motionTryout NOTIFY motionTryoutChanged)
     Q_PROPERTY(QString playerDescription READ playerDescription NOTIFY playerStateChanged)
     Q_PROPERTY(double playerPosition READ playerPosition NOTIFY playerPositionChanged)
