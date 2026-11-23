@@ -592,7 +592,14 @@ Item {
                         anchors.fill: parent
                         // Tiles ask Apple's CDN for 400px art (about half the bytes of 600px;
                         // still ≥ 2× the tile). The preview keeps the 600px URL.
-                        source: (tile.model.cover || "").replace("/600x600bb.", "/400x400bb.")
+                        // A failed fetch (CDN hiccup, timeout, a cache entry dropped by a
+                        // force refresh) used to leave the letter for the model's lifetime:
+                        // Qt keeps the error for that URL. Retry a few times with a fragment
+                        // so the pixmap cache key changes; HTTP and the disk cache ignore it.
+                        readonly property string base: (tile.model.cover || "").replace("/600x600bb.", "/400x400bb.")
+                        property int retries: 0
+                        onBaseChanged: retries = 0
+                        source: base === "" ? "" : base + (retries > 0 ? "#retry" + retries : "")
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -608,7 +615,17 @@ Item {
                             NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                         }
                         onSourceChanged: fadeIn = !page.isCoverCached(source)
-                        onStatusChanged: if (status === Image.Ready) page.markCoverCached(source)
+                        onStatusChanged: {
+                            if (status === Image.Ready)
+                                page.markCoverCached(source)
+                            else if (status === Image.Error && retries < 3)
+                                retryTimer.restart()
+                        }
+                        Timer {
+                            id: retryTimer
+                            interval: 1500 * Math.pow(3, art.retries)
+                            onTriggered: art.retries += 1
+                        }
                     }
                     // Subscribe badge: + / spinner / check.
                     Rectangle {
@@ -618,7 +635,8 @@ Item {
                         anchors.margins: 8
                         width: 32 * theme.textScale
                         height: width
-                        radius: width / 2
+                        // Same corner rule as the Shelf badges (CoverBadges): square at rounding 0.
+                        radius: theme.rounding > 0 ? theme.rButton : 0
                         color: tile.model.subscribed ? theme.accent : theme.background
                         opacity: tile.model.subscribed || tile.model.adding || (tileHover.hovered && win.pointerActive)
                                  || subscribeButton.hovered ? 0.95 : 0.8
@@ -626,7 +644,7 @@ Item {
                             id: subscribeButton
                             anchors.fill: parent
                             visible: !tile.model.adding
-                            icon.name: tile.model.subscribed ? "check-plain-symbolic" : "list-add-symbolic"
+                            icon.source: theme.iconBase + (tile.model.subscribed ? "status-check.svg" : "add-symbolic.svg")
                             icon.width: 16 * theme.textScale
                             icon.height: 16 * theme.textScale
                             glyph: tile.model.subscribed ? win.inkOn(theme.accent) : theme.foreground
@@ -859,7 +877,7 @@ Item {
                                 IconButton {
                                     id: previewSubscribe
                                     visible: !explore.preview.adding
-                                    icon.name: explore.preview.subscribed ? "check-plain-symbolic" : "list-add-symbolic"
+                                    icon.source: theme.iconBase + (explore.preview.subscribed ? "status-check.svg" : "add-symbolic.svg")
                                     caption: explore.preview.subscribed ? "Subscribed" : "Subscribe"
                                     glyph: explore.preview.subscribed ? theme.dim : theme.accent
                                     enabled: !explore.preview.subscribed
@@ -1117,7 +1135,7 @@ Item {
                         anchors.rightMargin: 12
                         anchors.verticalCenter: parent.verticalCenter
                         display: AbstractButton.IconOnly
-                        icon.name: "check-plain-symbolic"
+                        icon.source: theme.iconBase + "status-check.svg"
                         icon.color: theme.accent
                         icon.width: 16 * theme.textScale
                         icon.height: 16 * theme.textScale
