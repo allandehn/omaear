@@ -35,7 +35,11 @@ build() {
 
 check() {
   cd "$pkgname-$pkgver"
-  QT_QPA_PLATFORM=offscreen ./omaear --self-test
+  local xdg
+  xdg=$(mktemp -d)
+  mkdir -p "$xdg"/{data,config,cache}
+  QT_QPA_PLATFORM=offscreen     XDG_DATA_HOME="$xdg/data" XDG_CONFIG_HOME="$xdg/config" XDG_CACHE_HOME="$xdg/cache"     ./omaear --self-test
+  rm -rf "$xdg"
   test "$(./omaear --version)" = "omaear $pkgver"
 }
 

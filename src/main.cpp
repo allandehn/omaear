@@ -31,6 +31,8 @@
 #include <QFileInfo>
 #include <pwd.h>
 #include <unistd.h>
+#include <cstdlib>
+#include <climits>
 
 // "?" is Shift+/ on a US layout and a different key elsewhere. Match the
 // character, and Key_Question when the platform reports that instead of text.
@@ -260,6 +262,115 @@ static bool uiTestHomeIsThrowaway(QString *why)
     return true;
 }
 
+// --self-test writes QSettings (refresh/lastSuccessMs and anything else using
+// Library::settingsPath) under XDG_CONFIG_HOME, and may use the data and cache
+// locations too. Refuse unless all three are set and none resolves to the
+// account's real defaults, or to a path inside them. The check uses POSIX
+// realpath rather than Qt file APIs, so it can run before QCoreApplication
+// exists (Qt path helpers can hang in that state when HOME is a throwaway
+// directory). The UI test has its own, stricter throwaway-HOME guard. Set
+// OMAEAR_SELFTEST_ALLOW_REAL_XDG=1 only for a deliberate run that is allowed
+// to touch the real XDG dirs.
+static QByteArray selfTestAbsPath(const QByteArray &path)
+{
+    if (path.startsWith('/'))
+        return path;
+    char cwd[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd)))
+        return path;
+    if (path.isEmpty())
+        return QByteArray(cwd);
+    return QByteArray(cwd) + '/' + path;
+}
+
+// Canonicalize path, including one that does not exist yet: resolve the
+// longest existing ancestor with realpath and join the rest, so a symlink
+// such as /tmp/test-data -> ~/.local/share still resolves.
+static QByteArray selfTestResolvedPath(const QByteArray &path)
+{
+    const QByteArray abs = selfTestAbsPath(path);
+    char buf[PATH_MAX];
+    if (realpath(abs.constData(), buf))
+        return QByteArray(buf);
+
+    QByteArray cur = abs;
+    QByteArray rest;
+    while (!cur.isEmpty() && cur != "/") {
+        if (realpath(cur.constData(), buf)) {
+            const QByteArray base(buf);
+            return rest.isEmpty() ? base : base + '/' + rest;
+        }
+        const int slash = cur.lastIndexOf('/');
+        const QByteArray name = slash >= 0 ? cur.mid(slash + 1) : cur;
+        rest = rest.isEmpty() ? name : name + '/' + rest;
+        if (slash <= 0)
+            cur = QByteArray("/");
+        else
+            cur = cur.left(slash);
+        // Collapse repeated slashes left by odd input such as "//foo".
+        while (cur.size() > 1 && cur.endsWith('/'))
+            cur.chop(1);
+    }
+    if (realpath("/", buf))
+        return rest.isEmpty() ? QByteArray("/") : QByteArray(buf) + '/' + rest;
+    return abs;
+}
+
+static bool selfTestPathIsInside(const QByteArray &path, const QByteArray &root)
+{
+    if (path == root)
+        return true;
+    const QByteArray prefix = root.endsWith('/') ? root : root + '/';
+    return path.startsWith(prefix);
+}
+
+static bool selfTestXdgIsThrowaway(QString *why)
+{
+    if (qEnvironmentVariableIntValue("OMAEAR_SELFTEST_ALLOW_REAL_XDG") == 1)
+        return true;
+
+    static const struct {
+        const char *name;
+        const char *relative;
+    } vars[] = {
+        {"XDG_CONFIG_HOME", ".config"},
+        {"XDG_DATA_HOME", ".local/share"},
+        {"XDG_CACHE_HOME", ".cache"},
+    };
+
+    QList<QByteArray> homes;
+    const QByteArray envHome = qgetenv("HOME").trimmed();
+    if (!envHome.isEmpty())
+        homes << selfTestResolvedPath(envHome);
+    if (const passwd *pw = getpwuid(getuid())) {
+        if (pw->pw_dir && pw->pw_dir[0]) {
+            const QByteArray real = selfTestResolvedPath(QByteArray(pw->pw_dir));
+            if (!real.isEmpty() && !homes.contains(real))
+                homes << real;
+        }
+    }
+
+    for (const auto &v : vars) {
+        const QByteArray value = qgetenv(v.name).trimmed();
+        if (value.isEmpty()) {
+            *why = QStringLiteral("%1 is not set").arg(QLatin1String(v.name));
+            return false;
+        }
+        const QByteArray resolved = selfTestResolvedPath(value);
+        for (const QByteArray &home : std::as_const(homes)) {
+            const QByteArray def = selfTestResolvedPath(home + '/' + v.relative);
+            if (resolved == def || selfTestPathIsInside(resolved, def)) {
+                *why = QStringLiteral("%1 (%2) is the real default or inside it (%3)")
+                           .arg(QLatin1String(v.name),
+                                QString::fromLocal8Bit(value),
+                                QString::fromLocal8Bit(def));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     startupTimer().start();
@@ -272,8 +383,18 @@ int main(int argc, char **argv)
     }
     if (args.contains(QStringLiteral("--player")))
         return runPlayer(argc, argv);
-    if (args.contains(QStringLiteral("--self-test")))
+    if (args.contains(QStringLiteral("--self-test"))) {
+        QString why;
+        if (!selfTestXdgIsThrowaway(&why)) {
+            fprintf(stderr,
+                    "omaear: refusing to run --self-test: %s. "
+                    "Set XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_CACHE_HOME to throwaway "
+                    "directories, not ~/.config, ~/.local/share or ~/.cache.\n",
+                    qPrintable(why));
+            return 3;
+        }
         return runSelfTest(argc, argv);
+    }
     if (qEnvironmentVariableIntValue("OMAEAR_UI_TEST") == 1) {
         QString why;
         if (!uiTestHomeIsThrowaway(&why)) {

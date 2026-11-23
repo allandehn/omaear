@@ -103,6 +103,10 @@ Needs Qt 6 (Quick, Quick Controls, Multimedia, SQL, Network, D-Bus), all already
 ```
 qmake6
 make -j
+mkdir -p /tmp/omaear-selftest/{data,config,cache}
+XDG_DATA_HOME=/tmp/omaear-selftest/data \
+XDG_CONFIG_HOME=/tmp/omaear-selftest/config \
+XDG_CACHE_HOME=/tmp/omaear-selftest/cache \
 ./omaear --self-test
 make install    # installs to ~/.local, no root needed
 ```
