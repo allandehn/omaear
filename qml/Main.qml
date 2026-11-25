@@ -1382,17 +1382,7 @@ ApplicationWindow {
                         source: theme.tintedSvg(statusPill.jobBusy ? "status-refresh.svg"
                                               : statusPill.jobError ? "status-warning.svg"
                                               : "status-check.svg", statusPill.jobColor)
-                        // The one moving thing while feeds update. A render-thread
-                        // animator: no bindings re-run per frame.
-                        RotationAnimator on rotation {
-                            id: statusSpin
-                            from: 0
-                            to: 360
-                            duration: 1100
-                            loops: Animation.Infinite
-                            running: statusPill.jobBusy && statusPill.visible
-                            onRunningChanged: if (!running) statusIcon.rotation = 0
-                        }
+                        // Still icon while feeds update; progress is the status text.
                     }
                 }
 

@@ -19,6 +19,8 @@ Planned work and ideas for OmaEar.
 
 ## Done
 
+- [x] **Steady refresh status** — While a refresh is running, the status pill keeps a still refresh icon and the “Updating…” text; the icon does not spin. Navigation animation only glides the keyboard ring (it does not control a refresh spinner). The Shelf and show-page Refresh buttons still turn into Stop for the run.
+
 - [x] **Cheaper feed refresh** — Each feed's ETag and Last-Modified are stored and sent back, and a 304 ends that feed's refresh (one tiny write). A changed feed is parsed on a worker thread and stops after 20 known episodes in a row, but only for a newest-first, fully dated feed; undated, oldest-first or oddly ordered feeds are read whole. New and changed episodes go in with one SQLite transaction per feed; unchanged rows are not rewritten. Feeds with no new episode for 14+ days are skipped for 6 h to 3 days after a check (refresh all and launch only). Refreshing one show, adding a feed, importing and Ctrl+click always fetch and parse everything, and so does the first refresh after a week.
 
 - [x] **Explore behaves like the Shelf** — Find new podcasts uses the Shelf's cover lift with soft shadow, the same keyboard ring (gliding with Navigation animation on, static with it off) and hover = key focus with no shade on the art. Its gallery follows the Shelf's column setting, so covers have the Shelf's size, and Ctrl+wheel, Ctrl+= / Ctrl+- and Ctrl+0 size it too. The ring, shadow and sizing code is shared (`CoverRing`, `CoverShadow`). Not carried over: the eye (nothing to filter), the list view (the Gallery/List switch lives in the Shelf's ⋯ menu and Explore has none), the caught-up veil.
