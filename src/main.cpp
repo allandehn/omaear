@@ -142,7 +142,7 @@ private:
 
 class UiBridge : public QObject {
     Q_OBJECT
-    Q_CLASSINFO("D-Bus Interface", "com.github.allanjorch.omaear.Ui")
+    Q_CLASSINFO("D-Bus Interface", "com.github.allandehn.omaear.Ui")
 public:
     explicit UiBridge(Backend *backend, QObject *parent = nullptr)
         : QObject(parent)
@@ -426,7 +426,7 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omaear"));
     app.setApplicationDisplayName(QStringLiteral("OmaEar"));
-    app.setDesktopFileName(QStringLiteral("com.github.allanjorch.omaear"));
+    app.setDesktopFileName(QStringLiteral("com.github.allandehn.omaear"));
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/omaear.svg")));
     QFont uiFont(QStringLiteral("monospace"));
     uiFont.setStyleHint(QFont::Monospace);
@@ -435,10 +435,10 @@ int main(int argc, char **argv)
     QQuickStyle::setStyle(QStringLiteral("Material"));
 
     auto bus = QDBusConnection::sessionBus();
-    const QString uiService = QStringLiteral("com.github.allanjorch.omaear");
+    const QString uiService = QStringLiteral("com.github.allandehn.omaear");
     if (bus.interface()->isServiceRegistered(uiService)) {
-        QDBusInterface ui(uiService, QStringLiteral("/com/github/allanjorch/omaear/Ui"),
-                          QStringLiteral("com.github.allanjorch.omaear.Ui"), bus);
+        QDBusInterface ui(uiService, QStringLiteral("/com/github/allandehn/omaear/Ui"),
+                          QStringLiteral("com.github.allandehn.omaear.Ui"), bus);
         ui.call(QStringLiteral("Raise"));
         return 0;
     }
@@ -476,7 +476,7 @@ int main(int argc, char **argv)
     LibrarySearch librarySearch(library);
     QObject::connect(&backend, &Backend::libraryChanged, &librarySearch, &LibrarySearch::libraryChanged);
     UiBridge bridge(&backend);
-    bus.registerObject(QStringLiteral("/com/github/allanjorch/omaear/Ui"), &bridge,
+    bus.registerObject(QStringLiteral("/com/github/allandehn/omaear/Ui"), &bridge,
                        QDBusConnection::ExportAllSlots);
     bus.registerService(uiService);
 

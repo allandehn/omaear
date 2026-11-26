@@ -7,7 +7,7 @@ moc_*
 omaear
 podcast
 .preview/
-com.github.allanjorch.omaear.desktop
+com.github.allandehn.omaear.desktop
 dist/
 packaging/src/
 packaging/pkg/

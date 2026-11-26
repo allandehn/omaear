@@ -40,8 +40,8 @@
 #include <chrono>
 
 namespace {
-const QString kUiService = QStringLiteral("com.github.allanjorch.omaear");
-const QString kPlayerService = QStringLiteral("com.github.allanjorch.omaear.Player");
+const QString kUiService = QStringLiteral("com.github.allandehn.omaear");
+const QString kPlayerService = QStringLiteral("com.github.allandehn.omaear.Player");
 const QString kMprisService = QStringLiteral("org.mpris.MediaPlayer2.omaear");
 constexpr int kMaxErrorRecoveries = 3;
 
@@ -107,7 +107,7 @@ public:
     bool canSetFullscreen() const { return false; }
     bool hasTrackList() const { return false; }
     QString identity() const { return QStringLiteral("OmaEar"); }
-    QString desktopEntry() const { return QStringLiteral("com.github.allanjorch.omaear"); }
+    QString desktopEntry() const { return QStringLiteral("com.github.allandehn.omaear"); }
     QStringList supportedUriSchemes() const { return {QStringLiteral("http"), QStringLiteral("https")}; }
     QStringList supportedMimeTypes() const
     {
@@ -187,7 +187,7 @@ private:
 
 class PlayerService : public QObject {
     Q_OBJECT
-    Q_CLASSINFO("D-Bus Interface", "com.github.allanjorch.omaear.Player")
+    Q_CLASSINFO("D-Bus Interface", "com.github.allandehn.omaear.Player")
     friend int runPlayerSelfTest();
 
 public:
@@ -346,8 +346,8 @@ private:
 void MprisRootAdaptor::Raise()
 {
     if (uiIsOpen()) {
-        QDBusInterface ui(kUiService, QStringLiteral("/com/github/allanjorch/omaear/Ui"),
-                          QStringLiteral("com.github.allanjorch.omaear.Ui"),
+        QDBusInterface ui(kUiService, QStringLiteral("/com/github/allandehn/omaear/Ui"),
+                          QStringLiteral("com.github.allandehn.omaear.Ui"),
                           QDBusConnection::sessionBus());
         ui.call(QStringLiteral("Raise"));
         return;
@@ -722,7 +722,7 @@ QVariantMap PlayerService::metadata() const
         return meta;
     meta.insert(QStringLiteral("mpris:trackid"),
                 QVariant::fromValue(QDBusObjectPath(
-                    QStringLiteral("/com/github/allanjorch/omaear/episode/%1").arg(m_episode.id))));
+                    QStringLiteral("/com/github/allandehn/omaear/episode/%1").arg(m_episode.id))));
     if (m_durationMs > 0)
         meta.insert(QStringLiteral("mpris:length"), QVariant::fromValue<qlonglong>(m_durationMs * 1000));
     if (!m_art.isEmpty())
@@ -1897,13 +1897,13 @@ int runPlayer(int argc, char **argv)
     auto bus = QDBusConnection::sessionBus();
     bus.registerObject(QStringLiteral("/org/mpris/MediaPlayer2"), object,
                        QDBusConnection::ExportAdaptors);
-    bus.registerObject(QStringLiteral("/com/github/allanjorch/omaear"), &service,
+    bus.registerObject(QStringLiteral("/com/github/allandehn/omaear"), &service,
                        QDBusConnection::ExportScriptableSlots
                            | QDBusConnection::ExportScriptableSignals);
     if (!bus.registerService(kPlayerService))
         return 0;
     if (!bus.registerService(kMprisService))
-        return 0;
+        qWarning("[omaear-player] could not claim %s; continuing without MPRIS", qPrintable(kMprisService));
     // One-time: audio cached before the generic player identity may differ
     // from the current fetch. This process owns the media cache and nothing is playing
     // yet, so drop it all; episodes re-download on the next play or prefetch.
