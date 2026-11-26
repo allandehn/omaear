@@ -26,7 +26,7 @@ public:
     GrowingMediaDevice *device() const { return m_device; }
     QUrl formatHintUrl() const { return m_hintUrl; }
     bool isComplete() const;
-    bool isFailed() const { return m_failed; }
+    bool isFailed() const;
     QString errorString() const { return m_error; }
     QString cachePath() const; // .part or finished path
     qint64 availableBytes() const;
@@ -37,8 +37,12 @@ public:
     // If a finished local file already exists, returns its path and does not start a download.
     QString existingFinishedPath() const;
 
-    void start();
+    void start(qint64 keepOtherEpisodeId = 0);
     void abort();
+
+    static constexpr int kDefaultTransferTimeoutMs = 30000;
+    void setTransferTimeoutMs(int ms) { m_transferTimeoutMs = ms; }
+    void setRetryBaseMs(int ms) { m_retryBaseMs = ms; }
 
     static QString mediaDir();
     static void pruneCache(qint64 keepEpisodeId, qint64 keepNextId = 0);
@@ -109,6 +113,9 @@ private:
     bool m_failed = false;
     bool m_acceptRanges = true;
     int m_retries = 0;
+    int m_transferTimeoutMs = kDefaultTransferTimeoutMs;
+    int m_retryBaseMs = 800;
+    bool m_redirectBlocked = false;
     QString m_error;
 
     // User-Agent consistency: every request for one .part uses m_ua; the

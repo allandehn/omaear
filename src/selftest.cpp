@@ -1355,6 +1355,224 @@ int runSelfTest(int argc, char **argv)
         server.close();
     }
 
+    {
+        // PR 2 regression tests: blocked file:// redirect, stalled-socket
+        // transfer timeout + Range retry, keepOtherEpisodeId cache prune guard,
+        // and GrowingMediaDevice readData wakeup on abort().
+        QTemporaryDir cacheHome;
+        check(cacheHome.isValid(), "pr2-playback: throwaway cache dir");
+        const QByteArray oldCache = qgetenv("XDG_CACHE_HOME");
+        qputenv("XDG_CACHE_HOME", cacheHome.path().toUtf8());
+
+        auto waitDone = [](HttpFileBuffer *buf, int ms = 4000) {
+            if (buf->isComplete() || buf->isFailed())
+                return;
+            QEventLoop loop;
+            QObject::connect(buf, &HttpFileBuffer::completed, &loop, &QEventLoop::quit);
+            QObject::connect(buf, &HttpFileBuffer::failed, &loop, &QEventLoop::quit);
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+        auto readFinished = [](const QString &path) {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+
+        // 1. Blocked http -> file:// redirect fails immediately instead of hanging.
+        {
+            QTcpServer srv;
+            check(srv.listen(QHostAddress::LocalHost, 0), "pr2-playback: redirect server listens");
+            QHash<QTcpSocket *, QByteArray> bufs;
+            QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&srv, &bufs]() {
+                while (QTcpSocket *s = srv.nextPendingConnection()) {
+                    QObject::connect(s, &QTcpSocket::readyRead, &srv, [s, &bufs]() {
+                        QByteArray &buf = bufs[s];
+                        buf += s->readAll();
+                        if (!buf.contains("\r\n\r\n") && !buf.contains("\n\n"))
+                            return;
+                        s->write("HTTP/1.1 302 Found\r\nLocation: file:///etc/passwd\r\n"
+                                 "Connection: close\r\nContent-Length: 0\r\n\r\n");
+                        s->flush();
+                        s->disconnectFromHost();
+                    });
+                    QObject::connect(s, &QTcpSocket::disconnected, &srv, [s, &bufs]() {
+                        bufs.remove(s);
+                        s->deleteLater();
+                    });
+                }
+            });
+            const QUrl url(QStringLiteral("http://127.0.0.1:%1/redir.mp3").arg(srv.serverPort()));
+            HttpFileBuffer buf(920001, url);
+            buf.setTransferTimeoutMs(1000);
+            buf.setRetryBaseMs(20);
+            buf.start();
+            waitDone(&buf, 2000);
+            check(buf.isFailed() && !buf.isComplete(),
+                  "pr2-playback: blocked file:// redirect fails instead of hanging");
+            check(buf.errorString().contains(QStringLiteral("redirect"), Qt::CaseInsensitive),
+                  "pr2-playback: blocked redirect sets clear error message");
+            srv.close();
+        }
+
+        // 2. Stalled socket triggers transfer timeout and Range retry to completion.
+        {
+            QTcpServer srv;
+            check(srv.listen(QHostAddress::LocalHost, 0), "pr2-playback: stall server listens");
+            QList<QByteArray> requests;
+            QList<QTcpSocket *> sockets;
+            QHash<QTcpSocket *, QByteArray> bufs;
+            QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&]() {
+                while (QTcpSocket *s = srv.nextPendingConnection()) {
+                    sockets.append(s);
+                    QObject::connect(s, &QTcpSocket::readyRead, &srv, [&, s]() {
+                        QByteArray &buf = bufs[s];
+                        buf += s->readAll();
+                        int end = buf.indexOf("\r\n\r\n");
+                        if (end < 0)
+                            end = buf.indexOf("\n\n");
+                        if (end < 0)
+                            return;
+                        const QByteArray req = buf.left(end);
+                        buf.clear();
+                        requests.append(req);
+                        if (!req.toLower().contains("range: bytes=32-")) {
+                            // First attempt: send 32 bytes then stall without closing.
+                            QByteArray resp = "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n"
+                                              "Content-Length: 64\r\n\r\n";
+                            resp += QByteArray(32, 'A');
+                            s->write(resp);
+                            s->flush();
+                        } else {
+                            // Second attempt: serve the remaining 32 bytes and close.
+                            QByteArray resp = "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\n"
+                                              "Content-Range: bytes 32-63/64\r\n"
+                                              "Connection: close\r\nContent-Length: 32\r\n\r\n";
+                            resp += QByteArray(32, 'B');
+                            s->write(resp);
+                            s->flush();
+                            s->disconnectFromHost();
+                        }
+                    });
+                    QObject::connect(s, &QTcpSocket::disconnected, &srv, [&, s]() {
+                        bufs.remove(s);
+                        sockets.removeAll(s);
+                        s->deleteLater();
+                    });
+                }
+            });
+            const QUrl url(QStringLiteral("http://127.0.0.1:%1/stall.mp3").arg(srv.serverPort()));
+            HttpFileBuffer buf(920002, url);
+            buf.setTransferTimeoutMs(250);
+            buf.setRetryBaseMs(50);
+            buf.start();
+            waitDone(&buf, 4000);
+            const QByteArray body = readFinished(buf.existingFinishedPath());
+            check(buf.isComplete() && !buf.isFailed(),
+                  "pr2-playback: stalled download recovers via transfer timeout and Range retry");
+            check(requests.size() == 2 && requests.at(1).toLower().contains("range: bytes=32-"),
+                  "pr2-playback: retry requests Range from flushed offset");
+            check(body == (QByteArray(32, 'A') + QByteArray(32, 'B')),
+                  "pr2-playback: completed file stitches original and retried halves");
+            for (QTcpSocket *s : sockets)
+                s->close();
+            srv.close();
+        }
+
+        // 3. start(keepOtherEpisodeId) protects active episode's stale .part from pruning.
+        {
+            QTcpServer srv;
+            check(srv.listen(QHostAddress::LocalHost, 0), "pr2-playback: prune server listens");
+            QHash<QTcpSocket *, QByteArray> bufs;
+            QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&srv, &bufs]() {
+                while (QTcpSocket *s = srv.nextPendingConnection()) {
+                    QObject::connect(s, &QTcpSocket::readyRead, &srv, [s, &bufs]() {
+                        QByteArray &buf = bufs[s];
+                        buf += s->readAll();
+                        if (!buf.contains("\r\n\r\n") && !buf.contains("\n\n"))
+                            return;
+                        const QByteArray body(40, 'P');
+                        QByteArray resp = "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n"
+                                          "Connection: close\r\nContent-Length: ";
+                        resp += QByteArray::number(body.size());
+                        resp += "\r\n\r\n";
+                        resp += body;
+                        s->write(resp);
+                        s->flush();
+                        s->disconnectFromHost();
+                    });
+                    QObject::connect(s, &QTcpSocket::disconnected, &srv, [s, &bufs]() {
+                        bufs.remove(s);
+                        s->deleteLater();
+                    });
+                }
+            });
+            const qint64 activeId = 920003;
+            const qint64 nextId = 920004;
+            const QString activePart = HttpFileBuffer::mediaDir() + QStringLiteral("/%1.part").arg(activeId);
+            {
+                QFile f(activePart);
+                check(f.open(QIODevice::WriteOnly) && f.write("active-part") == 11,
+                      "pr2-playback: active .part created");
+                f.flush();
+                f.setFileTime(QDateTime::currentDateTimeUtc().addSecs(-48 * 3600),
+                              QFileDevice::FileModificationTime);
+                f.close();
+                check(QFileInfo(activePart).lastModified().toUTC()
+                          < QDateTime::currentDateTimeUtc().addSecs(-24 * 3600),
+                      "pr2-playback: active .part mtime backdated");
+            }
+            const QUrl nextUrl(QStringLiteral("http://127.0.0.1:%1/next.mp3").arg(srv.serverPort()));
+            HttpFileBuffer prefetch(nextId, nextUrl);
+            prefetch.start(activeId);
+            waitDone(&prefetch, 2000);
+            check(prefetch.isComplete() && QFileInfo::exists(activePart),
+                  "pr2-playback: prefetch start(activeId) keeps active stale .part");
+            HttpFileBuffer::pruneCache(nextId, 0);
+            check(!QFileInfo::exists(activePart),
+                  "pr2-playback: pruneCache without activeId removes stale .part");
+            srv.close();
+        }
+
+        // 4. GrowingMediaDevice::readData() unblocks cleanly when HttpFileBuffer::abort() runs.
+        {
+            QTcpServer srv;
+            check(srv.listen(QHostAddress::LocalHost, 0), "pr2-playback: abort server listens");
+            QList<QTcpSocket *> sockets;
+            QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&srv, &sockets]() {
+                while (QTcpSocket *s = srv.nextPendingConnection()) {
+                    sockets.append(s);
+                    QObject::connect(s, &QTcpSocket::disconnected, &srv, [s, &sockets]() {
+                        sockets.removeAll(s);
+                        s->deleteLater();
+                    });
+                }
+            });
+            const QUrl url(QStringLiteral("http://127.0.0.1:%1/wait.mp3").arg(srv.serverPort()));
+            HttpFileBuffer buf(920005, url);
+            buf.setTransferTimeoutMs(5000);
+            buf.start();
+            GrowingMediaDevice *dev = buf.device();
+            check(dev != nullptr && dev->open(QIODevice::ReadOnly),
+                  "pr2-playback: GrowingMediaDevice opens before headers");
+            qint64 readResult = -99;
+            QThread *reader = QThread::create([dev, &readResult]() {
+                char chunk[64];
+                readResult = dev->read(chunk, sizeof(chunk));
+            });
+            reader->start();
+            QThread::msleep(40);
+            buf.abort();
+            check(reader->wait(1000), "pr2-playback: blocked GrowingMediaDevice reader wakes on abort");
+            check(readResult == 0, "pr2-playback: aborted reader returns 0");
+            delete reader;
+            for (QTcpSocket *s : sockets)
+                s->close();
+            srv.close();
+        }
+
+        qputenv("XDG_CACHE_HOME", oldCache);
+    }
+
     g_fails += runRefreshSelfTest();
 
     {

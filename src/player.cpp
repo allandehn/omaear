@@ -567,8 +567,10 @@ PlayerService::PlayerService(Library &library, QObject *parent)
             return;
         // Aborting a GrowingMediaDevice during episode switch can surface a spurious
         // EOF against the demuxer; never treat that as end of the *new* episode.
-        // Also ignore EOF while the download-ahead file is still growing.
-        if (m_buffer && !m_buffer->isComplete() && !m_buffer->isFailed())
+        // Also ignore EOF while the download-ahead file is incomplete (still growing
+        // or failed mid-stream), so a download failure never marks an unfinished
+        // episode played or overwrites saved progress.
+        if (m_buffer && !m_buffer->isComplete())
             return;
         m_library.markPlayed(m_episode.id, true);
         m_library.setPosition(m_episode.id, static_cast<int>(m_durationMs));
@@ -1590,7 +1592,8 @@ void PlayerService::startEpisodeBuffer(qlonglong episodeId, const QUrl &url, boo
     HttpFileBuffer *adopted = nullptr;
     if (m_prefetch) {
         // Prefetch is tagged via objectName "prefetch-<id>"
-        if (m_prefetch->objectName() == QStringLiteral("prefetch-%1").arg(episodeId)) {
+        if (m_prefetch->objectName() == QStringLiteral("prefetch-%1").arg(episodeId)
+            && !m_prefetch->isFailed()) {
             adopted = m_prefetch;
             m_prefetch = nullptr;
         } else {
@@ -1714,8 +1717,7 @@ void PlayerService::maybePrefetchNext()
     qInfo("[omaear-cache] prefetch next episode %lld", static_cast<long long>(nextId));
     m_prefetch = new HttpFileBuffer(nextId, QUrl(next.audioUrl), this);
     m_prefetch->setObjectName(QStringLiteral("prefetch-%1").arg(nextId));
-    HttpFileBuffer::pruneCache(m_episode.id, nextId);
-    m_prefetch->start();
+    m_prefetch->start(m_episode.id);
 }
 
 void PlayerService::considerExit()
