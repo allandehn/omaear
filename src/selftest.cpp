@@ -44,6 +44,8 @@
 #include "player.h"
 #include "search.h"
 #include <QSettings>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QThread>
 #include <algorithm>
 #include <functional>
@@ -2336,6 +2338,206 @@ int runSelfTest(int argc, char **argv)
               "pr1-safety: removeShow clears deleted show episodes from queue");
 
         feedServer.close();
+    }
+
+    {
+        // SQLite tuning: covering indexes, MATERIALIZED shows() query, targeted lookups,
+        // single-JOIN queue(), EXISTS dequeuePlayed(), single reloadShows on markPlayed,
+        // zero libraryChanged on 304 refresh, and batched removeAllShows().
+        QTemporaryDir tuneDir;
+        check(tuneDir.isValid(), "sqlite-tuning: temp dir");
+        const QString tuneDbPath = tuneDir.filePath(QStringLiteral("tuning.db"));
+        const QString showCover = tuneDir.filePath(QStringLiteral("show1.png"));
+        {
+            QImage img(16, 16, QImage::Format_ARGB32);
+            img.fill(Qt::red);
+            check(img.save(showCover, "PNG"), "sqlite-tuning: dummy show cover saved");
+        }
+        const QString epCover = tuneDir.filePath(QStringLiteral("ep1.png"));
+        {
+            QImage img(16, 16, QImage::Format_ARGB32);
+            img.fill(Qt::blue);
+            check(img.save(epCover, "PNG"), "sqlite-tuning: dummy episode cover saved");
+        }
+
+        Library tuneLib(tuneDbPath);
+        check(tuneLib.isOpen(), "sqlite-tuning: library opens");
+
+        auto makeEp = [](const QString &guid, const QString &title, qint64 pub) {
+            ParsedEpisode e;
+            e.guid = guid;
+            e.title = title;
+            e.audioUrl = QStringLiteral("https://example.test/%1.mp3").arg(guid);
+            e.published = pub;
+            return e;
+        };
+
+        FeedFetchMeta recentBackoff;
+        recentBackoff.now = QDateTime::currentSecsSinceEpoch() - 60;
+        recentBackoff.full = true;
+
+        ParsedShow s1;
+        s1.title = QStringLiteral("Alpha");
+        s1.episodes = {makeEp("a1", "A1", 1000), makeEp("a2", "A2", 2000)};
+        const qint64 id1 = tuneLib.upsertShow(QStringLiteral("https://example.test/a.xml"), s1, &recentBackoff);
+        tuneLib.setShowImage(id1, QStringLiteral("https://example.test/a.png"), showCover);
+
+        ParsedShow s2;
+        s2.title = QStringLiteral("Beta");
+        s2.episodes = {makeEp("b1", "B1", 3000)};
+        const qint64 id2 = tuneLib.upsertShow(QStringLiteral("https://example.test/b.xml"), s2, &recentBackoff);
+
+        ParsedShow s3;
+        s3.title = QStringLiteral("Gamma");
+        s3.episodes = {makeEp("g1", "G1", 5000)};
+        const qint64 id3 = tuneLib.upsertShow(QStringLiteral("https://example.test/g.xml"), s3, &recentBackoff);
+        const qint64 g1Id = tuneLib.episodes(id3).first().id;
+        tuneLib.setEpisodeImage(g1Id, QStringLiteral("https://example.test/g1.png"), epCover);
+        tuneLib.markPlayed(g1Id, true); // Gamma is all-played, Beta has newest unheard (3000)
+
+        const auto aEps = tuneLib.episodes(id1);
+        const qint64 aNewest = aEps.at(0).id;
+        const qint64 aOldest = aEps.at(1).id;
+        tuneLib.markPlayed(aNewest, true); // Alpha still has 1 unheard at 1000
+
+        const auto rows = tuneLib.shows();
+        check(rows.size() == 3 && rows.at(0).id == id2 && rows.at(1).id == id1 && rows.at(2).id == id3,
+              "sqlite-tuning: shows() orders unheard first then all-played");
+        check(tuneLib.showUnheard(id1) == 1 && tuneLib.showUnheard(id2) == 1 && tuneLib.showUnheard(id3) == 0,
+              "sqlite-tuning: showUnheard returns exact unplayed counts");
+        check(tuneLib.showFeedUrl(id2) == QStringLiteral("https://example.test/b.xml"),
+              "sqlite-tuning: showFeedUrl matches");
+
+        // Queue JOIN + fallback cover + EXISTS dequeuePlayed()
+        tuneLib.addToQueue(aOldest, false);
+        tuneLib.addToQueue(g1Id, false);
+        const auto qRows = tuneLib.queue();
+        check(qRows.size() == 2
+                  && qRows.at(0).showTitle == QStringLiteral("Alpha")
+                  && qRows.at(0).imagePath == showCover
+                  && qRows.at(1).showTitle == QStringLiteral("Gamma")
+                  && qRows.at(1).imagePath == epCover,
+              "sqlite-tuning: queue() JOIN returns show title and show-cover fallback");
+        check(tuneLib.dequeuePlayed() == 1 && tuneLib.queueIds() == QList<qint64>{aOldest},
+              "sqlite-tuning: dequeuePlayed() removes only played entries");
+
+        // Single-transaction setUpdateCache round-trip
+        tuneLib.setUpdateCache(QStringLiteral("current"), QStringLiteral("v0.4.10"), QStringLiteral("https://example.test/rel"), 123456);
+        check(tuneLib.updateResult() == QStringLiteral("current")
+                  && tuneLib.updateLatest() == QStringLiteral("v0.4.10")
+                  && tuneLib.updateUrl() == QStringLiteral("https://example.test/rel")
+                  && tuneLib.updateCheckedAt() == 123456,
+              "sqlite-tuning: setUpdateCache persists all keys cleanly");
+
+        // Verify persistent covering indexes and query plan via second read connection
+        {
+            auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("sqlite-tuning-check"));
+            db.setDatabaseName(tuneDbPath);
+            check(db.open(), "sqlite-tuning: check db opens");
+            QSqlQuery idxQ(db);
+            QStringList idxNames;
+            if (idxQ.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='index'"))) {
+                while (idxQ.next())
+                    idxNames << idxQ.value(0).toString();
+            }
+            check(idxNames.contains(QStringLiteral("idx_episodes_show_published"))
+                      && idxNames.contains(QStringLiteral("idx_episodes_show_played_published")),
+                  "sqlite-tuning: both covering indexes exist in schema");
+
+            QSqlQuery planQ(db);
+            bool usedCovering = false;
+            bool scannedEpisodesTable = false;
+            if (planQ.exec(QStringLiteral(
+                    "EXPLAIN QUERY PLAN"
+                    " WITH s AS MATERIALIZED ("
+                    "  SELECT id, feed_url, title, author, image_path,"
+                    "   (SELECT COUNT(*) FROM episodes e WHERE e.show_id = shows.id AND e.played = 0) AS unheard,"
+                    "   COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = shows.id), 0) AS newest,"
+                    "   COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = shows.id AND e.played = 0), 0) AS youngest_unheard"
+                    "  FROM shows)"
+                    " SELECT id, feed_url, title, author, image_path, unheard, newest, youngest_unheard FROM s"
+                    " ORDER BY CASE WHEN unheard > 0 THEN 0 ELSE 1 END,"
+                    "  CASE WHEN unheard > 0 THEN youngest_unheard ELSE newest END DESC, title COLLATE NOCASE ASC"))) {
+                while (planQ.next()) {
+                    const QString detail = planQ.value(3).toString();
+                    if (detail.contains(QStringLiteral("COVERING INDEX")))
+                        usedCovering = true;
+                    if (detail == QLatin1String("SCAN episodes") || detail == QLatin1String("SCAN e"))
+                        scannedEpisodesTable = true;
+                }
+            }
+            check(usedCovering && !scannedEpisodesTable, "sqlite-tuning: shows() plan uses covering indexes without scanning episodes");
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("sqlite-tuning-check"));
+
+        // Backend: markPlayed does not double-reload shows; 304-only refresh skips reloadShows;
+        // removeAllShows deletes shows and removes cached artwork files.
+        QTcpServer notModServer;
+        check(notModServer.listen(QHostAddress::LocalHost, 0), "sqlite-tuning: 304 server listens");
+        QObject::connect(&notModServer, &QTcpServer::newConnection, &notModServer, [&notModServer]() {
+            while (QTcpSocket *s = notModServer.nextPendingConnection()) {
+                QObject::connect(s, &QTcpSocket::readyRead, s, [s]() {
+                    s->readAll();
+                    s->write("HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n");
+                    s->flush();
+                    s->disconnectFromHost();
+                });
+                QObject::connect(s, &QTcpSocket::disconnected, s, &QObject::deleteLater);
+            }
+        });
+        ParsedShow s304;
+        s304.title = QStringLiteral("Cached304");
+        const qint64 recentPub = QDateTime::currentSecsSinceEpoch() - 3600;
+        s304.episodes = {makeEp("c1", "C1", recentPub)};
+        FeedFetchMeta meta304;
+        meta304.etag = QStringLiteral("\"v1\"");
+        meta304.now = recentPub;
+        meta304.full = true;
+        const QString url304 = QStringLiteral("http://127.0.0.1:%1/feed.xml").arg(notModServer.serverPort());
+        const qint64 id304 = tuneLib.upsertShow(url304, s304, &meta304);
+        check(id304 > 0, "sqlite-tuning: 304 test show inserted");
+
+        QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+        const qint64 savedRefreshStamp = settings.value(QStringLiteral("refresh/lastSuccessMs"), 0).toLongLong();
+        settings.setValue(QStringLiteral("refresh/lastSuccessMs"), QDateTime::currentMSecsSinceEpoch());
+        settings.sync();
+
+        {
+            Backend tuneBackend(tuneLib);
+            QCoreApplication::processEvents();
+            tuneBackend.openShow(id1);
+            int libChangedCount = 0;
+            QObject::connect(&tuneBackend, &Backend::libraryChanged, &tuneBackend, [&libChangedCount]() {
+                ++libChangedCount;
+            });
+            tuneBackend.markPlayed(aOldest, true);
+            check(libChangedCount == 1, "sqlite-tuning: markPlayed with open show reloads Shelf once");
+
+            libChangedCount = 0;
+            tuneBackend.openShow(id304);
+            tuneBackend.refreshAll(false);
+            // Only the 304 feed won't skip unless non-manual feeds hit network; other example.test feeds fail
+            // DNS quickly, so test single-show refresh via openShow feed or check stop behavior directly.
+            QElapsedTimer wt;
+            wt.start();
+            while (tuneBackend.busy() && wt.elapsed() < 5000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(5);
+            }
+            // No feed updated cleanly to Updated, and only non-304 feeds failed without modifying DB rows.
+            check(!tuneBackend.busy() && libChangedCount == 0
+                      && tuneBackend.status() == QStringLiteral("All podcasts updated."),
+                  "sqlite-tuning: refresh with zero Updated feeds skips no-op Shelf reload");
+
+            tuneBackend.removeAllShows();
+            check(tuneBackend.showCount() == 0 && tuneBackend.queueCount() == 0
+                      && !QFileInfo::exists(showCover) && !QFileInfo::exists(epCover),
+                  "sqlite-tuning: removeAllShows clears DB, queue, and cached covers");
+        }
+        notModServer.close();
+        settings.setValue(QStringLiteral("refresh/lastSuccessMs"), savedRefreshStamp);
+        settings.sync();
     }
 
     g_fails += runParallelRefreshSelfTest();

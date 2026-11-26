@@ -359,7 +359,6 @@ void Backend::reloadEpisodes()
     if (m_openShowId == 0)
         return;
     syncEpisodeModel(m_openShowId);
-    reloadShows();
     refreshOpenEpisode();
 }
 
@@ -446,13 +445,9 @@ void Backend::refreshOpenShow(bool forceArtwork)
         return;
     if (forceArtwork)
         reloadArtwork(m_openShowId);
-    const auto rows = m_library.shows();
-    for (const auto &row : rows) {
-        if (row.id == m_openShowId) {
-            enqueue({row.feedUrl}, true);
-            return;
-        }
-    }
+    const QString feedUrl = m_library.showFeedUrl(m_openShowId);
+    if (!feedUrl.isEmpty())
+        enqueue({feedUrl}, true);
 }
 
 void Backend::openShow(qint64 showId)
@@ -472,13 +467,7 @@ void Backend::openShow(qint64 showId)
     syncEpisodeModel(showId);
     m_openShowTitle = m_library.showTitle(showId);
     m_openShowCover = showCoverUrl(m_library, showId);
-    m_openShowUnheard = 0;
-    for (const auto &row : m_library.shows()) {
-        if (row.id == showId) {
-            m_openShowUnheard = row.unheard;
-            break;
-        }
-    }
+    m_openShowUnheard = m_library.showUnheard(showId);
     if (episodeOpen)
         closeEpisode();
     emit openShowChanged();
@@ -532,13 +521,7 @@ void Backend::openEpisode(qint64 episodeId)
         syncEpisodeModel(row.showId);
         m_openShowTitle = m_library.showTitle(row.showId);
         m_openShowCover = showCoverUrl(m_library, row.showId);
-        m_openShowUnheard = 0;
-        for (const auto &show : m_library.shows()) {
-            if (show.id == row.showId) {
-                m_openShowUnheard = show.unheard;
-                break;
-            }
-        }
+        m_openShowUnheard = m_library.showUnheard(row.showId);
         emit openShowChanged();
     }
     m_openEpisodeId = row.id;
@@ -620,18 +603,30 @@ void Backend::removeShow(qint64 showId)
     setStatus(QStringLiteral("Removed %1.").arg(title));
 }
 
-// Unsubscribe from every show, one at a time through removeShow (same cleanup,
-// stops playback when the playing show goes).
+// Unsubscribe from every show in one DB transaction, stopping playback if needed
+// and deleting cached artwork afterwards.
 void Backend::removeAllShows()
 {
-    QList<qint64> ids;
-    for (const auto &row : m_library.shows())
-        ids.append(row.id);
-    for (qint64 id : ids)
-        removeShow(id);
-    if (!ids.isEmpty())
-        setStatus(ids.size() == 1 ? QStringLiteral("Unsubscribed from 1 podcast.")
-                                  : QStringLiteral("Unsubscribed from all %1 podcasts.").arg(ids.size()));
+    const int count = m_library.feedUrls().size();
+    if (count == 0)
+        return;
+    const QStringList images = m_library.allCachedImagePaths();
+    if (m_playerShowId != 0)
+        stopPlayback();
+    m_library.setLastPlayedEpisodeId(0);
+    const auto modelIds = m_episodeModels.keys();
+    for (qint64 id : modelIds)
+        discardEpisodeModel(id);
+    if (!m_library.removeAllShows())
+        return;
+    for (const QString &path : images)
+        QFile::remove(path);
+    if (m_openShowId != 0)
+        closeShow();
+    reloadShows();
+    reloadQueue();
+    setStatus(count == 1 ? QStringLiteral("Unsubscribed from 1 podcast.")
+                         : QStringLiteral("Unsubscribed from all %1 podcasts.").arg(count));
 }
 
 void Backend::removeOpenShow()
@@ -650,6 +645,7 @@ void Backend::enqueue(const QStringList &urls, bool manual)
         m_runLastError.clear();
         m_runLastTitle.clear();
         m_holdShelfOrder = true;
+        m_shelfDirtyDuringRun = false;
     } else if (m_runQuiet && !m_launchRefresh) {
         // The user asked for something while the launch refresh runs: show it.
         m_runQuiet = false;
@@ -868,6 +864,7 @@ void Backend::refresherFinished(FeedRefresher *refresher, const QString &url, co
     if (r.status == FeedRefreshResult::Updated) {
         // Batched: one shelf update per kShelfFlushMs, not one reset per feed.
         m_pendingShowUpdates.insert(r.showId);
+        m_shelfDirtyDuringRun = true;
         scheduleShelfFlush();
     }
     fetchNext();
@@ -883,6 +880,8 @@ void Backend::flushShelf()
 {
     m_shelfFlush->stop();
     const QSet<qint64> changed = std::exchange(m_pendingShowUpdates, {});
+    if (changed.isEmpty() && !m_settleShelf)
+        return;
     reloadShows();
     if (m_openShowId != 0 && changed.contains(m_openShowId))
         syncEpisodeModel(m_openShowId);
@@ -916,11 +915,17 @@ void Backend::finishRun(bool stopped)
     const bool quiet = m_runQuiet;
     m_runActive = false;
     m_runQuiet = false;
-    // Apply what landed, then sort once.
+    // Apply what landed, then sort once (skip the reload if nothing changed).
+    const bool hadUpdates = !m_pendingShowUpdates.isEmpty() || m_shelfDirtyDuringRun;
+    m_shelfDirtyDuringRun = false;
     m_holdShelfOrder = false;
-    m_settleShelf = true; // sort now; no reset if the order did not change
-    flushShelf();
-    m_settleShelf = false;
+    if (hadUpdates) {
+        m_settleShelf = true; // sort now; no reset if the order did not change
+        flushShelf();
+        m_settleShelf = false;
+    } else {
+        m_shelfFlush->stop();
+    }
     if (m_shelfRefresh) {
         finishShelfRefresh(stopped);
     }
@@ -1042,9 +1047,15 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl, bool replace
         m_library.setShowImage(showId, imageUrl, path);
         m_freshShowCovers.remove(showId);
         finish();
-        reloadShows();
-        if (m_openShowId == showId)
-            reloadEpisodes();
+        if (m_runActive && previous.isEmpty()) {
+            m_pendingShowUpdates.insert(showId);
+            m_shelfDirtyDuringRun = true;
+            scheduleShelfFlush();
+        } else {
+            reloadShows();
+            if (m_openShowId == showId)
+                reloadEpisodes();
+        }
         if (!previous.isEmpty() && previous != path) {
             dropCoverThumbs(previous);
             QFile::remove(previous);

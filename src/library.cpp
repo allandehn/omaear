@@ -150,7 +150,9 @@ Library::Library(const QString &path)
         // name, point them at the new location (no-op once done).
         const QString cache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
         const QString legacy = QFileInfo(cache).absolutePath() + QLatin1Char('/') + QLatin1String(kLegacyAppName);
-        if (legacy != cache) {
+        if (legacy != cache && setting(QStringLiteral("migration.legacyCoverPaths"), QString()) != cache) {
+            const bool tx = db.transaction();
+            bool ok = true;
             for (const char *table : {"shows", "episodes"}) {
                 QSqlQuery q(db);
                 q.prepare(QStringLiteral("UPDATE %1 SET image_path = ? || substr(image_path, ?)"
@@ -159,7 +161,15 @@ Library::Library(const QString &path)
                 q.addBindValue(int(legacy.size()) + 2);
                 q.addBindValue(int(legacy.size()) + 1);
                 q.addBindValue(legacy + QLatin1Char('/'));
-                q.exec();
+                if (!q.exec())
+                    ok = false;
+            }
+            if (ok) {
+                setSetting(QStringLiteral("migration.legacyCoverPaths"), cache);
+                if (tx)
+                    db.commit();
+            } else if (tx) {
+                db.rollback();
             }
         }
     }
@@ -182,6 +192,9 @@ bool Library::migrate()
         QStringLiteral("PRAGMA foreign_keys = ON"),
         QStringLiteral("PRAGMA journal_mode = WAL"),
         QStringLiteral("PRAGMA busy_timeout = 5000"),
+        QStringLiteral("PRAGMA synchronous = NORMAL"),
+        QStringLiteral("PRAGMA temp_store = MEMORY"),
+        QStringLiteral("PRAGMA cache_size = -8000"),
         QStringLiteral(
             "CREATE TABLE IF NOT EXISTS shows ("
             " id INTEGER PRIMARY KEY,"
@@ -252,6 +265,21 @@ bool Library::migrate()
             }
         }
     }
+
+    const QStringList indexes = {
+        QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_show_published"
+            " ON episodes(show_id, published_at DESC, id DESC)"),
+        QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_show_played_published"
+            " ON episodes(show_id, played, published_at DESC)"),
+    };
+    for (const auto &sql : indexes) {
+        if (!q.exec(sql)) {
+            m_error = q.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -260,17 +288,18 @@ QList<ShowRow> Library::shows() const
     QList<ShowRow> rows;
     QSqlQuery q(dbOf(m_connection));
     q.exec(QStringLiteral(
-        "SELECT s.id, s.feed_url, s.title, s.author, s.image_path,"
-        " (SELECT COUNT(*) FROM episodes e WHERE e.show_id = s.id AND e.played = 0),"
-        " COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = s.id), 0),"
-        " COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = s.id AND e.played = 0), 0)"
-        " FROM shows s"
+        "WITH s AS MATERIALIZED ("
+        " SELECT id, feed_url, title, author, image_path,"
+        "  (SELECT COUNT(*) FROM episodes e WHERE e.show_id = shows.id AND e.played = 0) AS unheard,"
+        "  COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = shows.id), 0) AS newest,"
+        "  COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = shows.id AND e.played = 0), 0) AS youngest_unheard"
+        " FROM shows)"
+        " SELECT id, feed_url, title, author, image_path, unheard, newest, youngest_unheard"
+        " FROM s"
         " ORDER BY"
-        "  CASE WHEN (SELECT COUNT(*) FROM episodes e WHERE e.show_id = s.id AND e.played = 0) > 0 THEN 0 ELSE 1 END,"
-        "  CASE WHEN (SELECT COUNT(*) FROM episodes e WHERE e.show_id = s.id AND e.played = 0) > 0"
-        "       THEN (SELECT MAX(published_at) FROM episodes e WHERE e.show_id = s.id AND e.played = 0)"
-        "       ELSE COALESCE((SELECT MAX(published_at) FROM episodes e WHERE e.show_id = s.id), 0) END DESC,"
-        "  s.title COLLATE NOCASE ASC"));
+        "  CASE WHEN unheard > 0 THEN 0 ELSE 1 END,"
+        "  CASE WHEN unheard > 0 THEN youngest_unheard ELSE newest END DESC,"
+        "  title COLLATE NOCASE ASC"));
     while (q.next()) {
         ShowRow row;
         row.id = q.value(0).toLongLong();
@@ -350,6 +379,23 @@ QString Library::showTitle(qint64 showId) const
     q.addBindValue(showId);
     q.exec();
     return q.next() ? q.value(0).toString() : QString();
+}
+
+QString Library::showFeedUrl(qint64 showId) const
+{
+    QSqlQuery q(dbOf(m_connection));
+    q.prepare(QStringLiteral("SELECT feed_url FROM shows WHERE id = ?"));
+    q.addBindValue(showId);
+    q.exec();
+    return q.next() ? q.value(0).toString() : QString();
+}
+
+int Library::showUnheard(qint64 showId) const
+{
+    QSqlQuery q(dbOf(m_connection));
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM episodes WHERE show_id = ? AND played = 0"));
+    q.addBindValue(showId);
+    return (q.exec() && q.next()) ? q.value(0).toInt() : 0;
 }
 
 QString Library::showImage(qint64 showId) const
@@ -647,6 +693,34 @@ bool Library::removeShow(qint64 showId)
     q.prepare(QStringLiteral("DELETE FROM shows WHERE id = ?"));
     q.addBindValue(showId);
     return q.exec();
+}
+
+bool Library::removeAllShows()
+{
+    auto db = dbOf(m_connection);
+    const bool tx = db.transaction();
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("DELETE FROM shows"))) {
+        if (tx)
+            db.rollback();
+        return false;
+    }
+    return tx ? db.commit() : true;
+}
+
+QStringList Library::allCachedImagePaths() const
+{
+    QStringList paths;
+    QSqlQuery q(dbOf(m_connection));
+    q.setForwardOnly(true);
+    if (!q.exec(QStringLiteral(
+            "SELECT image_path FROM shows WHERE image_path != ''"
+            " UNION ALL"
+            " SELECT image_path FROM episodes WHERE image_path != ''")))
+        return paths;
+    while (q.next())
+        paths.append(q.value(0).toString());
+    return paths;
 }
 
 int Library::markPlayed(qint64 episodeId, bool played)
@@ -994,13 +1068,34 @@ QList<qint64> Library::queueIds() const
 QList<EpisodeRow> Library::queue() const
 {
     QList<EpisodeRow> rows;
-    for (qint64 id : queueIds()) {
-        EpisodeRow row = episode(id);
-        if (row.id == 0)
-            continue;
-        row.showTitle = showTitle(row.showId);
+    QSqlQuery q(dbOf(m_connection));
+    q.setForwardOnly(true);
+    if (!q.exec(QStringLiteral(
+            "SELECT e.id, e.show_id, e.guid, e.title, e.description, e.audio_url,"
+            " e.image_url, e.image_path, e.published_at, e.duration_secs,"
+            " e.played, e.position_ms, s.title, s.image_path"
+            " FROM queue q"
+            " JOIN episodes e ON e.id = q.episode_id"
+            " JOIN shows s ON s.id = e.show_id"
+            " ORDER BY q.position")))
+        return rows;
+    while (q.next()) {
+        EpisodeRow row;
+        row.id = q.value(0).toLongLong();
+        row.showId = q.value(1).toLongLong();
+        row.guid = q.value(2).toString();
+        row.title = q.value(3).toString();
+        row.description = q.value(4).toString();
+        row.audioUrl = q.value(5).toString();
+        row.imageUrl = q.value(6).toString();
+        row.imagePath = q.value(7).toString();
+        row.published = q.value(8).toLongLong();
+        row.durationSecs = q.value(9).toInt();
+        row.played = q.value(10).toInt() != 0;
+        row.positionMs = q.value(11).toInt();
+        row.showTitle = q.value(12).toString();
         if (row.imagePath.isEmpty() || !QFileInfo::exists(row.imagePath))
-            row.imagePath = showImage(row.showId);
+            row.imagePath = q.value(13).toString();
         rows.append(row);
     }
     return rows;
@@ -1053,7 +1148,7 @@ int Library::dequeuePlayed()
 {
     QSqlQuery q(dbOf(m_connection));
     if (!q.exec(QStringLiteral(
-            "DELETE FROM queue WHERE episode_id IN (SELECT id FROM episodes WHERE played = 1)")))
+            "DELETE FROM queue WHERE EXISTS (SELECT 1 FROM episodes e WHERE e.id = queue.episode_id AND e.played = 1)")))
         return 0;
     return q.numRowsAffected();
 }
@@ -1154,11 +1249,15 @@ QString Library::updateUrl() const
 
 void Library::setUpdateCache(const QString &result, const QString &latest, const QString &url, qint64 checkedAtMs)
 {
+    auto db = dbOf(m_connection);
+    const bool tx = db.transaction();
     setSetting(QStringLiteral("updates.result"), result);
     // A null QString binds as SQL NULL and the write fails.
     setSetting(QStringLiteral("updates.latest"), latest.isNull() ? QStringLiteral("") : latest);
     setSetting(QStringLiteral("updates.url"), url.isNull() ? QStringLiteral("") : url);
     setSetting(QStringLiteral("updates.checkedAt"), QString::number(checkedAtMs));
+    if (tx)
+        db.commit();
 }
 
 QList<SearchRow> Library::searchRows() const

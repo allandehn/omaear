@@ -10,7 +10,6 @@ Planned work and ideas for OmaEar.
 - [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
 - [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
-- [ ] **SQLite tuning** — What is left of it after the cheaper feed refresh, which already batched feed writes (one transaction per feed, unchanged rows not rewritten): pragmas (e.g. `synchronous=NORMAL` with WAL, cache size) and indexes for the Shelf load query, plus batching the other multi-row writes (mark all as played, OPML import). Measure first. A refresh still reloads the whole Shelf query after every changed feed (about 50 ms each at 13,000 episodes); coalescing that is the next cheap win. Explore covers don't use SQLite (they use Qt's network disk cache), so none of this helps that item.
 
 ## Nice to have
 
@@ -18,6 +17,8 @@ Planned work and ideas for OmaEar.
 - [ ] **Fisheye by folding** — In long episode lists, episodes near the playing one stay full rows; older ones fold into month headers that open step by step as you scroll toward them (title, then title + date, then full row); positions never jump, so clicks stay instant. From Design Champ's design wander #22 (Furnas 1986 fisheye views, Cockburn 2008 review): fold distant detail in fixed places rather than magnify Dock-style.
 
 ## Done
+
+- [x] **SQLite tuning** — WAL pragmas (`synchronous=NORMAL`, `temp_store=MEMORY`, 8 MB cache), covering indexes on `episodes(show_id, published_at DESC, id DESC)` and `episodes(show_id, played, published_at DESC)`, a `MATERIALIZED` CTE for `Library::shows()` (10.7 ms → 0.08 ms on a 13,000-episode fixture), targeted `showUnheard()`/`showFeedUrl()` lookups, a single `JOIN` for `queue()`, `EXISTS` for `dequeuePlayed()`, single-transaction `removeAllShows()` and `setUpdateCache()`, a one-time flag on the legacy cover-path migration scan, and skipping redundant or no-op Shelf reloads on 304/episode refreshes.
 
 - [x] **Steady refresh status** — While a refresh is running, the status pill keeps a still refresh icon and the “Updating…” text; the icon does not spin. Navigation animation only glides the keyboard ring (it does not control a refresh spinner). The Shelf and show-page Refresh buttons still turn into Stop for the run.
 
