@@ -1850,6 +1850,53 @@ void startUiTest(QQmlApplicationEngine &engine)
         {250, [t]() {
             t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),
                       "keyboard focus resting on a tile pre-warms it");
+            // Mark all podcasts as played: present in podcast menu, empty-space menu, and more menu.
+            t->eval("shelfView.openCoverMenu(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {400, [t]() {
+            const QString findItem = QStringLiteral(
+                "(function(m){ for (var i = 0; i < m.count; ++i) { var it = m.itemAt(i);"
+                " if (it && it.text === 'Mark all podcasts as played') return it; } return null })");
+            t->expect(t->eval("backend.totalUnheard > 0").toBool(),
+                      "mark-all-podcasts: library has unplayed episodes initially");
+            t->expect(t->eval(findItem + "(shelfView.coverMenuObject).enabled === true").toBool(),
+                      "mark-all-podcasts: enabled in podcast right-click menu");
+            t->eval("win.openPopup && win.openPopup.close(); shelfView.openEmptyMenu()");
+        }},
+        {400, [t]() {
+            const QString findItem = QStringLiteral(
+                "(function(m){ for (var i = 0; i < m.count; ++i) { var it = m.itemAt(i);"
+                " if (it && it.text === 'Mark all podcasts as played') return it; } return null })");
+            t->expect(t->eval(findItem + "(shelfView.coverMenuObject).enabled === true").toBool(),
+                      "mark-all-podcasts: enabled in Shelf empty-space menu");
+            t->expect(t->eval(findItem + "(shelfView.moreMenuObject).enabled === true").toBool(),
+                      "mark-all-podcasts: enabled in Shelf top-right more menu");
+            t->eval("win.openPopup && win.openPopup.close(); win.confirmMarkEverything()");
+        }},
+        {500, [t]() {
+            t->expect(t->eval("confirmEverything && dialog.selectedIndex === 0 && dialog.startOnCancel"
+                              " && dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()"
+                              " && dialog.message.indexOf('Mark every episode in all ') === 0").toBool(),
+                      "mark-all-podcasts: destructive dialog starts on Cancel");
+            t->key(Qt::Key_Escape);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!confirmEverything && backend.totalUnheard > 0").toBool(),
+                      "mark-all-podcasts: Escape cancels cleanly");
+            t->eval("win.confirmMarkEverything()");
+        }},
+        {400, [t]() {
+            t->eval("dialog.accepted()");
+        }},
+        {400, [t]() {
+            const QString findItem = QStringLiteral(
+                "(function(m){ for (var i = 0; i < m.count; ++i) { var it = m.itemAt(i);"
+                " if (it && it.text === 'Mark all podcasts as played') return it; } return null })");
+            t->expect(t->eval("!confirmEverything && backend.totalUnheard === 0").toBool(),
+                      "mark-all-podcasts: confirming marks every episode played");
+            t->expect(t->eval(findItem + "(shelfView.coverMenuObject).enabled === false"
+                              " && " + findItem + "(shelfView.moreMenuObject).enabled === false").toBool(),
+                      "mark-all-podcasts: menu items disable once caught up");
         }},
     };
     t->run(0);

@@ -6,7 +6,6 @@ Planned work and ideas for OmaEar.
 
 - [ ] **Shelf right-click menu** — The menu stays where it opened, shows the podcast's name as a title, and every action stays tied to that podcast even if the Shelf reorders underneath; it closes if that podcast disappears.
 - [ ] **Fewer idle wakeups** — Measure how often OmaEar wakes up when nothing is happening, and cut timers and redraws that aren't needed.
-- [ ] **Mark all podcasts played** — Mark every episode in every podcast as played, from the Shelf empty-space menu, a podcast's right-click menu and the top-right ⋯ menu.
 - [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
 - [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
@@ -17,6 +16,8 @@ Planned work and ideas for OmaEar.
 - [ ] **Fisheye by folding** — In long episode lists, episodes near the playing one stay full rows; older ones fold into month headers that open step by step as you scroll toward them (title, then title + date, then full row); positions never jump, so clicks stay instant. From Design Champ's design wander #22 (Furnas 1986 fisheye views, Cockburn 2008 review): fold distant detail in fixed places rather than magnify Dock-style.
 
 ## Done
+
+- [x] **Mark all podcasts played** — Available from the Shelf empty-space menu, podcast right-click menu, and top-right `⋯` menu (`backend.totalUnheard > 0`), backed by `markLibraryPlayed()` behind a destructive Cancel-default confirmation dialog.
 
 - [x] **SQLite tuning** — WAL pragmas (`synchronous=NORMAL`, `temp_store=MEMORY`, 8 MB cache), covering indexes on `episodes(show_id, published_at DESC, id DESC)` and `episodes(show_id, played, published_at DESC)`, a `MATERIALIZED` CTE for `Library::shows()` (10.7 ms → 0.08 ms on a 13,000-episode fixture), targeted `showUnheard()`/`showFeedUrl()` lookups, a single `JOIN` for `queue()`, `EXISTS` for `dequeuePlayed()`, single-transaction `removeAllShows()` and `setUpdateCache()`, a one-time flag on the legacy cover-path migration scan, and skipping redundant or no-op Shelf reloads on 304/episode refreshes.
 
