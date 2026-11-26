@@ -221,6 +221,7 @@ public slots:
 
 signals:
     Q_SCRIPTABLE void StateChanged(QVariantMap state);
+    Q_SCRIPTABLE void PositionChanged(double position);
 
 private:
     void loadEpisode(qlonglong episodeId, bool autoPlay);
@@ -333,6 +334,10 @@ private:
     qint64 m_stallAnchorMs = -1;
     QElapsedTimer m_stallSince;
     QTimer *m_stallTimer = nullptr;
+    QElapsedTimer m_lastPosEmit;
+    qint64 m_lastEmittedPosMs = -1;
+    QElapsedTimer m_lastBufEmit;
+    int m_lastEmittedBufPct = -1;
 };
 
 void MprisRootAdaptor::Raise()
@@ -550,6 +555,14 @@ PlayerService::PlayerService(Library &library, QObject *parent)
         }
         if (qAbs(position - m_lastSavedMs) >= 5000)
             savePosition();
+        if (m_player->playbackState() == QMediaPlayer::PlayingState
+            && !m_resumePending
+            && (!m_lastPosEmit.isValid() || m_lastPosEmit.elapsed() >= 400)
+            && qAbs(m_positionMs - m_lastEmittedPosMs) >= 50) {
+            m_lastEmittedPosMs = m_positionMs;
+            m_lastPosEmit.restart();
+            emit PositionChanged(m_positionMs / 1000.0);
+        }
     });
     connect(m_player, &QMediaPlayer::durationChanged, this, [this](qint64 duration) {
         if (duration > 0)
@@ -572,6 +585,13 @@ PlayerService::PlayerService(Library &library, QObject *parent)
             // kick off (still muted until the seek lands).
             if (!m_kickoffDone)
                 kickOffPlayback(m_autoPlayPending);
+        }
+        if (!m_inResumeSeek
+            && (status == QMediaPlayer::LoadedMedia
+                || status == QMediaPlayer::BufferedMedia
+                || status == QMediaPlayer::LoadingMedia
+                || status == QMediaPlayer::StalledMedia)) {
+            publish();
         }
         if (status != QMediaPlayer::EndOfMedia || m_episode.id == 0)
             return;
@@ -1405,6 +1425,9 @@ void PlayerService::savePosition()
 
 void PlayerService::publish()
 {
+    m_lastEmittedPosMs = m_positionMs;
+    m_lastPosEmit.restart();
+    m_lastEmittedBufPct = -1;
     emit StateChanged(State());
     if (m_mpris)
         m_mpris->notifyChanged();
@@ -1657,8 +1680,18 @@ void PlayerService::startEpisodeBuffer(qlonglong episodeId, const QUrl &url, boo
             return;
         if (m_mediaGeneration != gen || m_episode.id != boundEpisodeId || !m_buffer)
             return;
-        if (available < kMinBufferBytes && !m_buffer->isComplete())
+        if (available < kMinBufferBytes && !m_buffer->isComplete()) {
+            if (m_autoPlayPending) {
+                const int pct = int(qMin<qint64>(100, available * 100 / kMinBufferBytes));
+                if (pct != m_lastEmittedBufPct
+                    && (!m_lastBufEmit.isValid() || m_lastBufEmit.elapsed() >= 200 || pct - m_lastEmittedBufPct >= 10)) {
+                    m_lastEmittedBufPct = pct;
+                    m_lastBufEmit.restart();
+                    emit StateChanged(State());
+                }
+            }
             return;
+        }
         // Wait until HTTP headers arrive so size() can report Content-Length before
         // FFmpeg probes (avoids treating a tiny head buffer as a 1s file).
         if (!m_buffer->isComplete() && !m_buffer->headersReceived())
@@ -1940,6 +1973,8 @@ int runPlayerSelfTest()
         }
 
         PlayerService svc(lib);
+        check(svc.metaObject()->indexOfSignal("PositionChanged(double)") >= 0,
+              "pr2-player: PositionChanged signal exported on D-Bus adaptor");
         QList<double> statePositions;
         QObject::connect(&svc, &PlayerService::StateChanged, &svc, [&](const QVariantMap &st) {
             if (st.contains(QStringLiteral("position")))

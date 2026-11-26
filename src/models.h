@@ -34,6 +34,7 @@ public:
     void setRefreshError(qint64 showId, const QString &reason);
     // Keyboard navigation on the shelf: map grid index <-> show id.
     Q_INVOKABLE qint64 showIdAt(int row) const;
+    Q_INVOKABLE QString titleAt(int row) const;
     Q_INVOKABLE int rowOf(qint64 showId) const;
 
 private:

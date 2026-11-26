@@ -20,6 +20,7 @@
 
 class QDBusInterface;
 class QDBusServiceWatcher;
+class QFileSystemWatcher;
 class QNetworkReply;
 class QTimer;
 
@@ -308,6 +309,11 @@ signals:
     // Episodes or their played state may have changed (library search listens).
     void libraryChanged();
 
+private slots:
+    void onPlayerStateChanged(const QVariantMap &state);
+    void onPlayerPositionChanged(double position);
+    void onPlayerServiceUnregistered(const QString &service);
+
 private:
     struct Job {
         QString url;
@@ -469,6 +475,7 @@ private:
     bool m_returnToShelfOnClose = false;
     QDBusInterface *m_player = nullptr;
     QDBusServiceWatcher *m_playerWatcher = nullptr;
+    QFileSystemWatcher *m_exeWatcher = nullptr;
     QTimer *m_playerStartTimer = nullptr;
     bool m_startingPlayer = false;
     QList<PendingPlayerCall> m_pendingPlayerCalls;

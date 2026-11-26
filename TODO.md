@@ -5,7 +5,6 @@ Planned work and ideas for OmaEar.
 ## Open
 
 - [ ] **Shelf right-click menu** — The menu stays where it opened, shows the podcast's name as a title, and every action stays tied to that podcast even if the Shelf reorders underneath; it closes if that podcast disappears.
-- [ ] **Fewer idle wakeups** — Measure how often OmaEar wakes up when nothing is happening, and cut timers and redraws that aren't needed.
 - [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
 - [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
@@ -15,7 +14,15 @@ Planned work and ideas for OmaEar.
 - [ ] **Status-pill job kind from the backend** — Have the backend tell the pill whether a message is busy, done or an error, instead of matching the status string.
 - [ ] **Fisheye by folding** — In long episode lists, episodes near the playing one stay full rows; older ones fold into month headers that open step by step as you scroll toward them (title, then title + date, then full row); positions never jump, so clicks stay instant. From Design Champ's design wander #22 (Furnas 1986 fisheye views, Cockburn 2008 review): fold distant detail in fixed places rather than magnify Dock-style.
 
+## Post-release (0.5.0)
+
+- [ ] **SQLite FTS5 search** — Replace the full in-RAM show-notes search index with SQLite FTS5 for lower RAM and faster first search on large libraries.
+- [ ] **Compiled QML (CMake + `qt_add_qml_module`)** — Migrate from `qmake6` to CMake with compiled QML bindings and stripped/LTO release builds.
+- [ ] **`libmpv` playback engine** — Replace `QMediaPlayer` + `GrowingMediaDevice` + external `pipewire -c` mono filter-chain with `libmpv` (native HTTP range seeking, caching, speed, and mono downmix).
+
 ## Done
+
+- [x] **Fewer idle wakeups** — Replaced the 500 ms `pollPlayer()` timer with event-driven `StateChanged`/`PositionChanged` D-Bus signals + `QDBusServiceWatcher` ownership tracking, replaced the 2 s `/proc/self/exe` polling timer with `QFileSystemWatcher`, and replaced Theme's 1 s `hyprctl` poll with Hyprland `.socket2.sock` `configreloaded` events. Zero repeating `QTimer`s while idle.
 
 - [x] **Mark all podcasts played** — Available from the Shelf empty-space menu, podcast right-click menu, and top-right `⋯` menu (`backend.totalUnheard > 0`), backed by `markLibraryPlayed()` behind a destructive Cancel-default confirmation dialog.
 

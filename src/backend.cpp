@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QNetworkReply>
 #include <QProcess>
 #include <QCoreApplication>
@@ -130,20 +131,47 @@ Backend::Backend(Library &library, QObject *parent)
     reloadShows();
     reloadQueue();
     // After an update, pacman swaps the file under us; the kernel then reports
-    // our own executable as "(deleted)". We then restart into the new version
-    // on our own and carry on where playback was (see restartForUpdate).
-    auto *exeWatch = new QTimer(this);
-    connect(exeWatch, &QTimer::timeout, this, [this, exeWatch]() {
+    // our own executable as "(deleted)". Watch /proc/self/exe's target via
+    // inotify (falling back to a slow timer only if watching fails) so an idle
+    // app never wakes to stat itself, and restart into the new version.
+    const QString selfExe = QFile::symLinkTarget(QStringLiteral("/proc/self/exe"));
+    auto checkExeReplaced = [this]() {
         const QString exe = QFile::symLinkTarget(QStringLiteral("/proc/self/exe"));
         if (exe.endsWith(QStringLiteral(" (deleted)"))) {
-            exeWatch->stop();
+            if (m_exeWatcher && !m_exeWatcher->files().isEmpty())
+                m_exeWatcher->removePaths(m_exeWatcher->files());
             restartForUpdate(exe.chopped(10));
         }
-    });
-    exeWatch->start(2000);
-    auto *timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, &Backend::pollPlayer);
-    timer->start(500);
+    };
+    m_exeWatcher = new QFileSystemWatcher(this);
+    connect(m_exeWatcher, &QFileSystemWatcher::fileChanged, this, checkExeReplaced);
+    if (selfExe.isEmpty() || !m_exeWatcher->addPath(selfExe)) {
+        auto *exeWatch = new QTimer(this);
+        connect(exeWatch, &QTimer::timeout, this, [checkExeReplaced, exeWatch]() {
+            const QString exe = QFile::symLinkTarget(QStringLiteral("/proc/self/exe"));
+            if (exe.endsWith(QStringLiteral(" (deleted)"))) {
+                exeWatch->stop();
+                checkExeReplaced();
+            }
+        });
+        exeWatch->start(10000);
+    }
+    // Event-driven sync with the detached player: subscribe to its D-Bus
+    // signals and service ownership instead of polling State() every 500 ms.
+    auto bus = QDBusConnection::sessionBus();
+    m_playerWatcher = new QDBusServiceWatcher(
+        kPlayerService, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
+    connect(m_playerWatcher, &QDBusServiceWatcher::serviceRegistered,
+            this, &Backend::onPlayerServiceRegistered);
+    connect(m_playerWatcher, &QDBusServiceWatcher::serviceUnregistered,
+            this, &Backend::onPlayerServiceUnregistered);
+    // Subscribe by path + interface (like Theme): works even when the player starts later.
+    bus.connect(QString(), kPlayerPath, kPlayerIface,
+                QStringLiteral("StateChanged"),
+                this, SLOT(onPlayerStateChanged(QVariantMap)));
+    bus.connect(QString(), kPlayerPath, kPlayerIface,
+                QStringLiteral("PositionChanged"),
+                this, SLOT(onPlayerPositionChanged(double)));
     QTimer::singleShot(0, this, [this]() {
         if (!resumeAfterUpdate())
             restoreLastPlayed();
@@ -1399,13 +1427,6 @@ void Backend::startPlayerService()
     // Wait for the player on the bus without processEvents — nesting that from a
     // QML click handler can flush deleteLater while a ListView delegate's signal
     // is still running (cover download → reloadEpisodes → model reset → qFatal).
-    if (!m_playerWatcher) {
-        m_playerWatcher = new QDBusServiceWatcher(
-            kPlayerService, QDBusConnection::sessionBus(),
-            QDBusServiceWatcher::WatchForRegistration, this);
-        connect(m_playerWatcher, &QDBusServiceWatcher::serviceRegistered,
-                this, &Backend::onPlayerServiceRegistered);
-    }
     if (!m_playerStartTimer) {
         m_playerStartTimer = new QTimer(this);
         m_playerStartTimer->setSingleShot(true);
@@ -1428,7 +1449,33 @@ void Backend::onPlayerServiceRegistered(const QString &service)
     if (m_playerStartTimer)
         m_playerStartTimer->stop();
     m_startingPlayer = false;
-    flushPendingPlayerCalls();
+    if (!m_pendingPlayerCalls.isEmpty())
+        flushPendingPlayerCalls();
+    else
+        pollPlayer();
+}
+
+void Backend::onPlayerServiceUnregistered(const QString &service)
+{
+    if (service != kPlayerService)
+        return;
+    if (m_playerEpisodeId != 0 || m_playerStatus != QStringLiteral("stopped"))
+        applyPlayerState({});
+}
+
+void Backend::onPlayerStateChanged(const QVariantMap &state)
+{
+    applyPlayerState(state);
+}
+
+void Backend::onPlayerPositionChanged(double position)
+{
+    if (m_playerEpisodeId == 0)
+        return;
+    if (qAbs(position - m_playerPosition) > 0.05) {
+        m_playerPosition = position;
+        emit playerPositionChanged();
+    }
 }
 
 void Backend::onPlayerStartTimeout()

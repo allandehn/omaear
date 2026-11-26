@@ -1876,8 +1876,15 @@ void startUiTest(QQmlApplicationEngine &engine)
         {500, [t]() {
             t->expect(t->eval("confirmEverything && dialog.selectedIndex === 0 && dialog.startOnCancel"
                               " && dialog.destructive && dialog.actionTone.toString() === theme.urgent.toString()"
-                              " && dialog.message.indexOf('Mark every episode in all ') === 0").toBool(),
-                      "mark-all-podcasts: destructive dialog starts on Cancel");
+                              " && dialog.message === 'Mark every episode in both podcasts as played?'").toBool(),
+                      "mark-all-podcasts: destructive dialog starts on Cancel with 'both' phrasing for 2 shows");
+            t->eval("win.markEverythingCount = 1; win.markEverythingTitle = 'Alpha Show'");
+            t->expect(t->eval("dialog.message === 'Mark every episode of Alpha Show as played?'").toBool(),
+                      "mark-all-podcasts: 1-show phrasing names the podcast");
+            t->eval("win.markEverythingCount = 3; win.markEverythingTitle = ''");
+            t->expect(t->eval("dialog.message === 'Mark every episode in all 3 podcasts as played?'").toBool(),
+                      "mark-all-podcasts: 3+-show phrasing uses 'all N podcasts'");
+            t->eval("win.markEverythingCount = backend.showCount; win.markEverythingTitle = ''");
             t->key(Qt::Key_Escape);
         }},
         {400, [t]() {

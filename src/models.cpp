@@ -273,6 +273,11 @@ qint64 ShowModel::showIdAt(int row) const
     return row >= 0 && row < m_rows.size() ? m_rows.at(row).id : 0;
 }
 
+QString ShowModel::titleAt(int row) const
+{
+    return row >= 0 && row < m_rows.size() ? m_rows.at(row).title : QString();
+}
+
 int ShowModel::rowOf(qint64 showId) const
 {
     for (int i = 0; i < m_rows.size(); ++i) {
