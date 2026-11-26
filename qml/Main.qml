@@ -102,6 +102,7 @@ ApplicationWindow {
         }
         var geometry = backend.windowGeometry()
         if (geometry.valid) {
+            normalGeometry = Qt.rect(geometry.x, geometry.y, geometry.width, geometry.height)
             x = geometry.x
             y = geometry.y
             width = geometry.width
@@ -513,7 +514,8 @@ ApplicationWindow {
         sequences: ["Return", "Enter"]
         context: Qt.ApplicationShortcut
         enabled: pageKind === "episode" && !modalOpen && !helpOpen && !navActive && !openPopup
-                 && !(win.activeFocusItem instanceof TextInput || win.activeFocusItem instanceof TextEdit)
+                 && !(win.activeFocusItem instanceof TextInput
+                      || (win.activeFocusItem instanceof TextEdit && !win.activeFocusItem.readOnly))
         onActivated: backend.playEpisode(backend.openEpisodeId)
     }
     Shortcut {
@@ -524,10 +526,10 @@ ApplicationWindow {
     Shortcut {
         sequence: "Backspace"
         context: Qt.ApplicationShortcut
-        // Leave Backspace to TextField / TextInput / TextEdit / TextArea.
+        // Leave Backspace to TextField / TextInput / editable TextEdit / TextArea.
         enabled: {
             var item = win.activeFocusItem
-            return !(item instanceof TextInput || item instanceof TextEdit)
+            return !(item instanceof TextInput || (item instanceof TextEdit && !item.readOnly))
         }
         onActivated: back()
     }
@@ -759,6 +761,7 @@ ApplicationWindow {
         if (pageKind === "explore" && !navShown) { explorePage.focusSearch(); return }
         navApplyFocus()
         if (!navIsField(win.activeFocusItem)) contentStack.forceActiveFocus()
+        navRefreshRing()
     }
     // Called by a field (Explore search) for keys it doesn't use itself.
     function navFromField(key) {
@@ -1163,8 +1166,8 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Space"
-        // Never steal a typed space from a text field (Explore search, add feed).
-        enabled: !addOpen && !(win.activeFocusItem instanceof TextInput)
+        // Never steal Space from a text field or an open confirmation dialog.
+        enabled: !modalOpen && !(win.activeFocusItem instanceof TextInput)
         context: Qt.ApplicationShortcut
         onActivated: backend.togglePlayback()
     }
@@ -1425,7 +1428,10 @@ ApplicationWindow {
 
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.AllButtons
             onClicked: closeModals()
+            onWheel: (wheel) => wheel.accepted = true
         }
 
         ConfirmDialog {

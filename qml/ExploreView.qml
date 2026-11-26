@@ -779,6 +779,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
+            hoverEnabled: true
             acceptedButtons: Qt.AllButtons
             onClicked: explore.closePreview()
             onWheel: (wheel) => wheel.accepted = true
@@ -796,7 +797,9 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
+                hoverEnabled: true
                 acceptedButtons: Qt.AllButtons
+                onWheel: (wheel) => wheel.accepted = true
             }
 
             Flickable {
@@ -1031,6 +1034,7 @@ Item {
         modal: false
         dim: false
         property double closedAt: 0
+        property bool openedFromNav: false
         Material.elevation: 0
         // Shared fade-in; closing stays instant (closedAt toggle logic).
         enter: Transition {
@@ -1041,6 +1045,7 @@ Item {
         background: AppPopupBackground {}
 
         onAboutToShow: {
+            openedFromNav = win.navShown && win.navArea === "region"
             filter = ""
             filterField.text = ""
             regionList.currentIndex = currentIndexIn(entries)
@@ -1049,10 +1054,13 @@ Item {
         onOpened: filterField.forceActiveFocus()
         onClosed: {
             closedAt = Date.now()
-            if (page.visible && win.navShown && win.navArea === "top")
+            if (page.visible && openedFromNav && win.keyboardMode) {
+                win.navArea = "region"
+                win.navShown = true
                 Qt.callLater(win.navRestoreFocus)   // ring back on the flag
-            else if (page.visible)
+            } else if (page.visible) {
                 searchField.forceActiveFocus()
+            }
         }
 
         contentItem: Item {
@@ -1094,8 +1102,14 @@ Item {
                     if (regionList.currentIndex >= 0 && regionList.currentIndex < list.length)
                         regionPopup.choose(list[regionList.currentIndex].code)
                 }
-                Keys.onDownPressed: regionList.incrementCurrentIndex()
-                Keys.onUpPressed: regionList.decrementCurrentIndex()
+                Keys.onDownPressed: {
+                    regionList.incrementCurrentIndex()
+                    regionList.positionViewAtIndex(regionList.currentIndex, ListView.Contain)
+                }
+                Keys.onUpPressed: {
+                    regionList.decrementCurrentIndex()
+                    regionList.positionViewAtIndex(regionList.currentIndex, ListView.Contain)
+                }
             }
 
             ListView {

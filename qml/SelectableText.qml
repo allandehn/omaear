@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 
 // Read-only selectable label. Drag with LMB to mark; on release, a non-empty
 // selection is copied to the clipboard then cleared. Looks like Text; selection
@@ -16,7 +17,7 @@ TextEdit {
     readOnly: true
     selectByMouse: true
     persistentSelection: true
-    activeFocusOnPress: true
+    activeFocusOnPress: false
     cursorVisible: false
     wrapMode: TextEdit.Wrap
     textFormat: TextEdit.PlainText
@@ -88,8 +89,18 @@ TextEdit {
         if (selectedText.length > 0) {
             if (autoCopy) {
                 // copy() needs an active selection; focus helps on some platforms.
+                // Restore prior focus afterwards so shortcuts/navigation keep working.
+                var prev = root.Window.window ? root.Window.window.activeFocusItem : null
                 forceActiveFocus()
                 copy()
+                deselect()
+                if (prev && prev !== root && prev.visible && prev.enabled)
+                    prev.forceActiveFocus()
+                else if (typeof win !== "undefined" && win && win.focusPage)
+                    win.focusPage()
+                else
+                    root.focus = false
+                return
             }
             deselect()
             return

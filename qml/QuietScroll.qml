@@ -108,6 +108,7 @@ Item {
     visible: overflows
 
     Rectangle {
+        id: thumb
         x: parent.width - width - 2
         y: bar.thumbY
         height: Math.max(0, bar.thumbLen)
@@ -116,11 +117,16 @@ Item {
         color: (grab.pressed || grab.containsMouse) ? theme.foreground : theme.muted
         // Hidden at rest; appears instantly on scroll or hover, fades out after.
         readonly property bool shown: bar.scrolling || grab.pressed || grab.containsMouse
-        opacity: shown ? 0.9 : 0
-        Behavior on opacity {
-            enabled: !parent.shown
-            NumberAnimation { duration: 350; easing.type: Easing.OutQuad }
+        opacity: 0
+        states: State {
+            name: "shown"
+            when: thumb.shown
+            PropertyChanges { target: thumb; opacity: 0.9 }
         }
+        transitions: [
+            Transition { to: "shown"; NumberAnimation { property: "opacity"; duration: 0 } },
+            Transition { from: "shown"; to: ""; NumberAnimation { property: "opacity"; duration: 350; easing.type: Easing.OutQuad } }
+        ]
     }
 
     function scrollTo(thumbTop) {

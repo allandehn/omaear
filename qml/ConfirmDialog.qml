@@ -87,8 +87,13 @@ Rectangle {
     onStartOnCancelChanged: if (visible) Qt.callLater(reset)
     onActionLabelChanged: if (visible) Qt.callLater(reset)
 
-    // Swallow clicks so they don't reach the scrim (which cancels).
-    MouseArea { anchors.fill: parent }
+    // Swallow pointer events and wheel scrolling so they don't reach the scrim or page behind.
+    MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.AllButtons
+        onWheel: (wheel) => wheel.accepted = true
+    }
 
     Column {
         id: content

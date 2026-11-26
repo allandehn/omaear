@@ -673,6 +673,16 @@ void startUiTest(QQmlApplicationEngine &engine)
                 t->expect(!t->eval("win.zoomFromWheel(120)").toBool() && t->eval("backend.shelfColumns === 5").toBool(),
                           "Explore: Ctrl+wheel does nothing while the preview card is open");
                 t->eval("explore.closePreview(); backend.setShelfColumns(4)");
+                t->eval("win.keyboardMode = true; win.navShown = true; win.navEnter(win.navFind(win.navAreas(), 'region'), 'first'); explorePage.regionItem.clicked()");
+            }},
+            {200, [t]() {
+                t->expect(t->eval("explorePage.regionOpen").toBool(),
+                          "Explore: region picker opened from keyboard");
+                t->key(Qt::Key_Escape);
+            }},
+            {200, [t]() {
+                t->expect(t->eval("!explorePage.regionOpen && win.navArea === 'region' && win.navShown && explorePage.regionItem.kbdFocus").toBool(),
+                          "Explore: closing region picker keeps keyboard ring on the flag");
             }},
         };
         t->run(0);
@@ -1509,6 +1519,18 @@ void startUiTest(QQmlApplicationEngine &engine)
         }},
         {400, [t]() {
             t->expect(t->eval("!confirmAll").toBool(), "dialog: Escape cancels (Mark all as played)");
+            t->eval("win.confirmMarkShow(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {400, [t]() {
+            t->expect(t->eval("confirmAll && dialog.selectedIndex === 0").toBool(),
+                      "dialog: Mark all opens on Cancel before Space check");
+            t->key(Qt::Key_Space);
+        }},
+        {400, [t]() {
+            t->expect(t->eval("!confirmAll").toBool(),
+                      "dialog: Space activates the selected button instead of playback");
+            t->expect(t->eval("searchPage.fieldPlaceholder === ''").toBool(),
+                      "search: no duplicate Material placeholderText");
             t->eval("win.confirmQueue = true");
         }},
         {500, [t]() {
