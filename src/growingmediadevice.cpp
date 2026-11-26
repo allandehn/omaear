@@ -498,6 +498,9 @@ void HttpFileBuffer::onReadyRead()
         return;
     }
 
+    if (written > 0 && m_retries > 0)
+        m_retries = 0;
+
     m_unflushed += written;
     if (m_unflushed >= kFlushEvery)
         flushWriter(false);

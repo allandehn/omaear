@@ -41,6 +41,7 @@
 #include <QNetworkDiskCache>
 #include "netaccess.h"
 #include "backend.h"
+#include "player.h"
 #include "search.h"
 #include <QSettings>
 #include <QThread>
@@ -1570,8 +1571,72 @@ int runSelfTest(int argc, char **argv)
             srv.close();
         }
 
+        // 5. Retry budget resets once a retry request delivers audio bytes (>12 stalls succeed).
+        {
+            QTcpServer srv;
+            check(srv.listen(QHostAddress::LocalHost, 0), "pr2-playback: multi-stall server listens");
+            int reqCount = 0;
+            QList<QTcpSocket *> sockets;
+            QHash<QTcpSocket *, QByteArray> bufs;
+            QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&]() {
+                while (QTcpSocket *s = srv.nextPendingConnection()) {
+                    sockets.append(s);
+                    QObject::connect(s, &QTcpSocket::readyRead, &srv, [&, s]() {
+                        QByteArray &buf = bufs[s];
+                        buf += s->readAll();
+                        int end = buf.indexOf("\r\n\r\n");
+                        if (end < 0)
+                            end = buf.indexOf("\n\n");
+                        if (end < 0)
+                            return;
+                        buf.clear();
+                        const int idx = reqCount++;
+                        const int total = 56;
+                        const int offset = idx * 4;
+                        QByteArray resp;
+                        if (idx == 0) {
+                            resp = "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n"
+                                   "Content-Length: 56\r\n\r\n";
+                        } else {
+                            resp = QByteArray("HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\n"
+                                              "Content-Range: bytes ")
+                                + QByteArray::number(offset) + "-55/56\r\nContent-Length: "
+                                + QByteArray::number(total - offset) + "\r\n";
+                            if (idx == 13)
+                                resp += "Connection: close\r\n";
+                            resp += "\r\n";
+                        }
+                        resp += QByteArray(4, static_cast<char>('A' + idx));
+                        s->write(resp);
+                        s->flush();
+                        if (idx == 13)
+                            s->disconnectFromHost();
+                    });
+                    QObject::connect(s, &QTcpSocket::disconnected, &srv, [&, s]() {
+                        bufs.remove(s);
+                        sockets.removeAll(s);
+                        s->deleteLater();
+                    });
+                }
+            });
+            const QUrl url(QStringLiteral("http://127.0.0.1:%1/multistall.mp3").arg(srv.serverPort()));
+            HttpFileBuffer buf(920006, url);
+            buf.setTransferTimeoutMs(80);
+            buf.setRetryBaseMs(5);
+            buf.start();
+            waitDone(&buf, 5000);
+            const QByteArray body = readFinished(buf.existingFinishedPath());
+            check(buf.isComplete() && !buf.isFailed() && reqCount == 14 && body.size() == 56,
+                  "pr2-playback: retry budget resets per stall after audio delivery");
+            for (QTcpSocket *s : sockets)
+                s->close();
+            srv.close();
+        }
+
         qputenv("XDG_CACHE_HOME", oldCache);
     }
+
+    g_fails += runPlayerSelfTest();
 
     g_fails += runRefreshSelfTest();
 

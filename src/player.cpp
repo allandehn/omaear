@@ -2,10 +2,19 @@
 
 #include "library.h"
 #include "growingmediadevice.h"
+#include "netaccess.h"
 
 #include <QAudioOutput>
+#include <QDateTime>
 #include <QFile>
 #include <QDir>
+#include <QEventLoop>
+#include <QHash>
+#include <QHostAddress>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTemporaryDir>
+#include <QThread>
 #include <csignal>
 #include <sys/prctl.h>
 #include <QAudioDevice>
@@ -179,6 +188,7 @@ private:
 class PlayerService : public QObject {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "com.github.allanjorch.omaear.Player")
+    friend int runPlayerSelfTest();
 
 public:
     explicit PlayerService(Library &library, QObject *parent = nullptr);
@@ -525,7 +535,7 @@ PlayerService::PlayerService(Library &library, QObject *parent)
                 m_lastAdvanceAt.restart();
             m_stallAnchorMs = position;
             m_stallSince.restart();
-            if (!m_error.isEmpty()) {
+            if (!m_error.isEmpty() && !(m_buffer && m_buffer->isFailed())) {
                 m_error.clear();
                 m_errorRecoveries = 0;
                 publish();
@@ -570,8 +580,17 @@ PlayerService::PlayerService(Library &library, QObject *parent)
         // Also ignore EOF while the download-ahead file is incomplete (still growing
         // or failed mid-stream), so a download failure never marks an unfinished
         // episode played or overwrites saved progress.
-        if (m_buffer && !m_buffer->isComplete())
+        if (m_buffer && !m_buffer->isComplete()) {
+            if (m_buffer->isFailed()) {
+                if (m_error.isEmpty()) {
+                    const QString msg = m_buffer->errorString();
+                    m_error = msg.isEmpty() ? QStringLiteral("Download failed.") : msg;
+                }
+                savePosition();
+                publish();
+            }
             return;
+        }
         m_library.markPlayed(m_episode.id, true);
         m_library.setPosition(m_episode.id, static_cast<int>(m_durationMs));
         m_episode.played = true;
@@ -860,6 +879,17 @@ void PlayerService::Play()
 {
     if (m_episode.id == 0)
         return;
+    // A failed incomplete download (e.g. after EndOfMedia at the buffered tip)
+    // cannot resume via QMediaPlayer::play() (Qt seeks to 0 after EndOfMedia) or
+    // recoverAfterSleep(). Save the current position, detach, and reload with a
+    // fresh buffer so loadEpisode resumes at saved progress and Range-resumes .part.
+    if (m_buffer && m_buffer->isFailed() && !m_buffer->isComplete()) {
+        const qint64 id = m_episode.id;
+        savePosition();
+        tearDownMedia(QStringLiteral("failed-retry"));
+        loadEpisode(id, true);
+        return;
+    }
     unmarkForPlayback(m_positionMs);
     // Episode switch still filling the head buffer — do not treat leftover demux
     // errors from the previous source as a reason to recover/rebind.
@@ -1819,4 +1849,157 @@ int runPlayer(int argc, char **argv)
     }
     QTimer::singleShot(400, &service, &PlayerService::considerExit);
     return app.exec();
+}
+
+int runPlayerSelfTest()
+{
+    int fails = 0;
+    auto check = [&fails](bool ok, const char *name) {
+        if (!ok) {
+            fprintf(stderr, "FAIL %s\n", name);
+            ++fails;
+        }
+    };
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "pr2-player: temp dir");
+    if (!dir.isValid())
+        return fails;
+
+    const QByteArray oldCache = qgetenv("XDG_CACHE_HOME");
+    qputenv("XDG_CACHE_HOME", dir.filePath(QStringLiteral("cache")).toUtf8());
+
+    QTcpServer srv;
+    check(srv.listen(QHostAddress::LocalHost, 0), "pr2-player: server listens");
+    bool serveAudio = false;
+    QList<QByteArray> requests;
+    QHash<QTcpSocket *, QByteArray> bufs;
+    QObject::connect(&srv, &QTcpServer::newConnection, &srv, [&]() {
+        while (QTcpSocket *s = srv.nextPendingConnection()) {
+            QObject::connect(s, &QTcpSocket::readyRead, &srv, [&, s]() {
+                QByteArray &buf = bufs[s];
+                buf += s->readAll();
+                int end = buf.indexOf("\r\n\r\n");
+                if (end < 0)
+                    end = buf.indexOf("\n\n");
+                if (end < 0)
+                    return;
+                requests.append(buf.left(end));
+                buf.clear();
+                if (!serveAudio) {
+                    s->write("HTTP/1.1 302 Found\r\nLocation: file:///etc/passwd\r\n"
+                             "Connection: close\r\nContent-Length: 0\r\n\r\n");
+                } else {
+                    QByteArray resp = "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\n"
+                                      "Content-Range: bytes 32-63/64\r\n"
+                                      "Connection: close\r\nContent-Length: 32\r\n\r\n";
+                    resp += QByteArray(32, 'B');
+                    s->write(resp);
+                }
+                s->flush();
+                s->disconnectFromHost();
+            });
+            QObject::connect(s, &QTcpSocket::disconnected, &srv, [&, s]() {
+                bufs.remove(s);
+                s->deleteLater();
+            });
+        }
+    });
+
+    Library lib(dir.filePath(QStringLiteral("library.db")));
+    check(lib.isOpen(), "pr2-player: open library");
+    ParsedShow show;
+    show.title = QStringLiteral("Player Retry Show");
+    show.author = QStringLiteral("Test");
+    ParsedEpisode ep;
+    ep.guid = QStringLiteral("player-retry-1");
+    ep.title = QStringLiteral("Retry Ep");
+    ep.audioUrl = QStringLiteral("http://127.0.0.1:%1/ep.mp3").arg(srv.serverPort());
+    ep.durationSecs = 600;
+    ep.published = 1700000000;
+    show.episodes.append(ep);
+    const qint64 showId = lib.upsertShow(QStringLiteral("https://example.test/player.xml"), show);
+    const auto eps = lib.episodes(showId);
+    check(showId > 0 && eps.size() == 1, "pr2-player: seeded episode");
+    if (eps.size() == 1) {
+        const qint64 epId = eps.first().id;
+        lib.setPosition(epId, 45000);
+
+        const QString part = HttpFileBuffer::mediaDir() + QStringLiteral("/%1.part").arg(epId);
+        const QString side = HttpFileBuffer::mediaDir() + QStringLiteral("/.%1.ua").arg(epId);
+        {
+            QFile pf(part);
+            check(pf.open(QIODevice::WriteOnly) && pf.write(QByteArray(32, 'A')) == 32,
+                  "pr2-player: seeded .part");
+            pf.close();
+            QFile sf(side);
+            check(sf.open(QIODevice::WriteOnly)
+                      && sf.write(QByteArray(kAudioGenericUserAgent) + "\nvariant=default\n") > 0,
+                  "pr2-player: seeded sidecar");
+            sf.close();
+        }
+
+        PlayerService svc(lib);
+        QList<double> statePositions;
+        QObject::connect(&svc, &PlayerService::StateChanged, &svc, [&](const QVariantMap &st) {
+            if (st.contains(QStringLiteral("position")))
+                statePositions.append(st.value(QStringLiteral("position")).toDouble());
+        });
+
+        svc.Load(epId);
+        {
+            QElapsedTimer t;
+            t.start();
+            while (!(svc.m_buffer && svc.m_buffer->isFailed()) && t.elapsed() < 2000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(5);
+            }
+        }
+        check(svc.m_buffer != nullptr && svc.m_buffer->isFailed() && !svc.m_buffer->isComplete(),
+              "pr2-player: initial download failed cleanly");
+        check(!svc.m_error.isEmpty(), "pr2-player: failed buffer recorded error");
+
+        // Simulate playback having reached 62 s on the buffered audio before hitting the tip.
+        svc.m_positionMs = 62000;
+        svc.m_resumeMs = 0;
+        svc.m_resumePending = false;
+        svc.m_resumeGuardMs = 0;
+
+        HttpFileBuffer *failedBuf = svc.m_buffer;
+        serveAudio = true;
+        statePositions.clear();
+        svc.Play();
+
+        {
+            QElapsedTimer t;
+            t.start();
+            while (!(svc.m_buffer && svc.m_buffer != failedBuf && svc.m_buffer->isComplete())
+                   && t.elapsed() < 3000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(5);
+            }
+        }
+
+        check(svc.m_buffer != nullptr && svc.m_buffer != failedBuf && svc.m_buffer->isComplete(),
+              "pr2-player: Play() after failed buffer creates fresh buffer and completes");
+        check(requests.size() == 2 && requests.at(1).toLower().contains("range: bytes=32-"),
+              "pr2-player: fresh buffer Range-resumes .part");
+        check(lib.episode(epId).positionMs == 62000,
+              "pr2-player: Play() saved buffered position instead of resetting to 0");
+        check(svc.m_resumeMs == 62000 && svc.positionMs() == 62000,
+              "pr2-player: reload resumes at saved position");
+        bool sawZeroOrLow = statePositions.isEmpty();
+        for (double p : statePositions) {
+            if (p < 60.0)
+                sawZeroOrLow = true;
+        }
+        check(!sawZeroOrLow, "pr2-player: Play() never emitted position 0");
+        check(!lib.episode(epId).played, "pr2-player: episode stays unplayed");
+
+        svc.tearDownMedia(QStringLiteral("selftest"));
+    }
+
+    srv.close();
+    qputenv("XDG_CACHE_HOME", oldCache);
+    return fails;
 }
