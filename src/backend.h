@@ -376,6 +376,7 @@ private:
     void invokePlayer(const QString &method, const QVariantList &args);
     void pollPlayer();
     void applyPlayerState(const QVariantMap &state);
+    void syncLegacyPollTimer();
     void callPlayer(const QString &method, const QVariantList &args = {});
     void restoreLastPlayed();
     void restartForUpdate(const QString &newExe);
@@ -477,6 +478,8 @@ private:
     QDBusServiceWatcher *m_playerWatcher = nullptr;
     QFileSystemWatcher *m_exeWatcher = nullptr;
     QTimer *m_playerStartTimer = nullptr;
+    QTimer *m_legacyPollTimer = nullptr;
+    bool m_playerHasPositionSignals = false;
     bool m_startingPlayer = false;
     QList<PendingPlayerCall> m_pendingPlayerCalls;
     QSet<qint64> m_showCoverDownloads;

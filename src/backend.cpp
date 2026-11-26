@@ -1469,9 +1469,14 @@ void Backend::onPlayerStateChanged(const QVariantMap &state)
 
 void Backend::onPlayerPositionChanged(double position)
 {
+    if (!m_playerHasPositionSignals) {
+        m_playerHasPositionSignals = true;
+        syncLegacyPollTimer();
+    }
     if (m_playerEpisodeId == 0)
         return;
-    if (qAbs(position - m_playerPosition) > 0.05) {
+    if (qAbs(position - m_playerPosition) > 0.05
+        || std::floor(position) != std::floor(m_playerPosition)) {
         m_playerPosition = position;
         emit playerPositionChanged();
     }
@@ -1925,6 +1930,24 @@ void Backend::restoreLastPlayed()
     callPlayer(QStringLiteral("LoadPaused"), {QVariant::fromValue<qlonglong>(id)});
 }
 
+void Backend::syncLegacyPollTimer()
+{
+    const bool needPoll = m_playerEpisodeId != 0
+        && m_playerStatus == QStringLiteral("playing")
+        && !m_playerHasPositionSignals;
+    if (needPoll) {
+        if (!m_legacyPollTimer) {
+            m_legacyPollTimer = new QTimer(this);
+            m_legacyPollTimer->setInterval(250);
+            connect(m_legacyPollTimer, &QTimer::timeout, this, &Backend::pollPlayer);
+        }
+        if (!m_legacyPollTimer->isActive())
+            m_legacyPollTimer->start();
+    } else if (m_legacyPollTimer && m_legacyPollTimer->isActive()) {
+        m_legacyPollTimer->stop();
+    }
+}
+
 void Backend::pollPlayer()
 {
     auto *bus = QDBusConnection::sessionBus().interface();
@@ -2006,7 +2029,9 @@ void Backend::applyPlayerState(const QVariantMap &state)
     m_playerRate = rate > 0 ? rate : 1;
     m_playerVolume = qBound(0.0, volume, 1.0);
     m_playerDuration = duration;
-    if (qAbs(position - m_playerPosition) > 0.05) {
+    m_playerHasPositionSignals = state.value(QStringLiteral("positionSignals")).toBool();
+    if (qAbs(position - m_playerPosition) > 0.05
+        || std::floor(position) != std::floor(m_playerPosition)) {
         m_playerPosition = position;
         emit playerPositionChanged();
     }
@@ -2021,6 +2046,7 @@ void Backend::applyPlayerState(const QVariantMap &state)
         // The player drops a finished episode from the queue; pick that up.
         reloadQueue();
     }
+    syncLegacyPollTimer();
 }
 
 void Backend::reloadQueue()
