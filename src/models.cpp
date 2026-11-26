@@ -248,6 +248,23 @@ void EpisodeModel::setImagePath(qint64 episodeId, const QString &imagePath)
     }
 }
 
+bool EpisodeModel::setPositionMs(qint64 episodeId, int positionMs)
+{
+    if (episodeId == 0)
+        return false;
+    for (int i = 0; i < m_rows.size(); ++i) {
+        if (m_rows.at(i).id != episodeId)
+            continue;
+        if (m_rows.at(i).positionMs == positionMs)
+            return false;
+        m_rows[i].positionMs = positionMs;
+        const QModelIndex idx = index(i, 0);
+        emit dataChanged(idx, idx, {PositionRole});
+        return true;
+    }
+    return false;
+}
+
 bool EpisodeModel::moveRow(int from, int to)
 {
     if (from < 0 || to < 0 || from >= m_rows.size() || to >= m_rows.size() || from == to)

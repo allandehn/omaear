@@ -1593,6 +1593,8 @@ void Backend::stopPlayback()
 
 void Backend::seekTo(double seconds)
 {
+    if (m_playerShowId != 0)
+        m_freshEpisodeModels.remove(m_playerShowId);
     callPlayer(QStringLiteral("SeekTo"), {seconds});
 }
 
@@ -2000,11 +2002,13 @@ void Backend::applyPlayerState(const QVariantMap &state)
     QString showTitle = state.value(QStringLiteral("showTitle")).toString();
     QString art = state.value(QStringLiteral("art")).toString();
     QString description = state.value(QStringLiteral("description")).toString();
+    int savedPositionMs = -1;
     // Prefer library episode art (cache or URL) over whatever the player last published,
     // so Now Playing / PlayerBar never stay stuck on show cover after a download lands.
     if (episodeId != 0) {
         const EpisodeRow row = m_library.episode(episodeId);
         if (row.id != 0) {
+            savedPositionMs = row.positionMs;
             const QString preferred = preferredPlayerArt(m_library, row);
             if (!preferred.isEmpty())
                 art = preferred;
@@ -2060,11 +2064,23 @@ void Backend::applyPlayerState(const QVariantMap &state)
     m_playerVolume = qBound(0.0, volume, 1.0);
     m_playerDuration = duration;
     m_playerHasPositionSignals = state.value(QStringLiteral("positionSignals")).toBool();
-    if (episodeId != prevPlayerEpisodeId || stoppedPlaying) {
+    const bool posChanged = qAbs(position - m_playerPosition) > 0.05
+        || std::floor(position) != std::floor(m_playerPosition);
+    if (episodeId != prevPlayerEpisodeId || stoppedPlaying || posChanged) {
         if (prevPlayerShowId != 0)
             m_freshEpisodeModels.remove(prevPlayerShowId);
         if (showId != 0)
             m_freshEpisodeModels.remove(showId);
+    }
+    if (episodeId != 0 && showId != 0 && savedPositionMs >= 0) {
+        if (EpisodeModel *model = episodeModel(showId, false)) {
+            if (model->setPositionMs(episodeId, savedPositionMs))
+                m_freshEpisodeModels.remove(showId);
+        }
+        if (m_openEpisodeId == episodeId && m_openEpisodePositionMs != savedPositionMs) {
+            m_openEpisodePositionMs = savedPositionMs;
+            emit openEpisodeChanged();
+        }
     }
     if (episodeId != 0 && episodeId != prevPlayerEpisodeId) {
         const EpisodeRow row = m_library.episode(episodeId);
@@ -2074,8 +2090,7 @@ void Backend::applyPlayerState(const QVariantMap &state)
         if (!warmArt.isEmpty() && QFileInfo::exists(warmArt))
             prewarmCovers({warmArt}, {kCoverRowSide, kCoverTileSide});
     }
-    if (qAbs(position - m_playerPosition) > 0.05
-        || std::floor(position) != std::floor(m_playerPosition)) {
+    if (posChanged) {
         m_playerPosition = position;
         emit playerPositionChanged();
     }
