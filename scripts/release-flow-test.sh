@@ -178,15 +178,81 @@ EOF2
 printf '%s\n' "$*" >> "$MOCK_LOG/make"
 [[ -f $MOCK_DIR/asset_on_make ]] && touch "$MOCK_DIR/remote/omaear-${MOCK_VER}-1-x86_64.pkg.tar.zst"
 {
-  echo '#!/bin/sh'
-  echo "if [ \"\$1\" = --version ]; then echo \"omaear ${MOCK_VER}\"; exit 0; fi"
-  echo "printf '%s|%s|%s|%s|%s\\n' \"\$HOME\" \"\$XDG_DATA_HOME\" \"\$DISPLAY\$WAYLAND_DISPLAY\" \"\$OMAEAR_UI_TEST_NAV\" \"\$(head -c 40 \"\$XDG_DATA_HOME/omaear/library.db\" 2>/dev/null | tr -d '\\n' | tr -c '[:print:]' '?')\" >> \"$MOCK_LOG/appenv\""
-  echo "if [ -f \"$MOCK_DIR/dump_library\" ] && [ -f \"\$XDG_DATA_HOME/omaear/library.db\" ]; then sqlite3 \"\$XDG_DATA_HOME/omaear/library.db\" 'select feed_url from shows order by id' >> \"$MOCK_LOG/library-dump\"; fi"
-  echo 'if [ "$1" = --self-test ]; then exit 0; fi'
-  echo 'if [ -n "$OMAEAR_UI_TEST" ] && [ ! -f "$HOME/.omaear-ui-test-home" ]; then echo "omaear: refusing to run the UI test: no marker"; exit 3; fi'
-  echo "if [ -f \"$MOCK_DIR/ui_fail\" ] && [ -n \"\$OMAEAR_UI_TEST\" ]; then echo '[uitest] FAIL fixture says so'; exit 1; fi"
-  echo 'if [ -n "$OMAEAR_UI_TEST" ]; then echo "[uitest] PASS one"; echo "[uitest] ALL PASS"; exit 0; fi'
-  echo 'exit 0'
+  cat <<HEADER
+#!/bin/bash
+MOCK_VER="${MOCK_VER}"
+MOCK_LOG="${MOCK_LOG}"
+MOCK_DIR="${MOCK_DIR}"
+HEADER
+  cat <<'MOCKAPP'
+if [ "${1:-}" = --version ]; then echo "omaear ${MOCK_VER}"; exit 0; fi
+if [ -n "${OMAEAR_UI_TEST:-}" ]; then
+  _canon() {
+    local p=$1 rest=""
+    while [[ -n $p && $p != / && ! -e $p ]]; do
+      rest=$(basename "$p")${rest:+/$rest}
+      p=$(dirname "$p")
+    done
+    if [[ -d $p ]]; then
+      p=$(cd "$p" && pwd -P)
+    elif [[ -e $p ]]; then
+      p=$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")
+    fi
+    printf '%s\n' "${p}${rest:+/$rest}"
+  }
+  refuse() {
+    printf '%s|%s|%s|%s\n' "$HOME" "${XDG_DATA_HOME:-}" "${DISPLAY:-}${WAYLAND_DISPLAY:-}" "$1" >> "$MOCK_LOG/guards"
+    echo "omaear: refusing to run the UI test: $1" >&2
+    exit 3
+  }
+  canon_home=$(_canon "$HOME")
+  real_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || true)
+  if [[ -n $real_home && -d $real_home ]]; then
+    real_home=$(cd "$real_home" && pwd -P)
+    if [[ $canon_home == "$real_home" ]]; then
+      refuse "HOME is your real home directory ($HOME)"
+    fi
+  fi
+  root=$(dirname "$canon_home")
+  [[ -d $root ]] && root=$(cd "$root" && pwd -P)
+  if [[ -z $root || $root == / ]]; then
+    refuse "the throwaway root for HOME ($HOME) is empty or /"
+  fi
+  if [[ -n $real_home && ( $real_home == "$root" || $real_home == "$root"/* ) ]]; then
+    refuse "the throwaway root ($root) is your real home directory or contains it"
+  fi
+  shared_dirs=(/tmp /var/tmp /dev/shm "/run/user/$(id -u)")
+  [[ -n ${TMPDIR:-} ]] && shared_dirs+=("$TMPDIR")
+  for sd in "${shared_dirs[@]}"; do
+    if [[ -d $sd ]]; then
+      cs=$(cd "$sd" && pwd -P)
+      if [[ $root == "$cs" ]]; then
+        refuse "the throwaway root ($root) is a shared directory"
+      fi
+    fi
+  done
+  if [[ ! -f $HOME/.omaear-ui-test-home ]]; then
+    refuse "HOME ($HOME) has no .omaear-ui-test-home marker"
+  fi
+  if [[ ! -f $root/.omaear-ui-test-root ]]; then
+    refuse "the throwaway root ($root) has no .omaear-ui-test-root marker"
+  fi
+  for xv in XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR; do
+    val=${!xv:-}
+    [[ -n $val ]] || continue
+    cval=$(_canon "$val")
+    if [[ $cval != "$root" && $cval != "$root"/* ]]; then
+      refuse "$xv ($val) is outside the throwaway root ($root)"
+    fi
+  done
+fi
+printf '%s|%s|%s|%s|%s\n' "$HOME" "${XDG_DATA_HOME:-}" "${DISPLAY:-}${WAYLAND_DISPLAY:-}" "${OMAEAR_UI_TEST_NAV:-}" "$(head -c 40 "${XDG_DATA_HOME:-}/omaear/library.db" 2>/dev/null | tr -d '\n' | tr -c '[:print:]' '?')" >> "$MOCK_LOG/appenv"
+if [ -f "$MOCK_DIR/dump_library" ] && [ -f "${XDG_DATA_HOME:-}/omaear/library.db" ]; then sqlite3 "${XDG_DATA_HOME:-}/omaear/library.db" 'select feed_url from shows order by id' >> "$MOCK_LOG/library-dump"; fi
+if [ "${1:-}" = --self-test ]; then exit 0; fi
+if [ -f "$MOCK_DIR/ui_fail" ] && [ -n "${OMAEAR_UI_TEST:-}" ]; then echo '[uitest] FAIL fixture says so'; exit 1; fi
+if [ -n "${OMAEAR_UI_TEST:-}" ]; then echo "[uitest] PASS one"; echo "[uitest] ALL PASS"; exit 0; fi
+exit 0
+MOCKAPP
 } > omaear
 chmod +x omaear
 if [[ ${1:-} == install || ${*: -1} == install ]]; then
@@ -411,7 +477,7 @@ if grep -nE 'library\.db|XDG_DATA_HOME:-|\.local/share' "$RELEASE" >/dev/null; t
 else
   ok "release.sh never names the user library"
 fi
-if grep -nE '\.local/share|XDG_DATA_HOME:-|cp .*library\.db|\.backup' "$VALIDATE" >/dev/null; then
+if grep -v '\$WORK/inherited-real-home/' "$VALIDATE" | grep -nE '\.local/share|XDG_DATA_HOME:-|cp .*library\.db|\.backup' >/dev/null; then
   bad "release-validate-tree.sh reads or copies a library"
 else
   ok "release-validate-tree.sh builds its own fixture library, never copies one"
@@ -625,14 +691,20 @@ if run_rel --validate --sha "$SHA" --version 0.3.1; then
   fi
   [[ -z $(ls -A "$BASE/tmp") ]] && ok "validate removed its scratch dir" || bad "validate left scratch: $(ls "$BASE/tmp")"
   n=$(wc -l <"$LOG/appenv")
-  if [[ $n -eq 4 ]] \
+  if [[ $n -eq 3 ]] \
       && ! grep -q "$REALHOME" "$LOG/appenv" \
       && awk -F'|' -v t="$BASE/tmp/" 'index($1, t) != 1 || index($2, t) != 1 { exit 1 }' "$LOG/appenv"; then
-    ok "self-test, UI test guard, UI test and nav test each ran with their own throwaway HOME and XDG_DATA_HOME"
+    ok "self-test, UI test and nav test each ran with their own throwaway HOME and XDG_DATA_HOME"
   else
     bad "app runs did not all use throwaway dirs"; cat "$LOG/appenv" >&2
   fi
-  if ! awk -F'|' '$3 != "" { exit 1 }' "$LOG/appenv"; then bad "display variables leaked into the app run"; else ok "DISPLAY and WAYLAND_DISPLAY are unset for the app"; fi
+  gn=0; [[ -f $LOG/guards ]] && gn=$(wc -l <"$LOG/guards")
+  if [[ $gn -ge 5 ]] && ! grep -q "$REALHOME" "$LOG/guards"; then
+    ok "UI test guard checks all ran ($gn refusals) without touching the real home"
+  else
+    bad "UI test guard checks did not run cleanly (count=$gn)"; cat "$LOG/guards" >&2 2>/dev/null || true
+  fi
+  if ! awk -F'|' '$3 != "" { exit 1 }' "$LOG/appenv" "$LOG/guards"; then bad "display variables leaked into the app run"; else ok "DISPLAY and WAYLAND_DISPLAY are unset for the app"; fi
   if grep -q CANARY "$LOG/appenv" || grep -rq CANARY "$LOG" 2>/dev/null; then bad "the real library was read"; else ok "the real library was never read or copied"; fi
   chmod 600 "$REALHOME/share/omaear/library.db"
   [[ $(sha256sum "$REALHOME/share/omaear/library.db" | awk '{print $1}') == "$CANARY_SUM" ]] && ok "the real library is unchanged" || bad "the real library changed"
@@ -715,7 +787,7 @@ mapfile -t A < <(pub_args)
 if run_rel "${A[@]}"; then
   bad "failed upload was treated as success"
 else
-  n=$(wc -l < "$LOG/uploads")
+  n=0; [[ -f $LOG/uploads ]] && n=$(wc -l < "$LOG/uploads")
   [[ $n -eq 1 && ! -f $LOG/creates ]] && grep -q "No retry" "$BASE/err" \
     && ok "failed package upload is not retried and does not create the release" \
     || bad "upload failure was retried or continued (lines=$n)"
@@ -738,7 +810,7 @@ mapfile -t A < <(pub_args)
 if run_rel "${A[@]}"; then
   bad "wrong latest release was accepted"
 else
-  n=$(wc -l < "$LOG/uploads")
+  n=0; [[ -f $LOG/uploads ]] && n=$(wc -l < "$LOG/uploads")
   [[ $n -eq 2 ]] && grep -q "No retry" "$BASE/err" && ok "public verification failure does not upload again" \
     || bad "verification failure retried or skipped uploads (lines=${n:-0})"
 fi
@@ -779,11 +851,13 @@ real_tools() {
   export OMAEAR_SIGNING_KEY=$FPR
 
   # --- checksum sed one-liner, against the real packaging/PKGBUILD ---
+  local cur_ver; cur_ver=$(sed -n 's/^VERSION = //p' "$ROOT/omaear.pro")
+  [[ $cur_ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { bad "real-tools: bad VERSION in omaear.pro ($cur_ver)"; return 0; }
   local d=$H/pin sum line
   mkdir -p "$d"
   cp "$ROOT/packaging/PKGBUILD" "$ROOT/packaging/omaear.install" "$d/"
-  printf 'tarball bytes' >"$d/omaear-0.3.1.tar.gz"
-  sum=$(sha256sum "$d/omaear-0.3.1.tar.gz" | awk 'NR==1 { print $1 }')
+  printf 'tarball bytes' >"$d/omaear-${cur_ver}.tar.gz"
+  sum=$(sha256sum "$d/omaear-${cur_ver}.tar.gz" | awk 'NR==1 { print $1 }')
   line=$(grep -F 'sed -i "s/^sha256sums=' "$RELEASE")
   cp "$d/PKGBUILD" "$d/PKGBUILD.orig"
   ( dest=$d; eval "$line" )
@@ -800,7 +874,7 @@ real_tools() {
   else
     bad "real-tools: makepkg rejected the pinned checksum"; tail -5 "$d/vs.log" >&2
   fi
-  printf 'tampered' >>"$d/omaear-0.3.1.tar.gz"
+  printf 'tampered' >>"$d/omaear-${cur_ver}.tar.gz"
   if ( cd "$d" && makepkg --verifysource -f >"$d/vs2.log" 2>&1 ); then
     bad "real-tools: makepkg accepted a tampered archive"
   else
@@ -823,6 +897,12 @@ real_tools() {
   "$REAL_GIT" -C "$SRC" push -q origin main
   local SHA1; SHA1=$("$REAL_GIT" -C "$SRC" rev-parse HEAD)
   local ver; ver=$(sed -n 's/^VERSION = //p' "$SRC/omaear.pro")
+  [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { bad "real-tools: bad VERSION in copied tree ($ver)"; return 0; }
+  local pkg="omaear-${ver}-1-x86_64.pkg.tar.zst"
+  local major minor patch next_ver next_pkg
+  IFS=. read -r major minor patch <<<"$ver"
+  next_ver="${major}.${minor}.$((patch + 1))"
+  next_pkg="omaear-${next_ver}-1-x86_64.pkg.tar.zst"
 
   write_mocks "$MOCKD"
   # Only gh and curl stay mocked: remove every other mock from this PATH.
@@ -834,35 +914,34 @@ real_tools() {
     ( cd "$SRC" && env PATH="$keep:$ORIG_PATH" MOCK_DIR="$MOCKD" MOCK_LOG="$LOGD" MOCK_VER="$1" TMPDIR="$H" \
         "$SRC/scripts/release.sh" --publish --sha "$2" --version "$1" --notes "$H/notes.md" --repo-db "$3" ) >"$H/pub.out" 2>"$H/pub.err"
   }
-  if [[ $ver != 0.3.1 ]]; then skip "real-tools publish: tree version is $ver, not 0.3.1"; return 0; fi
-  if rel_run 0.3.1 "$SHA1" replace-with-only-this-package; then
+  if rel_run "$ver" "$SHA1" replace-with-only-this-package; then
     ok "real-tools: release.sh --publish end to end with real makepkg, repo-add -s, gpg and git (throwaway key, local bare origin, gh mocked)"
   else
     bad "real-tools: publish failed: $(tail -5 "$H/pub.err" | tr '\n' ' ')"; return 0
   fi
   local R=$MOCKD/remote f
-  local tagsha; tagsha=$("$REAL_GIT" -C "$ORIGIN" rev-parse 'v0.3.1^{commit}')
+  local tagsha; tagsha=$("$REAL_GIT" -C "$ORIGIN" rev-parse "v${ver}^{commit}")
   [[ $tagsha == "$SHA1" && $("$REAL_GIT" -C "$ORIGIN" rev-parse main) == "$SHA1" ]] \
-    && ok "real-tools: signed tag v0.3.1 points at the reviewed SHA; origin main untouched" || bad "real-tools: tag or main wrong"
-  "$REAL_GIT" -C "$SRC" tag -v v0.3.1 >/dev/null 2>&1 && ok "real-tools: the tag signature verifies with the throwaway key" || bad "real-tools: tag signature does not verify"
+    && ok "real-tools: signed tag v${ver} points at the reviewed SHA; origin main untouched" || bad "real-tools: tag or main wrong"
+  "$REAL_GIT" -C "$SRC" tag -v "v${ver}" >/dev/null 2>&1 && ok "real-tools: the tag signature verifies with the throwaway key" || bad "real-tools: tag signature does not verify"
   local allsig=1
-  for f in omaear.db omaear.files "$PKGNAME"; do
+  for f in omaear.db omaear.files "$pkg"; do
     [[ -s $R/$f && -s $R/$f.sig ]] && gpg --verify "$R/$f.sig" "$R/$f" >/dev/null 2>&1 || allsig=0
   done
   [[ $allsig -eq 1 ]] && ok "real-tools: package, db and files signatures all verify (repo-add -s and makepkg --sign)" || bad "real-tools: a signature is missing or invalid"
-  if bsdtar -tf "$R/$PKGNAME" | grep -q '^usr/bin/omaear$' && bsdtar -xOf "$R/$PKGNAME" .PKGINFO | grep -qx 'pkgver = 0.3.1-1'; then
-    ok "real-tools: the package contains usr/bin/omaear and pkgver 0.3.1-1 (real build from the archive)"
+  if bsdtar -tf "$R/$pkg" | grep -q '^usr/bin/omaear$' && bsdtar -xOf "$R/$pkg" .PKGINFO | grep -qx "pkgver = ${ver}-1"; then
+    ok "real-tools: the package contains usr/bin/omaear and pkgver ${ver}-1 (real build from the archive)"
   else
     bad "real-tools: package contents wrong"
   fi
-  bsdtar -tf "$R/omaear.db" | grep -q '^omaear-0.3.1-1/' && ok "real-tools: repo db lists omaear-0.3.1-1" || bad "real-tools: repo db does not list omaear-0.3.1-1"
+  bsdtar -tf "$R/omaear.db" | grep -q "^omaear-${ver}-1/" && ok "real-tools: repo db lists omaear-${ver}-1" || bad "real-tools: repo db does not list omaear-${ver}-1"
   [[ -z $(ls -A "$H" | grep -E '^omaear-(publish|validate)') ]] && ok "real-tools: scratch dir removed" || bad "real-tools: scratch left behind"
   # The same version again must be refused (the local tag exists now).
-  if rel_run 0.3.1 "$SHA1" replace-with-only-this-package; then bad "real-tools: a second publish of the same version was accepted"
+  if rel_run "$ver" "$SHA1" replace-with-only-this-package; then bad "real-tools: a second publish of the same version was accepted"
   else grep -q 'already exists\|already on the' "$H/pub.err" && ok "real-tools: publishing the same version again is refused before any write" || bad "real-tools: second publish failed for another reason"; fi
 
   # add-to-existing: put a second package into the published db, then publish a
-  # 0.3.2 commit (mocked compile, but real makepkg, repo-add -s and gpg).
+  # next_ver commit (mocked compile, but real makepkg, repo-add -s and gpg).
   local dd=$H/dummy
   mkdir -p "$dd"
   cat >"$dd/PKGBUILD" <<'EOF2'
@@ -878,18 +957,18 @@ EOF2
   ( cd "$dd" && repo-add -q -s -k "$FPR" omaear.db.tar.gz omaear-dummy-1-1-any.pkg.tar.zst ) || { bad "real-tools: could not add the dummy to the db"; return 0; }
   cp "$dd/omaear.db.tar.gz" "$R/omaear.db"; cp "$dd/omaear.db.tar.gz.sig" "$R/omaear.db.sig"
   cp "$dd/omaear.files.tar.gz" "$R/omaear.files"; cp "$dd/omaear.files.tar.gz.sig" "$R/omaear.files.sig"
-  sed -i 's/^VERSION = .*/VERSION = 0.3.2/' "$SRC/omaear.pro"
-  sed -i 's/^pkgver=.*/pkgver=0.3.2/' "$SRC/packaging/PKGBUILD"
-  "$REAL_GIT" -C "$SRC" commit -q -am 'bump to 0.3.2' && "$REAL_GIT" -C "$SRC" push -q origin main
+  sed -i "s/^VERSION = .*/VERSION = ${next_ver}/" "$SRC/omaear.pro"
+  sed -i "s/^pkgver=.*/pkgver=${next_ver}/" "$SRC/packaging/PKGBUILD"
+  "$REAL_GIT" -C "$SRC" commit -q -am "bump to ${next_ver}" && "$REAL_GIT" -C "$SRC" push -q origin main
   local SHA2; SHA2=$("$REAL_GIT" -C "$SRC" rev-parse HEAD)
   cp "$MOCKD/bin/qmake6" "$MOCKD/bin/make" "$MOCKD/bin/dbus-run-session" "$keep/"
-  if rel_run 0.3.2 "$SHA2" add-to-existing; then
-    ok "real-tools: add-to-existing publish of 0.3.2 with the real repo-add -s"
+  if rel_run "$next_ver" "$SHA2" add-to-existing; then
+    ok "real-tools: add-to-existing publish of ${next_ver} with the real repo-add -s"
     local dbl; dbl=$(bsdtar -tf "$R/omaear.db")
-    if grep -q '^omaear-dummy-1-1/' <<<"$dbl" && grep -q '^omaear-0.3.2-1/' <<<"$dbl" && ! grep -q '^omaear-0.3.1-1/' <<<"$dbl" \
-        && [[ -f $R/$PKGNAME && -f $R/omaear-0.3.2-1-x86_64.pkg.tar.zst ]] \
+    if grep -q '^omaear-dummy-1-1/' <<<"$dbl" && grep -q "^omaear-${next_ver}-1/" <<<"$dbl" && ! grep -q "^omaear-${ver}-1/" <<<"$dbl" \
+        && [[ -f $R/$pkg && -f $R/$next_pkg ]] \
         && gpg --verify "$R/omaear.db.sig" "$R/omaear.db" >/dev/null 2>&1 && gpg --verify "$R/omaear.files.sig" "$R/omaear.files" >/dev/null 2>&1; then
-      ok "real-tools: add-to-existing keeps the other db entries, updates omaear to 0.3.2, keeps the 0.3.1 package file, and both db signatures verify"
+      ok "real-tools: add-to-existing keeps the other db entries, updates omaear to ${next_ver}, keeps the ${ver} package file, and both db signatures verify"
     else
       bad "real-tools: add-to-existing result is wrong. db: $(tr '\n' ' ' <<<"$dbl") assets: $(ls "$R" | tr '\n' ' ')"
     fi

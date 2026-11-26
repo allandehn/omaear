@@ -35,11 +35,20 @@ build() {
 
 check() {
   cd "$pkgname-$pkgver"
-  local xdg
-  xdg=$(mktemp -d)
-  mkdir -p "$xdg"/{data,config,cache}
-  QT_QPA_PLATFORM=offscreen     XDG_DATA_HOME="$xdg/data" XDG_CONFIG_HOME="$xdg/config" XDG_CACHE_HOME="$xdg/cache"     ./omaear --self-test
-  rm -rf "$xdg"
+  (
+    xdg=$(mktemp -d)
+    trap 'rm -rf "$xdg"' EXIT
+    mkdir -p "$xdg"/{home,data,config,cache,state}
+    mkdir -m 700 "$xdg/run"
+    env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK -u NIRI_SOCKET \
+      -u DBUS_SESSION_BUS_ADDRESS -u QT_QPA_PLATFORMTHEME -u QT_STYLE_OVERRIDE -u QT_QUICK_CONTROLS_STYLE \
+      -u XDG_CURRENT_DESKTOP -u XDG_SESSION_DESKTOP -u DESKTOP_SESSION -u XDG_SESSION_TYPE -u GTK_MODULES -u GDK_BACKEND \
+      HOME="$xdg/home" \
+      XDG_DATA_HOME="$xdg/data" XDG_CONFIG_HOME="$xdg/config" XDG_CACHE_HOME="$xdg/cache" \
+      XDG_STATE_HOME="$xdg/state" XDG_RUNTIME_DIR="$xdg/run" \
+      QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+      bash scripts/isolated-session.sh --work-dir "$xdg" -- ./omaear --self-test
+  )
   test "$(./omaear --version)" = "omaear $pkgver"
 }
 

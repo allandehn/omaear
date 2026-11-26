@@ -31,6 +31,7 @@
 #include <QEventLoop>
 #include <algorithm>
 #include <functional>
+#include <memory>
 
 #include "explore.h"
 #include "covercache.h"
@@ -429,6 +430,7 @@ void startUiTest(QQmlApplicationEngine &engine)
                 " win.navGridKey(g, Qt.%4); win.gridWrapFull = keep; return g.kbdIndex })()")
                 .arg(n).arg(c).arg(from).arg(QLatin1String(k)).arg(full ? "true" : "false")).toInt();
         };
+        auto wantEp = std::make_shared<qint64>(0);
         t->steps = {
             {500, [t, feeds]() {
                 int delay = 0;
@@ -513,15 +515,18 @@ void startUiTest(QQmlApplicationEngine &engine)
                 // Enter acts on the focused episode by id, even if the row index went stale.
                 t->eval("var s = activeShow(); s.kbdCol = 1; s.kbdEpisodeId = s.navCount > 1 ? (s.episodeModel !== null ? s.episodeModel : backend.episodes).episodeIdAt(1) : 0");
             }},
-            {200, [t]() {
-                const double want = t->eval("activeShow().kbdEpisodeId").toDouble();
-                if (want != 0) {
+            {200, [t, wantEp]() {
+                *wantEp = t->eval("activeShow().kbdEpisodeId").toLongLong();
+                const qint64 staleEp = t->eval("(activeShow().episodeModel !== null ? activeShow().episodeModel : backend.episodes).episodeIdAt(0)").toLongLong();
+                t->expect(*wantEp != 0 && *wantEp != staleEp, "nav fixture has distinct row 0 and row 1 episodes");
+                if (*wantEp != 0) {
                     t->eval("activeShow().kbdIndex = 0; activeShow().openNavItem()");
                 }
             }},
-            {800, [t]() {
-                t->expect(t->eval("backend.openEpisodeId === activeShow().kbdEpisodeId || pageKind === 'episode'").toBool()
-                          && t->eval("pageKind").toString() == "episode", "Enter opens the episode by id, not by a stale row");
+            {800, [t, wantEp]() {
+                t->expect(t->eval("backend.openEpisodeId").toLongLong() == *wantEp
+                          && t->eval("pageKind").toString() == "episode",
+                          "Enter opens the episode by id, not by a stale row");
                 t->eval("win.openExplorePage()");
             }},
             {1200, [t]() {
