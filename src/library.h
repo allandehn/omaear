@@ -114,6 +114,8 @@ public:
     QList<EpisodeRow> episodes(qint64 showId) const;
     EpisodeRow episode(qint64 id) const;
     QString showTitle(qint64 showId) const;
+    QString showFeedUrl(qint64 showId) const;
+    int showUnheard(qint64 showId) const;
     bool hasShow(qint64 showId) const;
     QString showImage(qint64 showId) const;
     QString showImageUrl(qint64 showId) const;
@@ -135,6 +137,8 @@ public:
     void clearShowImagePath(qint64 showId);
     void clearEpisodeImagePath(qint64 episodeId);
     bool removeShow(qint64 showId);
+    bool removeAllShows();
+    QStringList allCachedImagePaths() const;
 
     int markPlayed(qint64 episodeId, bool played);
     int markAllPlayed(qint64 showId);

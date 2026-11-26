@@ -424,6 +424,7 @@ private:
     bool m_settleShelf = false;
     QTimer *m_shelfFlush = nullptr;
     QSet<qint64> m_pendingShowUpdates;
+    bool m_shelfDirtyDuringRun = false;
     bool m_shelfRefresh = false;
     int m_fetchDone = 0; // feeds finished in the current run of the fetch queue
     QSet<QString> m_shelfRefreshUrls; // feeds belonging to the running shelf refresh
