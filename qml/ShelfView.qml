@@ -277,8 +277,8 @@ Item {
                 id: refreshButton
                 visible: actions.hasShows
                 // While feeds update this is the stop control: our own stop glyph at
-                // the same size, never dimmed or spinning (the pill badge is the one
-                // moving thing). A click stops the run at once.
+                // the same size, never dimmed or spinning. The status pill shows a
+                // still refresh icon and the Updating… text. A click stops the run.
                 readonly property bool stopMode: backend.busy
                 // The theme glyph stays put and turns clear; our stop glyph sits on
                 // top. Swapping icon.name/icon.source on the button could leave the

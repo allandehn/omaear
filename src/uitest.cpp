@@ -791,8 +791,9 @@ void startUiTest(QQmlApplicationEngine &engine)
             {500, [t, grab, state]() {
                 state("early run");
                 t->expect(t->eval("backend.busy && statusPill.visible && backend.status === 'Updating podcasts…'"
-                                  " && statusPill.jobBusy && !statusPill.jobError").toBool(),
-                          "early run: Updating podcasts… (no 0 of N), busy look");
+                                  " && statusPill.jobBusy && !statusPill.jobError"
+                                  " && statusIcon.rotation === 0").toBool(),
+                          "early run: Updating podcasts… (no 0 of N), busy look, still icon");
                 grab("early-run");
             }},
             {100, [ctl]() { ctl("/_release"); }},
