@@ -41,6 +41,7 @@
 #include <QNetworkDiskCache>
 #include "netaccess.h"
 #include "backend.h"
+#include "search.h"
 #include <QSettings>
 #include <QThread>
 #include <algorithm>
@@ -1852,6 +1853,206 @@ int runSelfTest(int argc, char **argv)
         }
 
         server.close();
+    }
+
+    {
+        // PR 1 regression tests: SQLite NOT NULL guards, removeShow queue sync,
+        // flushShelf keeping Episode Details open, LibrarySearch literal '<',
+        // remote file:// URL rejection, and D-Bus null safety.
+        QTemporaryDir dir;
+        check(dir.isValid(), "pr1-safety: temp dir");
+        Library safetyLib(dir.filePath(QStringLiteral("library.db")));
+        check(safetyLib.isOpen(), "pr1-safety: open library");
+
+        // 1. SQLite NOT NULL guards: null QString author/imageUrl + clear update cache.
+        ParsedShow nullFields;
+        nullFields.title = QStringLiteral("No Author Or Art");
+        // author and imageUrl stay default-constructed (null QString)
+        ParsedEpisode nullEp;
+        nullEp.guid = QStringLiteral("null-fields-ep1");
+        nullEp.title = QStringLiteral("First Episode");
+        nullEp.audioUrl = QStringLiteral("https://example.test/null-1.mp3");
+        nullEp.description = QStringLiteral("Price < $10 and use <code> for speed");
+        nullEp.published = 1700000100;
+        nullFields.episodes.append(nullEp);
+        const qint64 nullShowId = safetyLib.upsertShow(QStringLiteral("https://example.test/null.xml"), nullFields);
+        check(nullShowId > 0, "pr1-safety: upsertShow inserts show with null author and imageUrl");
+        const qint64 nullShowAgain = safetyLib.upsertShow(QStringLiteral("https://example.test/null.xml"), nullFields);
+        check(nullShowAgain == nullShowId, "pr1-safety: upsertShow updates show with null author and imageUrl");
+
+        safetyLib.setUpdateCache(QStringLiteral("available"), QStringLiteral("9.9.9"),
+                                 QStringLiteral("https://example.test/rel"), 12345);
+        check(safetyLib.updateResult() == QStringLiteral("available"), "pr1-safety: update cache set");
+        safetyLib.setUpdateCache(QString(), QString(), QString(), 0);
+        check(safetyLib.updateResult().isEmpty() && safetyLib.updateCheckedAt() == 0,
+              "pr1-safety: clearing update cache with null result persists empty string");
+
+        // 2. Remote file:// URL rejection vs local file:// feed preservation.
+        const QByteArray fileSchemeRss = R"(<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Local Ref Test</title>
+  <itunes:image href="file:///etc/passwd"/>
+  <image><url>file:///etc/passwd</url></image>
+  <item>
+    <title>Bad Audio</title>
+    <guid>bad-audio</guid>
+    <enclosure url="file:///etc/passwd.mp3" type="audio/mpeg"/>
+  </item>
+</channel>
+</rss>)";
+        QString parseErr;
+        const auto remoteParsed = parseFeed(fileSchemeRss, QUrl(QStringLiteral("https://example.test/feed.xml")), &parseErr);
+        check(remoteParsed.has_value(), "pr1-safety: remote feed with file:// refs still parses channel");
+        if (remoteParsed) {
+            check(remoteParsed->imageUrl.isEmpty(), "pr1-safety: remote feed rejects file:// show image");
+            check(remoteParsed->episodes.isEmpty(), "pr1-safety: remote feed rejects file:// audio enclosure");
+        }
+        const auto localParsed = parseFeed(fileSchemeRss, QUrl::fromLocalFile(QStringLiteral("/tmp/feed.xml")), &parseErr);
+        check(localParsed.has_value() && localParsed->imageUrl == QStringLiteral("file:///etc/passwd")
+                  && localParsed->episodes.size() == 1,
+              "pr1-safety: local file:// feed preserves file:// refs (nav-feeds)");
+
+        // 3. LibrarySearch literal '<' preservation & plainFromHtml tag heuristic.
+        check(LibrarySearch::plainFromHtml(QStringLiteral("price < $10, fast")) == QStringLiteral("price < $10, fast"),
+              "pr1-safety: plainFromHtml preserves literal '<'");
+        check(LibrarySearch::plainFromHtml(QStringLiteral("a < 5 and b > 2")) == QStringLiteral("a < 5 and b > 2"),
+              "pr1-safety: plainFromHtml preserves '< ... >' inequality");
+        check(LibrarySearch::plainFromHtml(QStringLiteral("<p>Hello</p><br><b>world</b>")) == QStringLiteral("Hello world"),
+              "pr1-safety: plainFromHtml still strips real HTML tags");
+        {
+            LibrarySearch search(safetyLib);
+            search.setQuery(QStringLiteral("speed"));
+            QElapsedTimer t;
+            t.start();
+            while (search.rowCount() == 0 && t.elapsed() < 1000)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            check(search.rowCount() == 1, "pr1-safety: search matches text after literal '<'");
+            if (search.rowCount() == 1) {
+                const QString snippet = search.data(search.index(0), LibrarySearch::SnippetHtmlRole).toString();
+                check(snippet.contains(QStringLiteral("&lt;")) && snippet.contains(QStringLiteral("speed")),
+                      "pr1-safety: search snippet preserves '<' and highlights match");
+            }
+        }
+
+        // 4. Backend tests: removeShow updates queue, flushShelf keeps openEpisode,
+        // downloadCover rejects file://, and D-Bus null-safe calls do not crash.
+        {
+            QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+            settings.setValue(QStringLiteral("refresh/lastSuccessMs"),
+                              QDateTime::currentMSecsSinceEpoch());
+            settings.sync();
+        }
+        struct FeedUpdateServer : QTcpServer {
+            QByteArray body;
+            QHash<QTcpSocket *, QByteArray> bufs;
+            FeedUpdateServer()
+            {
+                connect(this, &QTcpServer::newConnection, this, [this]() {
+                    while (QTcpSocket *s = nextPendingConnection()) {
+                        connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                            QByteArray &buf = bufs[s];
+                            buf += s->readAll();
+                            if (!buf.contains("\r\n\r\n") && !buf.contains("\n\n"))
+                                return;
+                            QByteArray resp = "HTTP/1.1 200 OK\r\nContent-Type: application/rss+xml\r\n"
+                                              "Connection: close\r\nContent-Length: ";
+                            resp += QByteArray::number(body.size());
+                            resp += "\r\n\r\n";
+                            resp += body;
+                            s->write(resp);
+                            s->flush();
+                            s->disconnectFromHost();
+                        });
+                        connect(s, &QTcpSocket::disconnected, this, [this, s]() {
+                            bufs.remove(s);
+                            s->deleteLater();
+                        });
+                    }
+                });
+            }
+        };
+        FeedUpdateServer feedServer;
+        check(feedServer.listen(QHostAddress::LocalHost, 0), "pr1-safety: feed server listens");
+        const QString feedUrl = QStringLiteral("http://127.0.0.1:%1/feed.xml").arg(feedServer.serverPort());
+        const auto makeRss = [](bool twoEpisodes) {
+            QByteArray xml = R"(<?xml version="1.0"?><rss version="2.0"><channel><title>Open Ep Show</title>)"
+                             R"(<item><title>Ep One</title><guid>ep-1</guid><pubDate>Mon, 01 Nov 2026 10:00:00 +0000</pubDate>)"
+                             R"(<enclosure url="https://example.test/1.mp3" type="audio/mpeg"/></item>)";
+            if (twoEpisodes) {
+                xml += R"(<item><title>Ep Two</title><guid>ep-2</guid><pubDate>Tue, 02 Nov 2026 10:00:00 +0000</pubDate>)"
+                       R"(<enclosure url="https://example.test/2.mp3" type="audio/mpeg"/></item>)";
+            }
+            xml += "</channel></rss>";
+            return xml;
+        };
+        const auto initialParsed = parseFeed(makeRss(false), QUrl(feedUrl), &parseErr);
+        check(initialParsed.has_value(), "pr1-safety: initial rss parses");
+        const qint64 openShowId = safetyLib.upsertShow(feedUrl, *initialParsed);
+        const auto openShowEps = safetyLib.episodes(openShowId);
+        check(openShowId > 0 && openShowEps.size() == 1, "pr1-safety: initial open-show stored");
+        const qint64 openEpId = openShowEps.first().id;
+
+        // Also create a real >=32 byte local file to verify file:// cover URLs are not read.
+        const QString secretFile = dir.filePath(QStringLiteral("local-secret.bin"));
+        {
+            QFile sf(secretFile);
+            check(sf.open(QIODevice::WriteOnly)
+                      && sf.write("0123456789abcdef0123456789abcdef0123456789abcdef") > 32,
+                  "pr1-safety: local secret file created");
+        }
+        ParsedShow fileCoverShow;
+        fileCoverShow.title = QStringLiteral("File Cover Show");
+        fileCoverShow.imageUrl = QUrl::fromLocalFile(secretFile).toString();
+        const qint64 fileCoverShowId = safetyLib.upsertShow(QStringLiteral("https://example.test/filecover.xml"), fileCoverShow);
+
+        Backend safetyBackend(safetyLib);
+        QCoreApplication::processEvents();
+        // Exercise D-Bus-guarded controls (safe even with no session bus / player).
+        safetyBackend.setVolume(0.5);
+        safetyBackend.toggleMono();
+        safetyBackend.setRate(1.25);
+        safetyBackend.stopPlayback();
+        check(true, "pr1-safety: D-Bus-guarded controls survive without player service");
+
+        // file:// cover URL is rejected even if stored in DB directly.
+        safetyBackend.openShow(fileCoverShowId);
+        QCoreApplication::processEvents();
+        check(safetyLib.showImage(fileCoverShowId).isEmpty(), "pr1-safety: downloadCover refuses file:// imageUrl");
+
+        // flushShelf keeps openEpisode open when open show receives a new episode.
+        feedServer.body = makeRss(true);
+        safetyBackend.openShow(openShowId);
+        safetyBackend.openEpisode(openEpId);
+        check(safetyBackend.openEpisodeId() == openEpId, "pr1-safety: episode opened before refresh");
+        safetyBackend.refreshOpenShow(false);
+        auto *openEpModel = qobject_cast<EpisodeModel *>(safetyBackend.episodesFor(openShowId));
+        check(openEpModel != nullptr, "pr1-safety: open episode model exists");
+        {
+            QElapsedTimer t;
+            t.start();
+            while ((safetyBackend.busy() || safetyLib.episodes(openShowId).size() < 2
+                    || (openEpModel && openEpModel->rowCount() < 2)) && t.elapsed() < 3000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(5);
+            }
+        }
+        check(safetyLib.episodes(openShowId).size() == 2, "pr1-safety: refresh added second episode");
+        check(openEpModel && openEpModel->rowCount() == 2, "pr1-safety: flushShelf updated open episode model");
+        check(safetyBackend.openEpisodeId() == openEpId,
+              "pr1-safety: flushShelf kept Episode Details open during refresh");
+
+        // removeShow updates queueCount and queueModel.
+        const auto nullEps = safetyLib.episodes(nullShowId);
+        check(nullEps.size() == 1, "pr1-safety: nullShow episode available");
+        safetyBackend.addToQueue(nullEps.first().id);
+        check(safetyBackend.queueCount() == 1 && safetyBackend.queueModel()->rowCount() == 1,
+              "pr1-safety: episode queued before removeShow");
+        safetyBackend.removeShow(nullShowId);
+        check(safetyBackend.queueCount() == 0 && safetyBackend.queueModel()->rowCount() == 0,
+              "pr1-safety: removeShow clears deleted show episodes from queue");
+
+        feedServer.close();
     }
 
     g_fails += runParallelRefreshSelfTest();

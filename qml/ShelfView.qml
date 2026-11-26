@@ -110,7 +110,7 @@ Item {
         repeat: false
         property double showId: 0
         onTriggered: {
-            if (showId && win.pageKind === "shelf")
+            if (showId && win.pageKind === "shelf" && !win.openPopup)
                 win.prewarmShow(showId)
         }
     }
@@ -501,6 +501,8 @@ Item {
                 onPressed: function(mouse) {
                     if (mouse.button === Qt.LeftButton)
                         win.markShowPress(model.showId)
+                    else if (mouse.button === Qt.RightButton)
+                        shelf.cancelScheduledPrewarm()
                 }
                 onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
@@ -667,6 +669,8 @@ Item {
                 onPressed: function(mouse) {
                     if (mouse.button === Qt.LeftButton)
                         win.markShowPress(model.showId)
+                    else if (mouse.button === Qt.RightButton)
+                        shelf.cancelScheduledPrewarm()
                 }
                 onCanceled: win.cancelShowPress()
                 onClicked: function(mouse) {
@@ -697,6 +701,7 @@ Item {
     property real coverMenuShow: 0
     property string coverMenuTitle: ""
     function openCoverMenu(showId, title) {
+        cancelScheduledPrewarm()
         coverMenuShow = showId
         coverMenuTitle = title
         coverMenu.info = backend.artworkInfo(0, showId)

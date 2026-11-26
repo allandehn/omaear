@@ -432,7 +432,9 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, con
         return 0;
 
     // A parse that stopped early may not have seen the channel's author: keep the stored one.
-    QString author = parsed.author;
+    const QString safeTitle = parsed.title.isNull() ? QStringLiteral("") : parsed.title;
+    const QString safeImageUrl = parsed.imageUrl.isNull() ? QStringLiteral("") : parsed.imageUrl;
+    QString author = parsed.author.isNull() ? QStringLiteral("") : parsed.author;
     QSqlQuery find(db);
     find.prepare(QStringLiteral("SELECT id, image_url, image_path, author FROM shows WHERE feed_url = ?"));
     find.addBindValue(feedUrl);
@@ -448,20 +450,23 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, con
         showId = find.value(0).toLongLong();
         imageUrl = find.value(1).toString();
         imagePath = find.value(2).toString();
-        if (meta && meta->partial && author.isEmpty())
+        if (meta && meta->partial && author.isEmpty()) {
             author = find.value(3).toString();
+            if (author.isNull())
+                author = QStringLiteral("");
+        }
         QSqlQuery update(db);
         // Only touches the row when something differs (no write for an unchanged show).
         update.prepare(QStringLiteral(
             "UPDATE shows SET title = ?, author = ?, image_url = ? WHERE id = ?"
             " AND (title IS NOT ? OR author IS NOT ? OR image_url IS NOT ?)"));
-        update.addBindValue(parsed.title);
+        update.addBindValue(safeTitle);
         update.addBindValue(author);
-        update.addBindValue(parsed.imageUrl);
+        update.addBindValue(safeImageUrl);
         update.addBindValue(showId);
-        update.addBindValue(parsed.title);
+        update.addBindValue(safeTitle);
         update.addBindValue(author);
-        update.addBindValue(parsed.imageUrl);
+        update.addBindValue(safeImageUrl);
         if (!update.exec()) {
             db.rollback();
             return 0;
@@ -475,9 +480,9 @@ qint64 Library::upsertShow(const QString &feedUrl, const ParsedShow &parsed, con
         insert.prepare(QStringLiteral(
             "INSERT INTO shows (feed_url, title, author, image_url) VALUES (?, ?, ?, ?)"));
         insert.addBindValue(feedUrl);
-        insert.addBindValue(parsed.title);
+        insert.addBindValue(safeTitle);
         insert.addBindValue(author);
-        insert.addBindValue(parsed.imageUrl);
+        insert.addBindValue(safeImageUrl);
         if (!insert.exec()) {
             db.rollback();
             return 0;
@@ -783,7 +788,7 @@ void Library::setSetting(const QString &key, const QString &value)
         "INSERT INTO settings (key, value) VALUES (?, ?)"
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value"));
     q.addBindValue(key);
-    q.addBindValue(value);
+    q.addBindValue(value.isNull() ? QStringLiteral("") : value);
     q.exec();
 }
 

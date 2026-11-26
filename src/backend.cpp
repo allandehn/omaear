@@ -58,6 +58,14 @@ QString coverExtension(const QByteArray &bytes, const QString &contentType)
     return QStringLiteral("jpg");
 }
 
+bool isHttpUrl(const QUrl &url)
+{
+    if (!url.isValid())
+        return false;
+    const QString scheme = url.scheme().toLower();
+    return scheme == QLatin1String("http") || scheme == QLatin1String("https");
+}
+
 // fresh picks a new filename so Qt Quick's file-url pixmap cache cannot keep the old art.
 QString cachedCoverPath(const QString &dir, qint64 id, const QString &ext, bool fresh)
 {
@@ -608,6 +616,7 @@ void Backend::removeShow(qint64 showId)
     if (m_openShowId == showId)
         closeShow();
     reloadShows();
+    reloadQueue();
     setStatus(QStringLiteral("Removed %1.").arg(title));
 }
 
@@ -876,7 +885,7 @@ void Backend::flushShelf()
     const QSet<qint64> changed = std::exchange(m_pendingShowUpdates, {});
     reloadShows();
     if (m_openShowId != 0 && changed.contains(m_openShowId))
-        openShow(m_openShowId);
+        syncEpisodeModel(m_openShowId);
 }
 
 void Backend::stopRefresh()
@@ -962,11 +971,15 @@ void Backend::downloadCover(qint64 showId, const QString &imageUrl, bool replace
     }
     if (m_showCoverDownloads.contains(showId))
         return;
+    const QUrl url(imageUrl);
+    if (!isHttpUrl(url))
+        return;
     const int gen = m_showCoverGen.value(showId);
     m_showCoverDownloads.insert(showId);
-    QNetworkRequest request{QUrl(imageUrl)};
+    QNetworkRequest request{url};
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy)"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(20000);
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, showId, imageUrl, gen, fresh]() {
@@ -1183,11 +1196,15 @@ void Backend::startEpisodeCoverDownload(qint64 episodeId, const QString &imageUr
         return;
     if (m_episodeCoverDownloads.contains(episodeId))
         return;
+    const QUrl url(imageUrl);
+    if (!isHttpUrl(url))
+        return;
     const int gen = m_episodeCoverGen.value(episodeId);
     m_episodeCoverDownloads.insert(episodeId);
-    QNetworkRequest request{QUrl(imageUrl)};
+    QNetworkRequest request{url};
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy)"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(20000);
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, episodeId, imageUrl, gen, freshFile]() {
@@ -1474,7 +1491,7 @@ void Backend::togglePlayback()
 
 void Backend::stopPlayback()
 {
-    if (QDBusConnection::sessionBus().interface()->isServiceRegistered(kPlayerService))
+    if (playerReady())
         callPlayer(QStringLiteral("Stop"));
     else
         applyPlayerState({});
@@ -1493,7 +1510,7 @@ void Backend::setVolume(double volume)
     m_playerVolume = clamped;
     m_library.setVolume(clamped);
     emit playerStateChanged();
-    if (QDBusConnection::sessionBus().interface()->isServiceRegistered(kPlayerService))
+    if (playerReady())
         callPlayer(QStringLiteral("SetVolume"), {clamped});
 }
 
@@ -1625,7 +1642,7 @@ void Backend::toggleMono()
     m_playerMono = !m_playerMono;
     m_library.setMono(m_playerMono);
     emit monoChanged(); // UI flips now; the player swaps its output right after
-    if (QDBusConnection::sessionBus().interface()->isServiceRegistered(kPlayerService))
+    if (playerReady())
         callPlayer(QStringLiteral("SetMono"), {m_playerMono});
 }
 
@@ -1637,7 +1654,7 @@ void Backend::setRate(double rate)
     m_library.setRate(clamped);
     m_playerRate = clamped;
     emit playerStateChanged();
-    if (QDBusConnection::sessionBus().interface()->isServiceRegistered(kPlayerService))
+    if (playerReady())
         callPlayer(QStringLiteral("SetRate"), {clamped});
 }
 
@@ -2330,7 +2347,12 @@ void Backend::fetchArtwork(const ArtSource &src, std::function<void(const QByteA
         setStatus(QStringLiteral("No artwork to use."));
         return;
     }
-    QNetworkRequest request{QUrl(src.url)};
+    const QUrl url(src.url);
+    if (!isHttpUrl(url)) {
+        setStatus(QStringLiteral("No artwork to use."));
+        return;
+    }
+    QNetworkRequest request{url};
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("omaear/" OMAEAR_VERSION " (Omarchy)"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setTransferTimeout(30000);
