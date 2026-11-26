@@ -108,6 +108,7 @@ Item {
     visible: overflows
 
     Rectangle {
+        id: thumb
         x: parent.width - width - 2
         y: bar.thumbY
         height: Math.max(0, bar.thumbLen)
@@ -118,7 +119,7 @@ Item {
         readonly property bool shown: bar.scrolling || grab.pressed || grab.containsMouse
         opacity: shown ? 0.9 : 0
         Behavior on opacity {
-            enabled: !parent.shown
+            enabled: !thumb.shown
             NumberAnimation { duration: 350; easing.type: Easing.OutQuad }
         }
     }

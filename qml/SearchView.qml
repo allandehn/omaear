@@ -16,6 +16,7 @@ Item {
     property bool menuPlayed: false
     property bool menuQueued: false
     readonly property real cover: 56 * theme.textScale
+    readonly property string fieldPlaceholder: searchField.placeholderText
 
     // Keyboard selection in the results (-1 = none). Kept apart from hover, so
     // the mouse never moves it. resultsFocused remembers where focus was, so
@@ -128,7 +129,6 @@ Item {
             rightPadding: 10 + clearButton.width
             verticalAlignment: TextInput.AlignVCenter
             Material.accent: theme.accent
-            placeholderText: librarySearch.scope ? "Search in " + librarySearch.scopeTitle : "Search your podcasts' episodes"
 
             IconButton {
                 id: clearButton
@@ -148,12 +148,16 @@ Item {
                 }
             }
             Text {
-                x: searchField.leftPadding
+                anchors.left: parent.left
+                anchors.leftMargin: searchField.leftPadding
+                anchors.right: parent.right
+                anchors.rightMargin: searchField.rightPadding
                 anchors.verticalCenter: parent.verticalCenter
                 visible: searchField.length === 0 && searchField.preeditText.length === 0
-                text: "Search your episodes"
+                text: librarySearch.scope ? "Search in " + librarySearch.scopeTitle : "Search your podcasts' episodes"
                 color: theme.dim
                 font: searchField.font
+                elide: Text.ElideRight
             }
             background: Rectangle {
                 color: theme.selection
