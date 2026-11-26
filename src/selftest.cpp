@@ -2530,6 +2530,19 @@ int runSelfTest(int argc, char **argv)
                       && tuneBackend.status() == QStringLiteral("All podcasts updated."),
                   "sqlite-tuning: refresh with zero Updated feeds skips no-op Shelf reload");
 
+            // totalUnheard and markLibraryPlayed(): updates Backend totalUnheard, cached models, and status.
+            check(tuneBackend.totalUnheard() == 2, "mark-all-podcasts: initial totalUnheard across shows is 2");
+            auto *s2Model = qobject_cast<EpisodeModel *>(tuneBackend.episodesFor(id2));
+            int unheardChanged = 0;
+            QObject::connect(&tuneBackend, &Backend::totalUnheardChanged, &tuneBackend, [&unheardChanged]() {
+                ++unheardChanged;
+            });
+            tuneBackend.markLibraryPlayed();
+            check(unheardChanged == 1 && tuneBackend.totalUnheard() == 0
+                      && s2Model && s2Model->rowCount() == 1
+                      && s2Model->data(s2Model->index(0), EpisodeModel::PlayedRole).toBool(),
+                  "mark-all-podcasts: markLibraryPlayed clears totalUnheard and syncs cached models");
+
             tuneBackend.removeAllShows();
             check(tuneBackend.showCount() == 0 && tuneBackend.queueCount() == 0
                       && !QFileInfo::exists(showCover) && !QFileInfo::exists(epCover),

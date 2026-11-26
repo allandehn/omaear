@@ -315,6 +315,13 @@ void Backend::reloadShows()
         m_showCount = rows.size();
         emit showCountChanged();
     }
+    int totalUnheard = 0;
+    for (const auto &row : rows)
+        totalUnheard += row.unheard;
+    if (totalUnheard != m_totalUnheard) {
+        m_totalUnheard = totalUnheard;
+        emit totalUnheardChanged();
+    }
     m_shows.setRows(visibleShows(rows),
                     m_holdShelfOrder ? ShowModel::KeepOrder
                     : m_settleShelf  ? ShowModel::InPlaceIfSameOrder
@@ -1783,7 +1790,7 @@ void Backend::markLibraryPlayed()
     const int count = m_library.markLibraryPlayed();
     const auto showIds = m_episodeModels.keys();
     for (qint64 showId : showIds)
-        syncEpisodeModel(showId);
+        syncEpisodeModel(showId, showId == m_openShowId);
     reloadShows();
     refreshOpenEpisode();
     setStatus(countMessage(count, QStringLiteral("episode")));

@@ -87,6 +87,7 @@ Item {
     // Scene point inside the open cover menu's panel (same test the window filter uses).
     function coverMenuContains(x, y) { return win.popupContains(coverMenu, x, y) }
     readonly property var coverMenuObject: coverMenu
+    readonly property var moreMenuObject: moreMenu
 
     function openNavMenu() {
         if (navCount === 0) { openEmptyMenu(); return }
@@ -764,6 +765,11 @@ Item {
         }
         AppMenuSeparator {}
         AppMenuItem {
+            text: "Mark all podcasts as played"
+            enabled: backend.totalUnheard > 0
+            onChosen: win.confirmMarkEverything()
+        }
+        AppMenuItem {
             text: "Unsubscribe from all…"
             enabled: backend.showCount > 0
             onChosen: win.confirmUnsubscribeAll()
@@ -800,6 +806,11 @@ Item {
             onChosen: shelf.queueRequested()
         }
         AppMenuSeparator {}
+        AppMenuItem {
+            text: "Mark all podcasts as played"
+            enabled: backend.totalUnheard > 0
+            onChosen: win.confirmMarkEverything()
+        }
         // Find new podcasts and Add feed moved to the + button (Add feed: paste a URL there).
         AppMenuItem {
             text: "Import OPML…"

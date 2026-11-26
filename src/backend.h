@@ -74,6 +74,7 @@ class Backend : public QObject {
     // Library size, not the eye-filtered shelf. Header chrome uses this so a
     // caught-up filter cannot hide the eye that would bring shows back.
     Q_PROPERTY(int showCount READ showCount NOTIFY showCountChanged)
+    Q_PROPERTY(int totalUnheard READ totalUnheard NOTIFY totalUnheardChanged)
     // Bumped on reloadShows (cover download, path change, library reload).
     // Hidden show pages depend on this so showArt re-evaluates.
     Q_PROPERTY(int coverRevision READ coverRevision NOTIFY libraryChanged)
@@ -144,6 +145,7 @@ public:
     bool shelfShowAll() const;
     bool episodeShowAll() const;
     int showCount() const { return m_showCount; }
+    int totalUnheard() const { return m_totalUnheard; }
     int coverRevision() const { return m_coverRevision; }
     EpisodeModel *queueModel() { return &m_queueModel; }
     int queueCount() const { return m_queueModel.rowCount(); }
@@ -297,6 +299,7 @@ signals:
     void shelfLayoutChanged();
     void filterChanged();
     void showCountChanged();
+    void totalUnheardChanged();
     void queueChanged();
     void nowPlayingArtScaleChanged();
     void episodeModelDiscarded(qint64 showId);
@@ -396,6 +399,7 @@ private:
 
     Library &m_library;
     int m_showCount = 0;
+    int m_totalUnheard = 0;
     int m_coverRevision = 0;
     ShowModel m_shows;
     EpisodeModel m_episodes;

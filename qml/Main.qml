@@ -45,9 +45,11 @@ ApplicationWindow {
 
     property bool addOpen: false
     property bool confirmAll: false
+    property bool confirmEverything: false
     // Show that "Mark all as played" applies to (set by confirmMarkShow).
     property double markAllShowId: 0
     property string markAllTitle: ""
+    property int markEverythingCount: 0
     property bool confirmRemove: false
     property bool confirmQueue: false
     // ALLAN'S DECISIONS: which dialogs start with Cancel selected (so Enter cancels) and
@@ -57,7 +59,7 @@ ApplicationWindow {
     readonly property bool unsubscribeAllStep1StartsOnCancel: false // Unsubscribe from all, step 1: starts on Unsubscribe from all…
     readonly property bool unsubscribeAllStep2StartsOnCancel: true  // Unsubscribe from all, final step: starts on Cancel
     readonly property bool markAllStartsOnCancel: true           // Mark all as played (one podcast)
-    readonly property bool markEverythingStartsOnCancel: true    // every episode of every podcast (not built yet)
+    readonly property bool markEverythingStartsOnCancel: true    // Mark all podcasts as played (every episode of every podcast)
     readonly property bool clearQueueStartsOnCancel: false       // starts on Clear queue
     // Unsubscribe from all: two steps, both must be confirmed.
     property bool confirmUnsubAll: false
@@ -147,7 +149,7 @@ ApplicationWindow {
     property bool gridWrapFull: false
     readonly property bool canGoBack: modalOpen || explore.previewOpen || explorePage.regionOpen || historyIndex > 0
     readonly property bool canGoForward: !modalOpen && historyIndex < history.length - 1
-    readonly property bool modalOpen: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
+    readonly property bool modalOpen: addOpen || confirmAll || confirmEverything || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
     readonly property bool nowPlayingOpen: pageKind === "nowPlaying"
     readonly property bool queueOpen: pageKind === "queue"
     // True while we drive backend.open*/close*, so its change signals are not
@@ -185,6 +187,7 @@ ApplicationWindow {
             return false
         addOpen = false
         confirmAll = false
+        confirmEverything = false
         confirmRemove = false
         confirmQueue = false
         confirmUnsubAll = false
@@ -200,6 +203,14 @@ ApplicationWindow {
         markAllShowId = showId
         markAllTitle = title || ""
         confirmAll = true
+    }
+
+    // Confirm, then mark every episode of every podcast played.
+    function confirmMarkEverything() {
+        if (backend.totalUnheard <= 0)
+            return
+        markEverythingCount = backend.showCount
+        confirmEverything = true
     }
 
     function confirmUnsubscribeAll() {
@@ -1421,7 +1432,7 @@ ApplicationWindow {
     Rectangle {
         anchors.fill: parent
         id: dialogScrim
-        visible: addOpen || confirmAll || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
+        visible: addOpen || confirmAll || confirmEverything || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
         // Omarchy Stable 4.5 scrim: the theme background at 70%. A click on it cancels.
         color: Qt.alpha(theme.background, 0.7)
         PopupFadeIn { host: dialogScrim }
@@ -1448,6 +1459,8 @@ ApplicationWindow {
                      ? "Clear the queue (" + backend.queueCount + (backend.queueCount === 1 ? " episode)?" : " episodes)?")
                      : confirmRemove
                      ? "Unsubscribe from " + unsubscribeTitle + "?"
+                     : confirmEverything
+                     ? "Mark every episode in all " + markEverythingCount + (markEverythingCount === 1 ? " podcast as played?" : " podcasts as played?")
                      : "Mark every episode of " + markAllTitle + " as played?"
             detail: confirmUnsubAll2 ? "This can't be undone."
                     : confirmRemove ? "Playback history for this show goes with it."
@@ -1462,6 +1475,7 @@ ApplicationWindow {
                            : confirmUnsubAll2 ? unsubscribeAllStep2StartsOnCancel
                            : confirmQueue ? clearQueueStartsOnCancel
                            : confirmRemove ? unsubscribeStartsOnCancel
+                           : confirmEverything ? markEverythingStartsOnCancel
                            : markAllStartsOnCancel
             initialFocusItem: addOpen ? feedField : null
             // Step 1 of Unsubscribe from all only leads to step 2, which shows the
@@ -1489,6 +1503,8 @@ ApplicationWindow {
                     backend.clearQueue()
                 else if (confirmRemove)
                     backend.removeShow(unsubscribeShowId)
+                else if (confirmEverything)
+                    backend.markLibraryPlayed()
                 else
                     backend.markAllPlayed(markAllShowId)
                 closeModals()
