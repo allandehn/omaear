@@ -170,6 +170,7 @@ ApplicationWindow {
             applyPage()
             return
         }
+        var prevKind = currentPage.kind
         var list = history.slice(0, historyIndex + 1)
         list.push(entry)
         // Cap the length but keep the shelf root at 0.
@@ -179,7 +180,9 @@ ApplicationWindow {
         historyIndex = list.length - 1
         // A fresh visit (not Back/Forward) starts at the page's own start spot.
         var states = navStates; delete states[entry.kind]; navStates = states
+        coverCache.markPageSwitch(prevKind + "->" + currentPage.kind)
         applyPage()
+        coverCache.armPageShown(win)
         Qt.callLater(navFreshEntry)
     }
 
@@ -297,15 +300,21 @@ ApplicationWindow {
             navShown = false   // Esc on the shelf just hides the keyboard ring
             return
         }
+        var prevKind = currentPage.kind
         historyIndex = historyIndex - 1
+        coverCache.markPageSwitch(prevKind + "->" + currentPage.kind)
         applyPage()
+        coverCache.armPageShown(win)
     }
 
     function forward() {
         if (modalOpen || historyIndex >= history.length - 1)
             return
+        var prevKind = currentPage.kind
         historyIndex = historyIndex + 1
+        coverCache.markPageSwitch(prevKind + "->" + currentPage.kind)
         applyPage()
+        coverCache.armPageShown(win)
     }
 
     // Kept for the C++ input filter and older call sites.
@@ -367,13 +376,16 @@ ApplicationWindow {
     // shelf under it and show that page (forward history stays).
     function collapseNowPlaying() {
         if (pageKind === "nowPlaying" && historyIndex <= 0 && !modalOpen) {
+            var prevKind = currentPage.kind
             var list = history.slice()
             list.unshift(makeEntry("shelf", 0, 0))
             if (list.length > historyLimit)
                 list.pop()
             history = list
             historyIndex = 0
+            coverCache.markPageSwitch(prevKind + "->" + currentPage.kind)
             applyPage()
+            coverCache.armPageShown(win)
             return
         }
         back()
@@ -483,7 +495,8 @@ ApplicationWindow {
     Connections {
         target: backend
         function onOpenShowChanged() {
-            rememberShow(backend.openShowId)
+            if (win.pageKind === "show")
+                rememberShow(backend.openShowId)
             backendMoved()
         }
         function onOpenEpisodeChanged() {

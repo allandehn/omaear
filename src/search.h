@@ -55,7 +55,7 @@ public:
     // Limit the search to one show (0 = everything). Re-runs the current query.
     Q_INVOKABLE void setScope(qint64 showId);
     qint64 scope() const { return m_scope; }
-    QString scopeTitle() const { return m_showTitles.value(m_scope); }
+    QString scopeTitle() const { return m_scopeTitle; }
     // Build the index ahead of the first keystroke (page opened).
     Q_INVOKABLE void warm();
     // Flip one field (FieldShow / FieldTitle / FieldNotes). The last one on stays
@@ -114,4 +114,5 @@ private:
     bool m_pending = false;
     int m_fields = FieldAll;
     qint64 m_scope = 0;
+    QString m_scopeTitle;
 };

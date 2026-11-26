@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Window
 
 Item {
     id: page
@@ -11,6 +12,7 @@ Item {
     // Full stacked cover layout when page.height is at or above this.
     readonly property real compactThreshold: 320 * theme.textScale
     readonly property bool compact: height < compactThreshold
+    readonly property int coverStatus: page.compact ? compactImage.status : fullImage.status
 
     // "1×", "1.25×", "1.5×": trailing zeros trimmed.
     function rateLabel(value) {
@@ -160,23 +162,14 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: fullImage; radius: coverFrame.coverRadius }
+                    layer.effect: CoverClip { art: fullImage.front; radius: coverFrame.coverRadius }
 
                     // backend.playerArt already prefers episode art over the show cover.
-                    Image {
+                    CoverImage {
                         id: fullImage
                         anchors.fill: parent
                         source: backend.playerArt
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        // Decode once at the 100% size (rounded up to 512px buckets) so
-                        // Ctrl+wheel only rescales the texture instead of re-decoding it
-                        // asynchronously at every step, which blanked the cover (flicker).
-                        readonly property int decodeSide: Math.max(512, Math.ceil(body.coverFit * 2 / 512) * 512)
-                        sourceSize.width: decodeSide
-                        sourceSize.height: decodeSide
-                        smooth: true
-                        mipmap: true
+                        sourceSide: Math.max(coverCache.tileSide, Math.ceil(body.coverFit * Screen.devicePixelRatio / 512) * 512)
                         visible: backend.playerArt !== ""
                     }
                     Text {
@@ -219,16 +212,13 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: compactImage; radius: compactArt.coverRadius }
+                    layer.effect: CoverClip { art: compactImage.front; radius: compactArt.coverRadius }
 
-                    Image {
+                    CoverImage {
                         id: compactImage
                         anchors.fill: parent
                         source: backend.playerArt
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        sourceSize.width: Math.max(112, compactArt.width * 2)
-                        sourceSize.height: Math.max(112, compactArt.height * 2)
+                        sourceSide: coverCache.rowSide
                         visible: backend.playerArt !== ""
                     }
                     Text {

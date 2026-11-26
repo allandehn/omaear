@@ -70,6 +70,7 @@ public:
     void setImagePath(qint64 episodeId, const QString &imagePath);
     // Move one row without a reset (live drag reordering in the queue).
     bool moveRow(int from, int to);
+    const QList<EpisodeRow> &rows() const { return m_rows; }
     QList<qint64> ids() const;
     // Keyboard navigation: map list index <-> episode id.
     Q_INVOKABLE qint64 episodeIdAt(int row) const;

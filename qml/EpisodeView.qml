@@ -9,6 +9,57 @@ Item {
     readonly property string art: backend.openEpisodeCover !== ""
                                   ? backend.openEpisodeCover
                                   : backend.openShowCover
+    readonly property int coverStatus: episodeImage.status
+    readonly property string coverSource: String(episodeImage.source)
+    property alias scrollY: scroller.contentY
+
+    property var linkCache: ({})
+    property var linkOrder: []
+    property var scrollCache: ({})
+    property var scrollOrder: []
+    property double trackedEpisodeId: 0
+
+    function saveCurrentScroll() {
+        if (trackedEpisodeId <= 0)
+            return
+        var map = scrollCache
+        map[trackedEpisodeId] = scroller.contentY
+        scrollCache = map
+        var order = []
+        for (var i = 0; i < scrollOrder.length; ++i) {
+            if (scrollOrder[i] !== trackedEpisodeId)
+                order.push(scrollOrder[i])
+        }
+        order.push(trackedEpisodeId)
+        while (order.length > 24)
+            delete map[order.shift()]
+        scrollOrder = order
+    }
+
+    function restoreEpisodeScroll(epId) {
+        if (epId === trackedEpisodeId)
+            return
+        saveCurrentScroll()
+        trackedEpisodeId = epId
+        if (epId <= 0)
+            return
+        var targetY = scrollCache[epId] !== undefined ? scrollCache[epId] : 0
+        var maxNow = Math.max(0, scroller.contentHeight - scroller.height)
+        if (maxNow > 0 || targetY === 0)
+            scroller.contentY = Math.min(targetY, maxNow)
+        Qt.callLater(function() {
+            if (page.trackedEpisodeId !== epId)
+                return
+            var maxLater = Math.max(0, scroller.contentHeight - scroller.height)
+            scroller.contentY = Math.min(targetY, maxLater)
+        })
+    }
+
+    onVisibleChanged: if (!visible) saveCurrentScroll()
+    Connections {
+        target: backend
+        function onOpenEpisodeChanged() { page.restoreEpisodeScroll(backend.openEpisodeId) }
+    }
 
 
     // ---- Keyboard navigation (driven by Main.qml) ---------------------------
@@ -137,6 +188,9 @@ Item {
     function linkify(plain, color) {
         if (!plain || plain.length === 0)
             return ""
+        var cacheKey = page.colorHex(color) + "\n" + plain
+        if (page.linkCache[cacheKey] !== undefined)
+            return page.linkCache[cacheKey]
         var re = /https?:\/\/[^\s<]+|www\.[^\s<]+|\d{1,2}:[0-5]\d:[0-5]\d|\d{1,4}:[0-5]\d/gi
         var out = ""
         var last = 0
@@ -174,6 +228,10 @@ Item {
             last = end
         }
         out += page.escapeHtml(plain.slice(last)).replace(/\n/g, "<br>")
+        page.linkCache[cacheKey] = out
+        page.linkOrder.push(cacheKey)
+        while (page.linkOrder.length > 16)
+            delete page.linkCache[page.linkOrder.shift()]
         return out
     }
 
@@ -326,18 +384,12 @@ Item {
                     readonly property real coverRadius: theme.rCard
                     layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                     layer.smooth: true
-                    layer.effect: CoverClip { art: episodeImage; radius: artFrame.coverRadius }
-                    Image {
+                    layer.effect: CoverClip { art: episodeImage.front; radius: artFrame.coverRadius }
+                    CoverImage {
                         id: episodeImage
                         anchors.fill: parent
                         source: page.art
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        // Display size x devicePixelRatio in 128px buckets (was a full decode).
-                        readonly property int decodeSide: Math.max(128, Math.ceil(artFrame.width * Screen.devicePixelRatio / 128) * 128)
-                        sourceSize.width: decodeSide
-                        sourceSize.height: decodeSide
-                        smooth: true
+                        sourceSide: coverCache.tileSide
                     }
                     // Right-click: the same art menu as Now Playing.
                     TapHandler {

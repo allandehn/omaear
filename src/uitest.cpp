@@ -950,7 +950,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         || instantMode == QLatin1String("cold") || instantMode == QLatin1String("ticks1")
         || instantMode == QLatin1String("ticks15") || instantMode == QLatin1String("prewarm")
         || instantMode == QLatin1String("press") || instantMode == QLatin1String("sweep")
-        || instantMode == QLatin1String("covers")) {
+        || instantMode == QLatin1String("covers") || instantMode == QLatin1String("pages")) {
         auto readRollup = [](const char *key) -> long {
             std::ifstream in("/proc/self/smaps_rollup");
             std::string line;
@@ -1160,6 +1160,62 @@ void startUiTest(QQmlApplicationEngine &engine)
                     fprintf(stderr, "instant: ticks %d-warm pages=%d warm=%d cpu=%.1f ms wall=%lld ms\n",
                             pages, pages, warm, cpuMs() - t0, qint64(wall.elapsed()));
                     t->expect(true, "instant: ticks measurements finished");
+                    return;
+                }
+
+                if (instantMode == QLatin1String("pages")) {
+                    auto timeSwitch = [t](const char *tag, const QString &js) {
+                        QList<double> samples;
+                        for (int s = 0; s < 10; ++s) {
+                            t->eval(js);
+                            QEventLoop loop;
+                            QObject::connect(t->win, &QQuickWindow::frameSwapped, &loop, &QEventLoop::quit);
+                            QTimer::singleShot(4000, &loop, &QEventLoop::quit);
+                            loop.exec();
+                            const double ms = t->eval("coverCache.lastPageSwitchMs()").toDouble();
+                            samples << ms;
+                            t->eval("if (win.pageKind !== 'shelf' && win.canGoBack) win.back()");
+                            QCoreApplication::processEvents();
+                        }
+                        return samples;
+                    };
+                    // Warm up shows/queue once so steady-state page switching is measured cleanly.
+                    t->eval("win.openShowPage(backend.shows.showIdAt(0)); win.back()");
+                    QCoreApplication::processEvents();
+                    t->eval("var ep = backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0); if (ep) backend.addToQueue(ep)");
+                    QCoreApplication::processEvents();
+
+                    summarize("shelf->show(warm)", timeSwitch("shelf->show", QStringLiteral("win.openShowPage(backend.shows.showIdAt(0))")));
+
+                    t->eval("win.openShowPage(backend.shows.showIdAt(0))");
+                    QCoreApplication::processEvents();
+                    QList<double> showToEp, epToShow;
+                    for (int s = 0; s < 10; ++s) {
+                        t->eval("win.openEpisodePage(backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0))");
+                        {
+                            QEventLoop loop;
+                            QObject::connect(t->win, &QQuickWindow::frameSwapped, &loop, &QEventLoop::quit);
+                            QTimer::singleShot(4000, &loop, &QEventLoop::quit);
+                            loop.exec();
+                        }
+                        showToEp << t->eval("coverCache.lastPageSwitchMs()").toDouble();
+                        t->eval("win.back()");
+                        {
+                            QEventLoop loop;
+                            QObject::connect(t->win, &QQuickWindow::frameSwapped, &loop, &QEventLoop::quit);
+                            QTimer::singleShot(4000, &loop, &QEventLoop::quit);
+                            loop.exec();
+                        }
+                        epToShow << t->eval("coverCache.lastPageSwitchMs()").toDouble();
+                    }
+                    summarize("show->episode", showToEp);
+                    summarize("episode->show(back)", epToShow);
+                    goShelf();
+
+                    summarize("shelf->queue", timeSwitch("shelf->queue", QStringLiteral("win.openQueuePage()")));
+                    summarize("shelf->search", timeSwitch("shelf->search", QStringLiteral("win.openSearchPage()")));
+                    summarize("shelf->explore", timeSwitch("shelf->explore", QStringLiteral("win.openExplorePage()")));
+                    t->expect(true, "instant: pages measurements finished");
                     return;
                 }
 
@@ -1850,6 +1906,71 @@ void startUiTest(QQmlApplicationEngine &engine)
         {250, [t]() {
             t->expect(t->eval("pageKind === 'shelf' && win.warmHas(backend.shows.showIdAt(1)) && win.warmSpecCount === 1").toBool(),
                       "keyboard focus resting on a tile pre-warms it");
+            // Instant pages everywhere: EpisodeView, QueueView, SearchView, ExploreView, and Back/Forward.
+            t->eval("win.forgetAllWarm(); win.openShowPage(backend.shows.showIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'show' && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: shelf->show switch stays under ceiling");
+            t->eval("win.openEpisodePage(backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'episode' && episodePage.coverSource.indexOf('image://covers/') === 0"
+                              " && episodePage.coverStatus === Image.Ready"
+                              " && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: EpisodeView paints memory-cached image://covers/ art fast");
+            t->eval("episodePage.scrollY = 120; win.back()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'show' && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500"
+                              " && episodePage.scrollCache[backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0)] === 120").toBool(),
+                      "instant-pages: back to Show is fast and preserves EpisodeView scroll position");
+            t->eval("win.forward()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'episode'").toBool(),
+                      "instant-pages: forward returns to EpisodeView");
+            t->eval("win.openEpisodePage(backend.episodesFor(backend.shows.showIdAt(1)).episodeIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'episode' && episodePage.scrollY === 0").toBool(),
+                      "instant-pages: fresh episode starts scrolled at top");
+            t->eval("while (win.pageKind !== 'shelf' && win.canGoBack) win.back(); win.forgetAllWarm();"
+                    " var ep0 = backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0);"
+                    " if (ep0) backend.addToQueue(ep0);"
+                    " win.openQueuePage()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'queue' && queuePage.firstRowCoverStatus() === Image.Ready"
+                              " && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: QueueView renders queued cover via CoverImage fast");
+            t->eval("win.forgetAllWarm(); win.openEpisodePage(backend.episodesFor(backend.shows.showIdAt(0)).episodeIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'episode' && win.warmShowCount === 0").toBool(),
+                      "instant-pages: opening an episode directly from Queue does not create a spurious ShowView");
+            t->eval("while (win.pageKind !== 'shelf' && win.canGoBack) win.back(); win.openSearchPage(backend.shows.showIdAt(0))");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'search' && librarySearch.scope === backend.shows.showIdAt(0)"
+                              " && librarySearch.scopeTitle === 'Alpha Show'"
+                              " && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: scoped Search opens fast with immediate scopeTitle");
+            t->eval("win.back(); win.openSearchPage()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'search' && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: unscoped Search opens fast");
+            t->eval("win.back(); win.openExplorePage()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'explore' && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: Explore opens fast");
+            t->eval("win.back()");
+        }},
+        {200, [t]() {
+            t->expect(t->eval("pageKind === 'shelf' && coverCache.lastPageSwitchMs() >= 0 && coverCache.lastPageSwitchMs() < 500").toBool(),
+                      "instant-pages: returning to Shelf is fast");
             // Mark all podcasts as played: present in podcast menu, empty-space menu, and more menu.
             t->eval("shelfView.openCoverMenu(backend.shows.showIdAt(0), 'Alpha Show')");
         }},

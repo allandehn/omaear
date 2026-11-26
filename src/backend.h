@@ -413,6 +413,8 @@ private:
     EpisodeModel m_queueModel;
     QHash<qint64, int> m_queueSlots;
     QHash<qint64, EpisodeModel *> m_episodeModels;
+    QSet<qint64> m_freshEpisodeModels;
+    QSet<qint64> m_coversRequestedShows;
     AppNetworkAccessManager m_network; // HTTP/1.1 only, see netaccess.h
     QList<Job> m_queue;
     // Up to kMaxFeedRefreshes in flight. A stopped refresher that is still
