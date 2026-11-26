@@ -18,7 +18,6 @@ constexpr qint64 kFlushEvery = 256 * 1024;       // flush cadence for reader vis
 constexpr qint64 kMaxCacheBytes = 1500LL * 1024 * 1024; // ~1.5 GiB soft cap
 constexpr qint64 kPartMaxAgeMs = 24LL * 60 * 60 * 1000; // 1 day
 constexpr int kMaxRetries = 12;
-constexpr int kRetryBaseMs = 800;
 
 // Hosts that refused the generic player identity this session; their audio is
 // fetched with the app's own User-Agent from the first request on.
@@ -237,6 +236,12 @@ bool HttpFileBuffer::isComplete() const
     return m_complete;
 }
 
+bool HttpFileBuffer::isFailed() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_failed;
+}
+
 qint64 HttpFileBuffer::availableBytes() const
 {
     QMutexLocker lock(&m_mutex);
@@ -268,12 +273,12 @@ void HttpFileBuffer::wakeReaders()
     m_cond.wakeAll();
 }
 
-void HttpFileBuffer::start()
+void HttpFileBuffer::start(qint64 keepOtherEpisodeId)
 {
     if (m_aborted)
         return;
 
-    pruneCache(m_episodeId);
+    pruneCache(m_episodeId, keepOtherEpisodeId);
 
     const QString finished = existingFinishedPath();
     if (!finished.isEmpty()) {
@@ -346,9 +351,13 @@ void HttpFileBuffer::start()
         mode |= QIODevice::Truncate;
 
     if (!m_writer->open(mode)) {
-        m_failed = true;
         m_error = QStringLiteral("Cannot open cache file: %1").arg(m_writer->errorString());
         qWarning("[omaear-cache] %s", qPrintable(m_error));
+        {
+            QMutexLocker lock(&m_mutex);
+            m_failed = true;
+            wakeReaders();
+        }
         emit failed(m_error);
         return;
     }
@@ -385,6 +394,7 @@ void HttpFileBuffer::startRequest(qint64 fromOffset, const QUrl &overrideUrl)
     m_reqHeadersSeen = false;
     m_reqRejected = false;
     m_reqAccepted = false;
+    m_redirectBlocked = false;
 
     // Every fresh chain starts as "default"; onRedirected switches to the static
     // fallback before any stitched body flows. AdsWizz URLs that dropped the
@@ -399,6 +409,8 @@ void HttpFileBuffer::startRequest(qint64 fromOffset, const QUrl &overrideUrl)
     // Each hop is checked in onRedirected (same safety as NoLessSafe).
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::UserVerifiedRedirectPolicy);
+    if (m_transferTimeoutMs > 0)
+        req.setTransferTimeout(m_transferTimeoutMs);
     req.setRawHeader("User-Agent", m_ua);
     // Prefer identity so .part bytes match the final file without on-the-fly decode surprises.
     req.setRawHeader("Accept-Encoding", "identity");
@@ -438,8 +450,14 @@ void HttpFileBuffer::onRedirected(const QUrl &target)
         startRequest(from, fallback);
         return;
     }
-    // NoLessSafeRedirectPolicy equivalent: never https -> http.
-    if (reply->url().scheme() == QStringLiteral("https") && target.scheme() != QStringLiteral("https")) {
+    // Only http/https targets allowed, and never https -> http.
+    const QString targetScheme = target.scheme().toLower();
+    const bool allowedScheme = targetScheme == QLatin1String("http")
+        || targetScheme == QLatin1String("https");
+    const bool downgrade = reply->url().scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0
+        && targetScheme != QLatin1String("https");
+    if (!allowedScheme || downgrade) {
+        m_redirectBlocked = true;
         reply->abort();
         return;
     }
@@ -468,13 +486,20 @@ void HttpFileBuffer::onReadyRead()
 
     const qint64 written = m_writer->write(chunk);
     if (written != chunk.size()) {
-        m_failed = true;
         m_error = QStringLiteral("Cache write failed: %1").arg(m_writer->errorString());
         qWarning("[omaear-cache] %s", qPrintable(m_error));
+        {
+            QMutexLocker lock(&m_mutex);
+            m_failed = true;
+            wakeReaders();
+        }
         m_reply->abort();
         emit failed(m_error);
         return;
     }
+
+    if (written > 0 && m_retries > 0)
+        m_retries = 0;
 
     m_unflushed += written;
     if (m_unflushed >= kFlushEvery)
@@ -524,11 +549,11 @@ void HttpFileBuffer::evaluateHeaders(QNetworkReply *reply)
         qWarning("[omaear-cache] episode %lld: rewriting .part from 0 (%s)",
                  static_cast<long long>(m_episodeId),
                  m_truncateOnAccept ? "other UA or variant" : "server ignored Range");
-        m_writer->resize(0);
-        m_writer->seek(0);
         QMutexLocker lock(&m_mutex);
         setAvailableLocked(0);
         m_unflushed = 0;
+        m_writer->resize(0);
+        m_writer->seek(0);
         wakeReaders();
     }
     m_truncateOnAccept = false;
@@ -620,14 +645,31 @@ void HttpFileBuffer::onReplyFinished()
     const auto err = reply->error();
     const bool askedRange = reply->request().hasRawHeader("Range");
 
+    if (m_redirectBlocked || err == QNetworkReply::ProtocolUnknownError) {
+        reply->deleteLater();
+        m_redirectBlocked = false;
+        if (m_aborted)
+            return;
+        m_error = QStringLiteral("Blocked unsafe redirect");
+        qWarning("[omaear-cache] episode %lld failed: %s",
+                 static_cast<long long>(m_episodeId), qPrintable(m_error));
+        {
+            QMutexLocker lock(&m_mutex);
+            m_failed = true;
+            wakeReaders();
+        }
+        emit failed(m_error);
+        return;
+    }
+
     // Headers with no body never fire readyRead; judge them here. A pure
     // network failure (no HTTP status) has no headers to judge.
-    if (!m_aborted && err != QNetworkReply::OperationCanceledError
+    if (!m_aborted && !m_failed && err != QNetworkReply::OperationCanceledError
         && (err == QNetworkReply::NoError || status > 0))
         evaluateHeaders(reply);
 
     // Drain any remaining bytes before deciding success/fail.
-    if (err == QNetworkReply::NoError && m_reqAccepted && m_writer && !m_aborted) {
+    if (err == QNetworkReply::NoError && m_reqAccepted && m_writer && !m_aborted && !m_failed) {
         const QByteArray rest = reply->readAll();
         if (!rest.isEmpty()) {
             m_writer->write(rest);
@@ -638,10 +680,7 @@ void HttpFileBuffer::onReplyFinished()
 
     reply->deleteLater();
 
-    if (m_aborted)
-        return;
-
-    if (err == QNetworkReply::OperationCanceledError)
+    if (m_aborted || m_failed)
         return;
 
     if (!m_reqAccepted) {
@@ -659,6 +698,8 @@ void HttpFileBuffer::onReplyFinished()
         else if (m_reqRejected)
             why = QStringLiteral("content type %1")
                       .arg(reply->header(QNetworkRequest::ContentTypeHeader).toString());
+        else if (err == QNetworkReply::OperationCanceledError || err == QNetworkReply::TimeoutError)
+            why = QStringLiteral("Connection timed out");
         else
             why = reply->errorString();
         if (tryUserAgentFallback(m_reqRejected, why))
@@ -675,12 +716,12 @@ void HttpFileBuffer::onReplyFinished()
             }
         }
         if (m_reqRejected && err == QNetworkReply::NoError && m_retries >= kMaxRetries) {
-            m_failed = true;
             m_error = QStringLiteral("Server did not send audio (%1)").arg(why);
             qWarning("[omaear-cache] episode %lld failed: %s",
                      static_cast<long long>(m_episodeId), qPrintable(m_error));
             {
                 QMutexLocker lock(&m_mutex);
+                m_failed = true;
                 wakeReaders();
             }
             emit failed(m_error);
@@ -693,26 +734,33 @@ void HttpFileBuffer::onReplyFinished()
         if (finalizeRename())
             return;
 
-        m_failed = true;
         m_error = QStringLiteral("Could not finalize cache file");
+        {
+            QMutexLocker lock(&m_mutex);
+            m_failed = true;
+            wakeReaders();
+        }
         emit failed(m_error);
         return;
     }
 
-    // Network blip: retry with Range from last flushed offset.
-    if (m_retries < kMaxRetries && !m_failed) {
+    // Network blip or transfer timeout: retry with Range from last flushed offset.
+    if (m_retries < kMaxRetries && !isFailed()) {
         scheduleRetry();
         return;
     }
 
-    m_failed = true;
-    m_error = reply->errorString().isEmpty()
-        ? QStringLiteral("Download failed (HTTP %1)").arg(status)
-        : reply->errorString();
+    if (err == QNetworkReply::OperationCanceledError || err == QNetworkReply::TimeoutError)
+        m_error = QStringLiteral("Connection timed out");
+    else
+        m_error = reply->errorString().isEmpty()
+            ? QStringLiteral("Download failed (HTTP %1)").arg(status)
+            : reply->errorString();
     qWarning("[omaear-cache] episode %lld failed: %s",
              static_cast<long long>(m_episodeId), qPrintable(m_error));
     {
         QMutexLocker lock(&m_mutex);
+        m_failed = true;
         wakeReaders(); // unblock any waiting readers
     }
     emit failed(m_error);
@@ -727,7 +775,7 @@ void HttpFileBuffer::scheduleRetry()
         QMutexLocker lock(&m_mutex);
         from = m_available;
     }
-    const int delay = kRetryBaseMs * m_retries;
+    const int delay = m_retryBaseMs * m_retries;
     qInfo("[omaear-cache] retry %d for episode %lld in %d ms (from %lld)",
           m_retries, static_cast<long long>(m_episodeId), delay,
           static_cast<long long>(from));
@@ -764,9 +812,8 @@ bool HttpFileBuffer::finalizeRename()
         if (!QFile::copy(part, dest)) {
             qWarning("[omaear-cache] rename failed for episode %lld",
                      static_cast<long long>(m_episodeId));
-            // Keep .part usable; mark complete against part path by copying availability.
+            // Keep .part intact so cachePath() stays valid and readers unblock.
             QMutexLocker lock(&m_mutex);
-            m_complete = true;
             wakeReaders();
             return false;
         }
@@ -795,7 +842,11 @@ bool HttpFileBuffer::finalizeRename()
 
 void HttpFileBuffer::abort()
 {
-    m_aborted = true;
+    {
+        QMutexLocker lock(&m_mutex);
+        m_aborted = true;
+        wakeReaders();
+    }
     if (m_reply) {
         m_reply->disconnect(this);
         m_reply->abort();
@@ -1038,6 +1089,15 @@ qint64 GrowingMediaDevice::readData(char *data, qint64 maxlen)
                     }
                 }
                 const qint64 n = m_reader->read(data, want);
+                if (n == 0) {
+                    QMutexLocker relock(&m_buffer->m_mutex);
+                    if (m_buffer->m_complete || m_buffer->m_failed || m_buffer->m_aborted)
+                        return 0;
+                    // File was truncated concurrently; wait for new bytes instead of
+                    // surfacing a premature EOF to FFmpeg.
+                    m_buffer->m_cond.wait(&m_buffer->m_mutex, 50);
+                    continue;
+                }
                 return n;
             }
             if (complete || failed || aborted) {
