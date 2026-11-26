@@ -2614,31 +2614,42 @@ int runSelfTest(int argc, char **argv)
                     QStringLiteral("com.github.allanjorch.omaear.Player"),
                     QStringLiteral("StateChanged"));
                 sigState << st;
-                bus.send(sigState);
 
                 QDBusMessage sigPos = QDBusMessage::createSignal(
                     QStringLiteral("/com/github/allanjorch/omaear"),
                     QStringLiteral("com.github.allanjorch.omaear.Player"),
                     QStringLiteral("PositionChanged"));
                 sigPos << 24.75;
-                bus.send(sigPos);
 
+                // Signals sent while no connection owns kPlayerService must be ignored.
+                bus.send(sigState);
                 QElapsedTimer wt;
                 wt.start();
-                while ((idleBackend.playerEpisodeId() != eId || qAbs(idleBackend.playerPosition() - 24.75) > 0.1)
-                       && wt.elapsed() < 1000) {
+                while (wt.elapsed() < 50) {
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     QThread::msleep(2);
                 }
-                check(idleBackend.playerEpisodeId() == eId
-                          && idleBackend.playerStatus() == QStringLiteral("playing")
-                          && qAbs(idleBackend.playerPosition() - 24.75) < 0.1,
-                      "idle-wakeups: Backend updates state and position from D-Bus signals without polling");
+                check(idleBackend.playerEpisodeId() == 0,
+                      "idle-wakeups: ignores signals from senders not owning kPlayerService");
 
-                // Registering and unregistering the player D-Bus name clears stale UI state on player exit.
+                // Claim kPlayerService *after* Backend subscribed: signals from it now arrive.
                 const QString svcName = QStringLiteral("com.github.allanjorch.omaear.Player");
                 if (bus.registerService(svcName)) {
-                    QCoreApplication::processEvents();
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    bus.send(sigState);
+                    bus.send(sigPos);
+
+                    wt.restart();
+                    while ((idleBackend.playerEpisodeId() != eId || qAbs(idleBackend.playerPosition() - 24.75) > 0.1)
+                           && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    check(idleBackend.playerEpisodeId() == eId
+                              && idleBackend.playerStatus() == QStringLiteral("playing")
+                              && qAbs(idleBackend.playerPosition() - 24.75) < 0.1,
+                          "idle-wakeups: Backend receives signals when player registers after window");
+
                     bus.unregisterService(svcName);
                     wt.restart();
                     while (idleBackend.playerEpisodeId() != 0 && wt.elapsed() < 1000) {

@@ -165,11 +165,10 @@ Backend::Backend(Library &library, QObject *parent)
             this, &Backend::onPlayerServiceRegistered);
     connect(m_playerWatcher, &QDBusServiceWatcher::serviceUnregistered,
             this, &Backend::onPlayerServiceUnregistered);
-    // Subscribe by path + interface (like Theme): works even when the player starts later.
-    bus.connect(QString(), kPlayerPath, kPlayerIface,
+    bus.connect(kPlayerService, kPlayerPath, kPlayerIface,
                 QStringLiteral("StateChanged"),
                 this, SLOT(onPlayerStateChanged(QVariantMap)));
-    bus.connect(QString(), kPlayerPath, kPlayerIface,
+    bus.connect(kPlayerService, kPlayerPath, kPlayerIface,
                 QStringLiteral("PositionChanged"),
                 this, SLOT(onPlayerPositionChanged(double)));
     QTimer::singleShot(0, this, [this]() {
