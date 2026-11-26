@@ -1054,7 +1054,7 @@ Item {
         onOpened: filterField.forceActiveFocus()
         onClosed: {
             closedAt = Date.now()
-            if (page.visible && openedFromNav) {
+            if (page.visible && openedFromNav && win.keyboardMode) {
                 win.navArea = "region"
                 win.navShown = true
                 Qt.callLater(win.navRestoreFocus)   // ring back on the flag
