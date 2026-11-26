@@ -2613,14 +2613,14 @@ int runSelfTest(int argc, char **argv)
                 st.insert(QStringLiteral("position"), 12.5);
                 st.insert(QStringLiteral("duration"), 120.0);
                 QDBusMessage sigState = QDBusMessage::createSignal(
-                    QStringLiteral("/com/github/allanjorch/omaear"),
-                    QStringLiteral("com.github.allanjorch.omaear.Player"),
+                    QStringLiteral("/com/github/allandehn/omaear"),
+                    QStringLiteral("com.github.allandehn.omaear.Player"),
                     QStringLiteral("StateChanged"));
                 sigState << st;
 
                 QDBusMessage sigPos = QDBusMessage::createSignal(
-                    QStringLiteral("/com/github/allanjorch/omaear"),
-                    QStringLiteral("com.github.allanjorch.omaear.Player"),
+                    QStringLiteral("/com/github/allandehn/omaear"),
+                    QStringLiteral("com.github.allandehn.omaear.Player"),
                     QStringLiteral("PositionChanged"));
                 sigPos << 24.75;
 
@@ -2636,7 +2636,7 @@ int runSelfTest(int argc, char **argv)
                       "idle-wakeups: ignores signals from senders not owning kPlayerService");
 
                 // Claim kPlayerService *after* Backend subscribed: signals from it now arrive.
-                const QString svcName = QStringLiteral("com.github.allanjorch.omaear.Player");
+                const QString svcName = QStringLiteral("com.github.allandehn.omaear.Player");
                 if (bus.registerService(svcName)) {
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     // Legacy player (no positionSignals flag yet): enables fallback poll while playing.

@@ -4,7 +4,7 @@ CONFIG -= app_bundle
 
 TARGET = omaear
 # Single source of the app version (--version, User-Agent strings, package).
-VERSION = 0.4.12
+VERSION = 0.4.13
 DEFINES += OMAEAR_VERSION=\\\"$$VERSION\\\"
 TEMPLATE = app
 
@@ -55,8 +55,8 @@ target.path = $$PREFIX/bin
 # the absolute path for the user prefix (launchers may not see ~/.local/bin).
 equals(PREFIX, /usr): DESKTOP_EXEC = omaear
 else: DESKTOP_EXEC = $$PREFIX/bin/omaear
-QMAKE_SUBSTITUTES += com.github.allanjorch.omaear.desktop.in
-desktop.files = $$OUT_PWD/com.github.allanjorch.omaear.desktop
+QMAKE_SUBSTITUTES += com.github.allandehn.omaear.desktop.in
+desktop.files = $$OUT_PWD/com.github.allandehn.omaear.desktop
 desktop.CONFIG += no_check_exist
 desktop.path = $$PREFIX/share/applications
 

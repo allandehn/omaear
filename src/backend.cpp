@@ -35,9 +35,9 @@
 #include <QUrl>
 
 namespace {
-const QString kPlayerService = QStringLiteral("com.github.allanjorch.omaear.Player");
-const QString kPlayerPath = QStringLiteral("/com/github/allanjorch/omaear");
-const QString kPlayerIface = QStringLiteral("com.github.allanjorch.omaear.Player");
+const QString kPlayerService = QStringLiteral("com.github.allandehn.omaear.Player");
+const QString kPlayerPath = QStringLiteral("/com/github/allandehn/omaear");
+const QString kPlayerIface = QStringLiteral("com.github.allandehn.omaear.Player");
 
 // Click-cycle order: up from 1× to 2×, then the one slow preset. Values are
 // Library::ratePresets(); stepRate sorts them.

@@ -7,4 +7,4 @@ Icon=omaear
 Terminal=false
 Categories=Audio;Player;
 Keywords=podcast;podcasts;pod;listen;audio;episodes;rss;
-StartupWMClass=com.github.allanjorch.omaear
+StartupWMClass=com.github.allandehn.omaear

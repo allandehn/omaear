@@ -1,7 +1,8 @@
 # Notes for agents working on OmaEar
 
 - Repo: github.com/allandehn/omaear (moved from allanjorch; old links redirect).
-- App id `com.github.allanjorch.omaear` stays as it is. Changing it resets the
+- App id `com.github.allandehn.omaear` stays as it is (renamed from
+  `com.github.allanjorch.omaear` in 0.4.13). Changing it again resets the
   desktop entry and media controls. Data folders are plain `omaear`.
 
 ## Safety & approval
