@@ -11,6 +11,7 @@
 #include <functional>
 
 class QDBusServiceWatcher;
+class QLocalSocket;
 
 class Theme : public QObject {
     Q_OBJECT
@@ -90,7 +91,7 @@ public:
     QString iconBase() const { return m_rounding > 0 ? QStringLiteral("image://icons/round/") : QStringLiteral("image://icons/square/"); }
     // Radius for an element inset by p inside a card: max(R - p, 0).
     Q_INVOKABLE int rInner(qreal p) const { return qMax(qRound(m_rounding - p), 0); }
-    // Re-read rounding now (called on window focus; also polled every second).
+    // Re-read rounding (triggered by Hyprland configreloaded, theme reload, or window focus).
     Q_INVOKABLE void refreshRounding();
     // Pin decoration:rounding (UI tests and screenshots; same as OMAEAR_ROUNDING).
     Q_INVOKABLE void forceRounding(int n);
@@ -130,6 +131,7 @@ private:
     void requestTextScale();
     void applyTextScale(qreal scale);
     void watchPortal();
+    void watchHyprland();
 
     QColor m_background = QColor("#101010");
     QColor m_foreground = QColor("#eeeeee");
@@ -158,7 +160,8 @@ private:
     int m_rounding = 0;          // last good value; Omarchy default is square
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
     QProcess m_roundingProc;
-    QTimer m_roundingPoll;
+    QLocalSocket *m_hyprSocket = nullptr;
+    QByteArray m_hyprBuf;
     // Trailing debounce for Omarchy theme swaps (see Theme::Theme).
     QTimer m_reloadDebounce;
     QTimer m_confirmReload;

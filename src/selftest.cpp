@@ -43,6 +43,8 @@
 #include "backend.h"
 #include "player.h"
 #include "search.h"
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QSettings>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -2550,6 +2552,143 @@ int runSelfTest(int argc, char **argv)
         }
         notModServer.close();
         settings.setValue(QStringLiteral("refresh/lastSuccessMs"), savedRefreshStamp);
+        settings.sync();
+    }
+
+    {
+        // Fewer idle wakeups: Theme and idle Backend start zero repeating QTimers,
+        // and Backend tracks player state/position/exit via D-Bus signals & service watcher.
+        QTemporaryDir idleDir;
+        check(idleDir.isValid(), "idle-wakeups: temp dir");
+        const QByteArray oldHypr = qgetenv("HYPRLAND_INSTANCE_SIGNATURE");
+        qunsetenv("HYPRLAND_INSTANCE_SIGNATURE");
+        Theme idleTheme;
+        if (!oldHypr.isNull())
+            qputenv("HYPRLAND_INSTANCE_SIGNATURE", oldHypr);
+        int activeThemeTimers = 0;
+        for (QTimer *tm : idleTheme.findChildren<QTimer *>()) {
+            if (tm->isActive() && !tm->isSingleShot())
+                ++activeThemeTimers;
+        }
+        check(activeThemeTimers == 0, "idle-wakeups: Theme runs zero repeating timers without Hyprland");
+
+        Library idleLib(idleDir.filePath(QStringLiteral("idle.db")));
+        check(idleLib.isOpen(), "idle-wakeups: library opens");
+        ParsedShow show;
+        show.title = QStringLiteral("Idle Show");
+        ParsedEpisode ep;
+        ep.guid = QStringLiteral("idle-ep-1");
+        ep.title = QStringLiteral("Idle Ep");
+        ep.audioUrl = QStringLiteral("https://example.test/idle.mp3");
+        ep.durationSecs = 120;
+        show.episodes = {ep};
+        const qint64 sId = idleLib.upsertShow(QStringLiteral("https://example.test/idle.xml"), show);
+        const qint64 eId = idleLib.episodes(sId).first().id;
+
+        QSettings settings(Library::settingsPath(), QSettings::IniFormat);
+        const qint64 savedStamp = settings.value(QStringLiteral("refresh/lastSuccessMs"), 0).toLongLong();
+        settings.setValue(QStringLiteral("refresh/lastSuccessMs"), QDateTime::currentMSecsSinceEpoch());
+        settings.sync();
+        {
+            Backend idleBackend(idleLib);
+            QCoreApplication::processEvents();
+            auto countRepeatingTimers = [&idleBackend]() {
+                int count = 0;
+                for (QTimer *tm : idleBackend.findChildren<QTimer *>()) {
+                    if (tm->isActive() && !tm->isSingleShot())
+                        ++count;
+                }
+                return count;
+            };
+            check(countRepeatingTimers() == 0, "idle-wakeups: idle Backend runs zero repeating timers");
+
+            auto bus = QDBusConnection::sessionBus();
+            if (bus.isConnected()) {
+                QVariantMap st;
+                st.insert(QStringLiteral("episodeId"), eId);
+                st.insert(QStringLiteral("showId"), sId);
+                st.insert(QStringLiteral("title"), QStringLiteral("Idle Ep"));
+                st.insert(QStringLiteral("showTitle"), QStringLiteral("Idle Show"));
+                st.insert(QStringLiteral("status"), QStringLiteral("playing"));
+                st.insert(QStringLiteral("position"), 12.5);
+                st.insert(QStringLiteral("duration"), 120.0);
+                QDBusMessage sigState = QDBusMessage::createSignal(
+                    QStringLiteral("/com/github/allanjorch/omaear"),
+                    QStringLiteral("com.github.allanjorch.omaear.Player"),
+                    QStringLiteral("StateChanged"));
+                sigState << st;
+
+                QDBusMessage sigPos = QDBusMessage::createSignal(
+                    QStringLiteral("/com/github/allanjorch/omaear"),
+                    QStringLiteral("com.github.allanjorch.omaear.Player"),
+                    QStringLiteral("PositionChanged"));
+                sigPos << 24.75;
+
+                // Signals sent while no connection owns kPlayerService must be ignored.
+                bus.send(sigState);
+                QElapsedTimer wt;
+                wt.start();
+                while (wt.elapsed() < 50) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QThread::msleep(2);
+                }
+                check(idleBackend.playerEpisodeId() == 0,
+                      "idle-wakeups: ignores signals from senders not owning kPlayerService");
+
+                // Claim kPlayerService *after* Backend subscribed: signals from it now arrive.
+                const QString svcName = QStringLiteral("com.github.allanjorch.omaear.Player");
+                if (bus.registerService(svcName)) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    // Legacy player (no positionSignals flag yet): enables fallback poll while playing.
+                    bus.send(sigState);
+                    wt.restart();
+                    while (idleBackend.playerEpisodeId() != eId && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    check(idleBackend.playerEpisodeId() == eId
+                              && idleBackend.playerStatus() == QStringLiteral("playing")
+                              && countRepeatingTimers() == 1,
+                          "idle-wakeups: legacy player without positionSignals activates fallback poll during playback");
+
+                    // Observing PositionChanged proves signal support and stops the fallback poll.
+                    bus.send(sigPos);
+                    wt.restart();
+                    while (qAbs(idleBackend.playerPosition() - 24.75) > 0.1 && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    check(qAbs(idleBackend.playerPosition() - 24.75) < 0.1
+                              && countRepeatingTimers() == 0,
+                          "idle-wakeups: Backend receives signals when player registers after window and drops fallback poll");
+
+                    // Integer-second boundary updates with small sub-50ms deltas must still publish cleanly.
+                    sigPos.setArguments({24.98});
+                    bus.send(sigPos);
+                    sigPos.setArguments({25.01});
+                    bus.send(sigPos);
+                    wt.restart();
+                    while (idleBackend.playerPosition() < 25.0 && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    check(qAbs(idleBackend.playerPosition() - 25.01) < 0.01,
+                          "idle-wakeups: sub-50ms delta crossing integer second updates playerPosition");
+
+                    bus.unregisterService(svcName);
+                    wt.restart();
+                    while (idleBackend.playerEpisodeId() != 0 && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    check(idleBackend.playerEpisodeId() == 0
+                              && idleBackend.playerStatus() == QStringLiteral("stopped")
+                              && countRepeatingTimers() == 0,
+                          "idle-wakeups: serviceUnregistered resets stale player state");
+                }
+            }
+        }
+        settings.setValue(QStringLiteral("refresh/lastSuccessMs"), savedStamp);
         settings.sync();
     }
 

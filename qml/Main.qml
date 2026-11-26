@@ -50,6 +50,7 @@ ApplicationWindow {
     property double markAllShowId: 0
     property string markAllTitle: ""
     property int markEverythingCount: 0
+    property string markEverythingTitle: ""
     property bool confirmRemove: false
     property bool confirmQueue: false
     // ALLAN'S DECISIONS: which dialogs start with Cancel selected (so Enter cancels) and
@@ -210,6 +211,7 @@ ApplicationWindow {
         if (backend.totalUnheard <= 0)
             return
         markEverythingCount = backend.showCount
+        markEverythingTitle = markEverythingCount === 1 ? backend.shows.titleAt(0) : ""
         confirmEverything = true
     }
 
@@ -1460,7 +1462,11 @@ ApplicationWindow {
                      : confirmRemove
                      ? "Unsubscribe from " + unsubscribeTitle + "?"
                      : confirmEverything
-                     ? "Mark every episode in all " + markEverythingCount + (markEverythingCount === 1 ? " podcast as played?" : " podcasts as played?")
+                     ? (markEverythingCount === 1 && markEverythingTitle.length > 0
+                        ? "Mark every episode of " + markEverythingTitle + " as played?"
+                        : markEverythingCount === 2
+                        ? "Mark every episode in both podcasts as played?"
+                        : "Mark every episode in all " + markEverythingCount + " podcasts as played?")
                      : "Mark every episode of " + markAllTitle + " as played?"
             detail: confirmUnsubAll2 ? "This can't be undone."
                     : confirmRemove ? "Playback history for this show goes with it."

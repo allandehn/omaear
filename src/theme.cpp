@@ -15,6 +15,7 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocalSocket>
 #include <QRegularExpression>
 #include <QTextStream>
 #include <QUrl>
@@ -220,7 +221,8 @@ Theme::Theme(QObject *parent)
     requestTextScale();
 
     // Corner radius R follows Hyprland's decoration:rounding (see the shared
-    // theme-shapes rule). Poll every second; keep the last good value on failure.
+    // theme-shapes rule). Listen on Hyprland's event socket for config reloads
+    // (plus theme reload and window focus); keep the last good value on failure.
     bool okOverride = false;
     const int forced = qEnvironmentVariableIntValue("OMAEAR_ROUNDING", &okOverride);
     if (okOverride && forced >= 0) {
@@ -240,16 +242,57 @@ Theme::Theme(QObject *parent)
             }
         });
         connect(&m_roundingProc, &QProcess::errorOccurred, this, [](QProcess::ProcessError) {});
-        m_roundingPoll.setInterval(1000);
-        connect(&m_roundingPoll, &QTimer::timeout, this, &Theme::refreshRounding);
-        m_roundingPoll.start();
+        watchHyprland();
         refreshRounding();
     }
 }
 
+void Theme::watchHyprland()
+{
+    const QString sig = qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE");
+    if (sig.isEmpty())
+        return;
+    const QString runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    QString sockPath;
+    if (!runtimeDir.isEmpty()) {
+        const QString p = runtimeDir + QStringLiteral("/hypr/") + sig + QStringLiteral("/.socket2.sock");
+        if (QFileInfo::exists(p))
+            sockPath = p;
+    }
+    if (sockPath.isEmpty()) {
+        const QString p = QStringLiteral("/tmp/hypr/") + sig + QStringLiteral("/.socket2.sock");
+        if (QFileInfo::exists(p))
+            sockPath = p;
+    }
+    if (sockPath.isEmpty())
+        return;
+    m_hyprSocket = new QLocalSocket(this);
+    connect(m_hyprSocket, &QLocalSocket::readyRead, this, [this]() {
+        m_hyprBuf.append(m_hyprSocket->readAll());
+        int nl = m_hyprBuf.indexOf('\n');
+        bool reloaded = false;
+        int pos = 0;
+        while (nl >= 0) {
+            const QByteArray line = m_hyprBuf.mid(pos, nl - pos);
+            if (line.startsWith("configreloaded>>"))
+                reloaded = true;
+            pos = nl + 1;
+            nl = m_hyprBuf.indexOf('\n', pos);
+        }
+        if (pos > 0)
+            m_hyprBuf.remove(0, pos);
+        else if (m_hyprBuf.size() > 65536)
+            m_hyprBuf.clear();
+        if (reloaded)
+            refreshRounding();
+    });
+    m_hyprSocket->connectToServer(sockPath);
+}
+
 void Theme::refreshRounding()
 {
-    if (m_roundingFixed || m_roundingProc.state() != QProcess::NotRunning)
+    if (m_roundingFixed || m_roundingProc.state() != QProcess::NotRunning
+        || !qEnvironmentVariableIsSet("HYPRLAND_INSTANCE_SIGNATURE"))
         return;
     m_roundingProc.start(QStringLiteral("hyprctl"),
                          {QStringLiteral("-j"), QStringLiteral("getoption"), QStringLiteral("decoration:rounding")});
@@ -526,6 +569,7 @@ void Theme::reloadAfterQuiet()
     loadColors();
     loadType();
     m_loadedThemeHash = themeContentHash();
+    refreshRounding();
     m_confirmReload.start();
 }
 

@@ -221,6 +221,7 @@ public slots:
 
 signals:
     Q_SCRIPTABLE void StateChanged(QVariantMap state);
+    Q_SCRIPTABLE void PositionChanged(double position);
 
 private:
     void loadEpisode(qlonglong episodeId, bool autoPlay);
@@ -241,6 +242,8 @@ private:
     void recoverAfterSleep(bool resumePlay);
     void armStallWatch();
     void checkStall();
+    void syncPositionTimer();
+    void emitPositionIfDue();
     void tearDownMedia(const QString &reason = QString());
     void clearMediaBuffer();
     void bindMediaSource();
@@ -333,6 +336,11 @@ private:
     qint64 m_stallAnchorMs = -1;
     QElapsedTimer m_stallSince;
     QTimer *m_stallTimer = nullptr;
+    QTimer *m_posTimer = nullptr;
+    QElapsedTimer m_lastPosEmit;
+    qint64 m_lastEmittedPosMs = -1;
+    QElapsedTimer m_lastBufEmit;
+    int m_lastEmittedBufPct = -1;
 };
 
 void MprisRootAdaptor::Raise()
@@ -438,6 +446,27 @@ PlayerService::PlayerService(Library &library, QObject *parent)
     m_stallTimer = new QTimer(this);
     m_stallTimer->setInterval(1000);
     connect(m_stallTimer, &QTimer::timeout, this, [this]() { checkStall(); });
+    m_posTimer = new QTimer(this);
+    m_posTimer->setInterval(200);
+    connect(m_posTimer, &QTimer::timeout, this, [this]() {
+        if (m_tearingDown || !m_sourceBound || m_resumePending || m_recovering
+            || m_episode.id == 0 || m_player->playbackState() != QMediaPlayer::PlayingState) {
+            syncPositionTimer();
+            return;
+        }
+        const qint64 pos = m_player->position();
+        if (m_resumeGuardMs > 5000
+            && m_resumeGuardingSince.isValid()
+            && m_resumeGuardingSince.elapsed() < kResumeGuardMs
+            && pos + 10000 < m_resumeGuardMs
+            && pos < 60000) {
+            return;
+        }
+        if (pos >= 0) {
+            m_positionMs = pos;
+            emitPositionIfDue();
+        }
+    });
     m_resumeTimer = new QTimer(this);
     m_resumeTimer->setInterval(250);
     connect(m_resumeTimer, &QTimer::timeout, this, [this]() {
@@ -550,6 +579,7 @@ PlayerService::PlayerService(Library &library, QObject *parent)
         }
         if (qAbs(position - m_lastSavedMs) >= 5000)
             savePosition();
+        emitPositionIfDue();
     });
     connect(m_player, &QMediaPlayer::durationChanged, this, [this](qint64 duration) {
         if (duration > 0)
@@ -560,6 +590,7 @@ PlayerService::PlayerService(Library &library, QObject *parent)
     });
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, [this]() {
         armStallWatch();
+        syncPositionTimer();
         publish();
     });
     connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
@@ -572,6 +603,13 @@ PlayerService::PlayerService(Library &library, QObject *parent)
             // kick off (still muted until the seek lands).
             if (!m_kickoffDone)
                 kickOffPlayback(m_autoPlayPending);
+        }
+        if (!m_inResumeSeek
+            && (status == QMediaPlayer::LoadedMedia
+                || status == QMediaPlayer::BufferedMedia
+                || status == QMediaPlayer::LoadingMedia
+                || status == QMediaPlayer::StalledMedia)) {
+            publish();
         }
         if (status != QMediaPlayer::EndOfMedia || m_episode.id == 0)
             return;
@@ -757,6 +795,7 @@ QVariantMap PlayerService::State()
     }
     state.insert(QStringLiteral("loading"), loading);
     state.insert(QStringLiteral("bufferPercent"), bufferPercent);
+    state.insert(QStringLiteral("positionSignals"), true);
     return state;
 }
 
@@ -907,6 +946,7 @@ void PlayerService::Play()
         else if (m_player->playbackState() != QMediaPlayer::PlayingState)
             m_player->play();
         armStallWatch();
+        syncPositionTimer();
         publish();
         return;
     }
@@ -937,12 +977,14 @@ void PlayerService::Play()
     if (m_kickoffDone
         && m_player->playbackState() == QMediaPlayer::PlayingState) {
         armStallWatch();
+        syncPositionTimer();
         publish();
         return;
     }
     m_kickoffDone = true;
     m_player->play();
     armStallWatch();
+    syncPositionTimer();
     publish();
 }
 
@@ -1244,6 +1286,7 @@ void PlayerService::recoverAfterSleep(bool resumePlay)
     tryResumeSeek(true);
     kickOffPlayback(resumePlay);
     armStallWatch();
+    syncPositionTimer();
     publish();
     // Allow another recovery if this one did not unstick.
     QTimer::singleShot(4000, this, [this, episodeId, gen]() {
@@ -1298,6 +1341,38 @@ void PlayerService::armStallWatch()
         m_stallAnchorMs = -1;
         m_stallSince.invalidate();
     }
+}
+
+void PlayerService::syncPositionTimer()
+{
+    if (!m_posTimer)
+        return;
+    const bool active = m_episode.id != 0
+        && !m_tearingDown
+        && m_sourceBound
+        && m_player
+        && m_player->playbackState() == QMediaPlayer::PlayingState;
+    if (active) {
+        if (!m_posTimer->isActive())
+            m_posTimer->start();
+    } else {
+        m_posTimer->stop();
+    }
+}
+
+void PlayerService::emitPositionIfDue()
+{
+    if (!m_player || m_player->playbackState() != QMediaPlayer::PlayingState || m_resumePending)
+        return;
+    const bool secondChanged = m_lastEmittedPosMs < 0
+        || (m_positionMs / 1000) != (m_lastEmittedPosMs / 1000);
+    const bool smoothTick = (!m_lastPosEmit.isValid() || m_lastPosEmit.elapsed() >= 250)
+        && qAbs(m_positionMs - m_lastEmittedPosMs) >= 50;
+    if (!secondChanged && !smoothTick)
+        return;
+    m_lastEmittedPosMs = m_positionMs;
+    m_lastPosEmit.restart();
+    emit PositionChanged(m_positionMs / 1000.0);
 }
 
 void PlayerService::checkStall()
@@ -1405,6 +1480,9 @@ void PlayerService::savePosition()
 
 void PlayerService::publish()
 {
+    m_lastEmittedPosMs = m_positionMs;
+    m_lastPosEmit.restart();
+    m_lastEmittedBufPct = -1;
     emit StateChanged(State());
     if (m_mpris)
         m_mpris->notifyChanged();
@@ -1511,6 +1589,8 @@ void PlayerService::tearDownMedia(const QString &reason)
     // Keep m_resumeGuardMs / position for the caller to overwrite on switch; Stop clears them.
     if (m_stallTimer)
         m_stallTimer->stop();
+    if (m_posTimer)
+        m_posTimer->stop();
     m_stallAnchorMs = -1;
     m_stallSince.invalidate();
     m_lastAdvanceAt.invalidate();
@@ -1612,6 +1692,7 @@ void PlayerService::onBufferReady(bool autoPlay)
             m_player->pause();
     }
     armStallWatch();
+    syncPositionTimer();
     publish();
     maybePrefetchNext();
 }
@@ -1657,8 +1738,18 @@ void PlayerService::startEpisodeBuffer(qlonglong episodeId, const QUrl &url, boo
             return;
         if (m_mediaGeneration != gen || m_episode.id != boundEpisodeId || !m_buffer)
             return;
-        if (available < kMinBufferBytes && !m_buffer->isComplete())
+        if (available < kMinBufferBytes && !m_buffer->isComplete()) {
+            if (m_autoPlayPending) {
+                const int pct = int(qMin<qint64>(100, available * 100 / kMinBufferBytes));
+                if (pct != m_lastEmittedBufPct
+                    && (!m_lastBufEmit.isValid() || m_lastBufEmit.elapsed() >= 200 || pct - m_lastEmittedBufPct >= 10)) {
+                    m_lastEmittedBufPct = pct;
+                    m_lastBufEmit.restart();
+                    emit StateChanged(State());
+                }
+            }
             return;
+        }
         // Wait until HTTP headers arrive so size() can report Content-Length before
         // FFmpeg probes (avoids treating a tiny head buffer as a 1s file).
         if (!m_buffer->isComplete() && !m_buffer->headersReceived())
@@ -1940,6 +2031,8 @@ int runPlayerSelfTest()
         }
 
         PlayerService svc(lib);
+        check(svc.metaObject()->indexOfSignal("PositionChanged(double)") >= 0,
+              "pr2-player: PositionChanged signal exported on D-Bus adaptor");
         QList<double> statePositions;
         QObject::connect(&svc, &PlayerService::StateChanged, &svc, [&](const QVariantMap &st) {
             if (st.contains(QStringLiteral("position")))
