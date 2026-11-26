@@ -77,6 +77,46 @@ const char16_t *foldTable()
     return table;
 }
 
+bool looksLikeHtmlTag(QStringView tag)
+{
+    if (tag.isEmpty() || tag.contains(QLatin1Char('<')))
+        return false;
+    if (tag.startsWith(QLatin1String("!--")))
+        return tag.size() >= 5 && tag.endsWith(QLatin1String("--"));
+    int pos = 0;
+    bool closing = false;
+    if (tag.at(0) == QLatin1Char('/')) {
+        closing = true;
+        pos = 1;
+    }
+    if (pos >= tag.size())
+        return false;
+    auto isAsciiLetter = [](QChar ch) {
+        const ushort u = ch.unicode();
+        return (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z');
+    };
+    auto isTagNameChar = [&](QChar ch) {
+        const ushort u = ch.unicode();
+        return isAsciiLetter(ch) || (u >= '0' && u <= '9') || u == ':' || u == '-';
+    };
+    if (!isAsciiLetter(tag.at(pos)))
+        return false;
+    ++pos;
+    while (pos < tag.size() && isTagNameChar(tag.at(pos)))
+        ++pos;
+    if (pos == tag.size())
+        return true;
+    if (closing) {
+        while (pos < tag.size()) {
+            if (!tag.at(pos).isSpace())
+                return false;
+            ++pos;
+        }
+        return true;
+    }
+    return tag.at(pos).isSpace() || tag.at(pos) == QLatin1Char('/');
+}
+
 QString escape(QStringView text)
 {
     return text.toString().toHtmlEscaped();
@@ -115,11 +155,14 @@ QString LibrarySearch::plainFromHtml(const QString &html)
         const QChar c = html.at(i);
         if (c == QLatin1Char('<')) {
             const int end = html.indexOf(QLatin1Char('>'), i + 1);
-            if (end < 0)
-                break;
-            if (isBreakTag(QStringView(html).mid(i + 1, end - i - 1)))
-                put(QLatin1Char(' '));
-            i = end;
+            const QStringView tag = end > i + 1 ? QStringView(html).mid(i + 1, end - i - 1) : QStringView();
+            if (end > i + 1 && looksLikeHtmlTag(tag)) {
+                if (isBreakTag(tag))
+                    put(QLatin1Char(' '));
+                i = end;
+            } else {
+                put(c);
+            }
         } else if (c == QLatin1Char('&')) {
             const int end = html.indexOf(QLatin1Char(';'), i + 1);
             QChar decoded;
@@ -240,7 +283,7 @@ void LibrarySearch::ensureIndex()
         doc.row.description.clear(); // the plain copy below is all search needs
         doc.titleLower = fold(row.title);
         doc.showLower = showFolded.value(row.showId); // shared, not copied
-        doc.notes = plainFromHtml(row.description);
+        doc.notes = row.description.simplified();
         doc.notesLower = fold(doc.notes);
         m_docs.append(doc);
     }

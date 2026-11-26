@@ -23,12 +23,24 @@ bool looksLikeAudio(const QString &type, const QString &url)
         || path.endsWith(QStringLiteral(".flac"));
 }
 
+bool isAllowedFeedUrl(const QUrl &url, const QUrl &base)
+{
+    if (!url.isValid())
+        return false;
+    const QString scheme = url.scheme().toLower();
+    if (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
+        return true;
+    return scheme == QLatin1String("file") && base.isLocalFile();
+}
+
 void considerAudio(ParsedEpisode &episode, const QString &url, const QString &type, const QUrl &base)
 {
     if (url.isEmpty() || !episode.audioUrl.isEmpty())
         return;
-    const QUrl resolved = base.resolved(QUrl(url));
-    const QString absolute = resolved.isValid() ? resolved.toString() : url;
+    const QUrl resolved = base.resolved(QUrl(url.trimmed()));
+    if (!isAllowedFeedUrl(resolved, base))
+        return;
+    const QString absolute = resolved.toString();
     if (!looksLikeAudio(type, absolute))
         return;
     episode.audioUrl = absolute;
@@ -36,10 +48,13 @@ void considerAudio(ParsedEpisode &episode, const QString &url, const QString &ty
 
 QString resolveUrl(const QString &url, const QUrl &base)
 {
-    if (url.isEmpty())
+    const QString trimmed = url.trimmed();
+    if (trimmed.isEmpty())
         return {};
-    const QUrl resolved = base.resolved(QUrl(url.trimmed()));
-    return resolved.isValid() ? resolved.toString() : url.trimmed();
+    const QUrl resolved = base.resolved(QUrl(trimmed));
+    if (!isAllowedFeedUrl(resolved, base))
+        return {};
+    return resolved.toString();
 }
 
 QString plainText(const QString &value)
