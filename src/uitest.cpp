@@ -14,6 +14,7 @@
 #include <QGuiApplication>
 #include <QCoreApplication>
 #include <QImage>
+#include <QContextMenuEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QNetworkAccessManager>
@@ -65,6 +66,9 @@ void seedExplore(QQmlApplicationEngine &engine, int n)
         r.title = QStringLiteral("Seeded podcast %1").arg(i + 1);
         r.author = QStringLiteral("Test publisher");
         r.cover = QUrl::fromLocalFile(path).toString();
+        r.genre = QStringLiteral("Technology");
+        r.trackCount = 12 + i;
+        r.released = 1793921400;
         r.feedUrl = QStringLiteral("file:///nonexistent-%1.xml").arg(i);
         rows << r;
     }
@@ -177,6 +181,13 @@ struct UiTest {
         QCursor::setPos(win->mapToGlobal(p).toPoint());
         QMouseEvent move(QEvent::MouseMove, p, win->mapToGlobal(p), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
         QCoreApplication::sendEvent(win, &move);
+    }
+    void contextMenu(QPointF p)
+    {
+        const QPointF g = win->mapToGlobal(p);
+        QCursor::setPos(g.toPoint());
+        QContextMenuEvent ev(QContextMenuEvent::Mouse, p.toPoint(), g.toPoint());
+        QCoreApplication::sendEvent(win, &ev);
     }
     // Realistic: move there (hover), press, hold ~90 ms (mid-fade), release.
     void click(QPointF p, Qt::MouseButton b)
@@ -1897,7 +1908,7 @@ void startUiTest(QQmlApplicationEngine &engine)
         {200, [t]() {
             t->expect(t->eval("!win.warmHas(backend.shows.showIdAt(0)) && win.warmSpecCount === 0").toBool(),
                       "a right-click does not pre-warm");
-            t->eval("if (shelfView.coverMenuOpen) shelfView.coverMenuObject.close()");
+            t->eval("if (shelfView.coverMenuObject.visible) shelfView.coverMenuObject.close()");
             // Leave the tile so hoverIndex is -1; otherwise onKbdShowIdChanged
             // will not schedule a pre-warm. Move from 0 so the index actually changes.
             t->hover(QPointF(5, 5));
@@ -2025,6 +2036,195 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->expect(t->eval(findItem + "(shelfView.coverMenuObject).enabled === false"
                               " && " + findItem + "(shelfView.moreMenuObject).enabled === false").toBool(),
                       "mark-all-podcasts: menu items disable once caught up");
+            // Transient surfaces: [tooltip] / [menu] shell.toml tokens & reduceMotion.
+            themeWrite(QStringLiteral("colors.toml"),
+                       QStringLiteral("mode = \"dark\"\naccent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\n"
+                                      "foreground = \"#c0caf5\"\nred = \"#f7768e\"\n"));
+            themeWrite(QStringLiteral("shell.toml"),
+                       QStringLiteral("[tooltip]\nbackground = \"#223344\"\nbackground-alpha = 0.85\n"
+                                      "text = \"#ffeedd\"\nborder = \"#4488cc\"\nborder-alpha = 1.0\n"
+                                      "[menu]\nbackground = \"#111822\"\nbackground-alpha = 1.0\n"
+                                      "text = \"#e0e8f0\"\nborder = \"#55aaee\"\nborder-alpha = 1.0\n"
+                                      "scrim = \"#0a0e14\"\nscrim-alpha = 0.65\n"
+                                      "selected-background = \"#abcdef\"\nselected-background-alpha = 0.25\n"
+                                      "selected-text = \"#ffaa22\"\n"
+                                      "selected-border = \"#ff5511\"\nselected-border-alpha = 0.5\n"));
+        }},
+        {900, [t]() {
+            t->expect(t->eval("theme.tooltipFg.toString() === '#ffeedd' && theme.tooltipBorder.toString() === '#4488cc'"
+                              " && Math.abs(theme.tooltipBg.a - 0.85) < 0.02"
+                              " && theme.menuBg.toString() === '#111822' && theme.menuFg.toString() === '#e0e8f0'"
+                              " && theme.menuBorder.toString() === '#55aaee' && Math.abs(theme.menuScrim.a - 0.65) < 0.02"
+                              " && theme.menuSelectedFg.toString() === '#ffaa22'"
+                              " && Math.abs(theme.menuSelectedBg.a - 0.25) < 0.02"
+                              " && Math.abs(theme.menuSelectedBorder.a - 0.5) < 0.02").toBool(),
+                      "transient: [tooltip] and [menu] tokens and alphas load live");
+            t->eval("theme.forceReduceMotion(true)");
+            t->expect(t->eval("theme.reduceMotion && win.popupOpenMs === 0 && win.popupCloseMs === 0").toBool(),
+                      "transient: reduceMotion drops open/close timings to 0 ms");
+            t->eval("theme.forceReduceMotion(false)");
+            t->expect(t->eval("!theme.reduceMotion && win.popupOpenMs === 180 && win.popupCloseMs === 120").toBool(),
+                      "transient: animations:enabled uses 180 ms open and 120 ms close");
+            // Open AddFeed modal and inspect modal scrim + AppTextField right-click TextFieldMenu.
+            t->eval("win.addOpen = true");
+        }},
+        {300, [t]() {
+            t->expect(t->eval("addOpen && dialog.color.toString() === theme.menuBg.toString()"
+                              " && dialog.border.color.toString() === theme.menuBorder.toString()"
+                              " && Math.abs(dialogScrim.color.a - 0.65) < 0.02").toBool(),
+                      "transient: ConfirmDialog and scrim use [menu] tokens");
+            t->eval("feedField.text = 'https://example.com/feed.xml'; feedField.selectAll()");
+            t->contextMenu(t->centerOf("feedField"));
+        }},
+        {300, [t]() {
+            t->expect(t->eval("feedField.contextMenu.opened && win.openPopup === feedField.contextMenu"
+                              " && feedField.contextMenu.background.color.toString() === theme.menuBg.toString()"
+                              " && feedField.contextMenu.itemAt(0).text === 'Cut'"
+                              " && feedField.contextMenu.itemAt(0).shortcut === 'Ctrl+X'"
+                              " && feedField.contextMenu.itemAt(0).enabled === true"
+                              " && feedField.contextMenu.itemAt(1).text === 'Copy'"
+                              " && feedField.contextMenu.itemAt(1).shortcut === 'Ctrl+C'"
+                              " && feedField.contextMenu.itemAt(2).text === 'Paste'"
+                              " && feedField.contextMenu.itemAt(2).shortcut === 'Ctrl+V'"
+                              " && feedField.contextMenu.itemAt(4).text === 'Select all'"
+                              " && feedField.contextMenu.itemAt(4).shortcut === 'Ctrl+A'").toBool(),
+                      "transient: right-clicking AppTextField opens styled TextFieldMenu");
+            t->key(Qt::Key_Escape);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!feedField.contextMenu.opened && addOpen && feedField.activeFocus").toBool(),
+                      "transient: first Esc closes only TextFieldMenu and restores field focus");
+            t->key(Qt::Key_Escape);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!addOpen").toBool(),
+                      "transient: second Esc closes the AddFeed dialog");
+            t->eval("shelfView.openCoverMenu(backend.shows.showIdAt(0), 'Alpha Show')");
+        }},
+        {300, [t]() {
+            const int firstEnabled = t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                                             " for (var i = 0; i < m.count; ++i) if (m.isSelectable(i)) return i; return -1 })()").toInt();
+            const int secondEnabled = t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                                              " for (var i = " + QString::number(firstEnabled + 1) + "; i < m.count; ++i)"
+                                              "   if (m.isSelectable(i)) return i; return -1 })()").toInt();
+            const int lastEnabled = t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                                            " for (var i = m.count - 1; i >= 0; --i) if (m.isSelectable(i)) return i; return -1 })()").toInt();
+            const auto countActive = [t]() {
+                return t->eval("(function(){ var m = shelfView.coverMenuObject;"
+                               " var n = 0; for (var i = 0; i < m.count; ++i) if (m.itemAt(i).activeRow) ++n;"
+                               " return n })()").toInt();
+            };
+            t->key(Qt::Key_End);
+            const int endIdx = t->eval("shelfView.coverMenuObject.currentIndex").toInt();
+            const int endAct = countActive();
+            t->key(Qt::Key_Home);
+            const int homeIdx = t->eval("shelfView.coverMenuObject.currentIndex").toInt();
+            const int homeAct = countActive();
+            t->key(Qt::Key_J);
+            const int afterJ = t->eval("shelfView.coverMenuObject.currentIndex").toInt();
+            const int jAct = countActive();
+            t->key(Qt::Key_K);
+            const int afterK = t->eval("shelfView.coverMenuObject.currentIndex").toInt();
+            const int kAct = countActive();
+            const bool ok = firstEnabled >= 0 && secondEnabled > firstEnabled && lastEnabled > secondEnabled
+                && endIdx == lastEnabled && endAct == 1
+                && homeIdx == firstEnabled && homeAct == 1
+                && afterJ == secondEnabled && jAct == 1
+                && afterK == firstEnabled && kAct == 1;
+            if (!ok)
+                qWarning() << "[uitest] AppMenu diag: first=" << firstEnabled << "second=" << secondEnabled
+                           << "last=" << lastEnabled << "end=" << endIdx << endAct
+                           << "home=" << homeIdx << homeAct << "j=" << afterJ << jAct
+                           << "k=" << afterK << kAct;
+            t->expect(ok, "transient: AppMenu j/k/Home/End keep a single unified activeRow");
+            t->key(Qt::Key_Escape);
+        }},
+        {250, [t]() {
+            t->eval("backend.setShelfView('gallery'); shelfView.moreMenuObject.popupAt(null)");
+        }},
+        {250, [t]() {
+            t->frozenAt = t->eval("win.spaceToggleCount").toInt();
+            t->expect(t->eval("shelfView.moreMenuObject.opened && win.openPopup === shelfView.moreMenuObject").toBool(),
+                      "transient: moreMenu opened via popupAt");
+            t->key(Qt::Key_J);
+            t->key(Qt::Key_Space);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!shelfView.moreMenuObject.opened && backend.shelfView === 'list'"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Space activates AppMenu row without toggling playback");
+            t->eval("shelfView.moreMenuObject.popupAt(null)");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("shelfView.moreMenuObject.opened && shelfView.moreMenuObject.currentIndex === 0").toBool(),
+                      "transient: moreMenu reopens on Gallery");
+            t->key(Qt::Key_Return);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!shelfView.moreMenuObject.opened && backend.shelfView === 'gallery'"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Return activates AppMenu row without toggling playback");
+            t->eval("backend.setRate(1.0); playerBar.visible = true; playerBar.openSpeedPopup()");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("playerBar.speedPopupObject.opened && win.openPopup === playerBar.speedPopupObject").toBool(),
+                      "transient: speedPopup opens and sets openPopup");
+            t->key(Qt::Key_J);
+            t->key(Qt::Key_Space);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!playerBar.speedPopupObject.opened && Math.abs(backend.playerRate - 1.25) < 0.05"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Space activates speedPopup row without toggling playback");
+            t->eval("playerBar.openSpeedPopup()");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("playerBar.speedPopupObject.opened").toBool(),
+                      "transient: speedPopup reopens for Return check");
+            t->key(Qt::Key_K);
+            t->key(Qt::Key_Return);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!playerBar.speedPopupObject.opened && Math.abs(backend.playerRate - 1.0) < 0.05"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Return activates speedPopup row without toggling playback");
+            t->eval("playerBar.visible = Qt.binding(function() { return backend.playerEpisodeId !== 0 && !win.nowPlayingOpen })");
+            t->key(Qt::Key_Space);
+        }},
+        {200, [t]() {
+            t->expect(t->eval("win.spaceToggleCount").toInt() == t->frozenAt + 1,
+                      "transient: Space resumes toggling playback once menus and popups close");
+            t->eval("win.openExplorePage()");
+            seedExplore(*t->engine, 4);
+        }},
+        {400, [t]() {
+            t->hover(t->centerOf("explorePage.tileItemAt(0).coverArt"));
+        }},
+        {200, [t]() {
+            t->expect(t->eval("!explorePage.tileItemAt(0).tipItem.visible").toBool(),
+                      "transient: Explore tile AppTip waits before 400 ms delay");
+        }},
+        {350, [t]() {
+            t->expect(t->eval("explorePage.tileItemAt(0).tipItem.visible"
+                              " && explorePage.tileItemAt(0).tipItem.delay === 400"
+                              " && explorePage.tileItemAt(0).tipItem.text.indexOf('Technology') >= 0"
+                              " && explorePage.tileItemAt(0).tipItem.text.indexOf('12 episodes') >= 0"
+                              " && explorePage.tileItemAt(0).tipItem.text.indexOf('Latest ') >= 0").toBool(),
+                      "transient: Explore tile AppTip shows category, count, and latest date after 400 ms");
+            t->eval("explore.openPreview(0)");
+        }},
+        {300, [t]() {
+            const double expectedH = t->eval("Math.min(explorePage.height - 48,"
+                                             " Math.max(Math.round(480 * theme.textScale), Math.round(explorePage.height * 0.78)))").toDouble();
+            const double actualH = t->eval("explorePage.previewCardHeight").toDouble();
+            t->expect(qAbs(actualH - expectedH) < 1.0 && !t->eval("explorePage.tileItemAt(0).tipItem.visible").toBool(),
+                      "transient: Explore preview keeps fixed proportional height and hides tile tooltip");
+            t->key(Qt::Key_Escape);
+            themeRemove();
         }},
     };
     t->run(0);

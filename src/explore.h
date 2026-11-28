@@ -59,6 +59,7 @@ public:
     ExploreResult row(int i) const { return i >= 0 && i < m_rows.size() ? m_rows.at(i) : ExploreResult{}; }
     int indexOfId(qint64 id) const;
     void setFeedUrl(int i, const QString &feedUrl);
+    void updateLookup(int i, const ExploreResult &r);
     // Subscribed = feed already in the library; adding = Subscribe pressed, not landed yet.
     void setStates(const QSet<QString> &libraryFeeds, const QSet<qint64> &adding);
 

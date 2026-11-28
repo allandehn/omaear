@@ -33,11 +33,24 @@ class Theme : public QObject {
     Q_PROPERTY(QColor popupBackground READ popupBackground NOTIFY changed)
     Q_PROPERTY(QColor popupText READ popupText NOTIFY changed)
     Q_PROPERTY(QColor border READ border NOTIFY changed)
+    // Transient surface colours from shell.toml [tooltip] and [menu] with
+    // stock omarchy-shell alpha defaults when unset.
+    Q_PROPERTY(QColor tooltipBg READ tooltipBg NOTIFY changed)
+    Q_PROPERTY(QColor tooltipFg READ tooltipFg NOTIFY changed)
+    Q_PROPERTY(QColor tooltipBorder READ tooltipBorder NOTIFY changed)
+    Q_PROPERTY(QColor menuBg READ menuBg NOTIFY changed)
+    Q_PROPERTY(QColor menuFg READ menuFg NOTIFY changed)
+    Q_PROPERTY(QColor menuBorder READ menuBorder NOTIFY changed)
+    Q_PROPERTY(QColor menuScrim READ menuScrim NOTIFY changed)
+    Q_PROPERTY(QColor menuSelectedBg READ menuSelectedBg NOTIFY changed)
+    Q_PROPERTY(QColor menuSelectedFg READ menuSelectedFg NOTIFY changed)
+    Q_PROPERTY(QColor menuSelectedBorder READ menuSelectedBorder NOTIFY changed)
     // Tints derived from the live theme in OKLCH (recomputed in loadColors()).
     Q_PROPERTY(QColor barBackground READ barBackground NOTIFY changed)
     Q_PROPERTY(QColor pillBackground READ pillBackground NOTIFY changed)
     // Live Hyprland decoration:rounding (R) and the radius scale derived from it.
     Q_PROPERTY(int rounding READ rounding NOTIFY roundingChanged)
+    Q_PROPERTY(bool reduceMotion READ reduceMotion NOTIFY motionChanged)
     Q_PROPERTY(int rCard READ rounding NOTIFY roundingChanged)
     Q_PROPERTY(int rButton READ rButton NOTIFY roundingChanged)
     Q_PROPERTY(int rIcon READ rIcon NOTIFY roundingChanged)
@@ -68,6 +81,16 @@ public:
     QColor popupBackground() const { return m_popupBackground; }
     QColor popupText() const { return m_popupText; }
     QColor border() const { return m_border; }
+    QColor tooltipBg() const { return m_tooltipBg; }
+    QColor tooltipFg() const { return m_tooltipFg; }
+    QColor tooltipBorder() const { return m_tooltipBorder; }
+    QColor menuBg() const { return m_menuBg; }
+    QColor menuFg() const { return m_menuFg; }
+    QColor menuBorder() const { return m_menuBorder; }
+    QColor menuScrim() const { return m_menuScrim; }
+    QColor menuSelectedBg() const { return m_menuSelectedBg; }
+    QColor menuSelectedFg() const { return m_menuSelectedFg; }
+    QColor menuSelectedBorder() const { return m_menuSelectedBorder; }
     // One colour token as Omarchy writes them: "rgba(33ccffee)", "rgb(7aa2f7)",
     // "#7aa2f7", "0xee33ccff", "transparent"; opaque RGB, invalid when it is none of these.
     static QColor parseShellColor(const QString &token);
@@ -86,6 +109,7 @@ public:
     static qreal oklchLightness(const QColor &c);
     static QColor oklchNudge(const QColor &c, qreal dL, qreal cScale = 1.0);
     int rounding() const { return m_rounding; }
+    bool reduceMotion() const { return m_reduceMotion; }
     int rButton() const { return qMin(m_rounding, 4); }
     int rIcon() const { return qMin(qRound(m_rounding / 4.0), 2); }
     QString iconBase() const { return m_rounding > 0 ? QStringLiteral("image://icons/round/") : QStringLiteral("image://icons/square/"); }
@@ -95,6 +119,11 @@ public:
     Q_INVOKABLE void refreshRounding();
     // Pin decoration:rounding (UI tests and screenshots; same as OMAEAR_ROUNDING).
     Q_INVOKABLE void forceRounding(int n);
+    // Pin reduceMotion (UI tests; same as OMAEAR_REDUCE_MOTION).
+    Q_INVOKABLE void forceReduceMotion(bool reduce);
+    // Parse output of `hyprctl -j --batch "getoption decoration:rounding;getoption animations:enabled"`.
+    // Outputs set >= 0 when present (animationsEnabled is 0 or 1); left -1 when absent.
+    static void parseHyprBatch(const QByteArray &output, int *rounding, int *animationsEnabled);
     // Recolour a bundled SVG (currentColor -> the given colour) as a data URI
     // for Image.source. Rasterised once via sourceSize; no per-frame effect.
     Q_INVOKABLE QString tintedSvg(const QString &name, const QColor &color) const;
@@ -114,6 +143,7 @@ public:
 signals:
     void changed();
     void roundingChanged();
+    void motionChanged();
 
 private slots:
     void handlePortalSettingChanged(const QString &nameSpace, const QString &key,
@@ -155,10 +185,22 @@ private:
     QColor m_border = QColor("#5584aa");
     QColor m_popupBackground = QColor("#101010");
     QColor m_popupText = QColor("#eeeeee");
+    QColor m_tooltipBg = QColor(16, 16, 16, 247);
+    QColor m_tooltipFg = QColor("#eeeeee");
+    QColor m_tooltipBorder = QColor("#5584aa");
+    QColor m_menuBg = QColor("#101010");
+    QColor m_menuFg = QColor("#eeeeee");
+    QColor m_menuBorder = QColor("#5584aa");
+    QColor m_menuScrim = QColor(16, 16, 16, 128);
+    QColor m_menuSelectedBg = QColor(238, 238, 238, 20);
+    QColor m_menuSelectedFg = QColor("#5584aa");
+    QColor m_menuSelectedBorder = QColor(85, 132, 170, 64);
     QColor m_barBackground = QColor("#0d0d0d");
     QColor m_pillBackground = QColor("#0b0b0b");
     int m_rounding = 0;          // last good value; Omarchy default is square
     bool m_roundingFixed = false; // OMAEAR_ROUNDING override (tests, screenshots)
+    bool m_reduceMotion = false;  // follows Hyprland animations:enabled == false
+    bool m_motionFixed = false;   // OMAEAR_REDUCE_MOTION override (tests)
     QProcess m_roundingProc;
     QLocalSocket *m_hyprSocket = nullptr;
     QByteArray m_hyprBuf;

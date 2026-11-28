@@ -1,8 +1,7 @@
 import QtQuick
 
 // Fade-in for overlay panels that are plain Items (dialogs, Info, preview):
-// the same timing as the popups (win.popupFadeInMs / OutCubic). Hiding stays
-// instant, so a dialog's contents never vanish under a still-fading scrim.
+// matches popupOpenMs / reduceMotion while keeping hide instant.
 NumberAnimation {
     id: fade
     property Item host: null
@@ -10,15 +9,16 @@ NumberAnimation {
     property: "opacity"
     from: 0
     to: 1
-    duration: win.popupFadeInMs
-    easing.type: Easing.OutCubic
+    duration: win.popupOpenMs
+    easing.type: Easing.BezierSpline
+    easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]
     property Connections watcher: Connections {
         target: fade.host
         function onVisibleChanged() {
-            if (fade.host.visible)
-                fade.restart()
-            else
+            if (!fade.host.visible || win.popupOpenMs <= 0)
                 fade.host.opacity = 1
+            else
+                fade.restart()
         }
     }
 }

@@ -8,11 +8,11 @@ import QtCore
 
 ApplicationWindow {
     id: win
-    // One timing for every popup, menu and overlay: the Material popup fade
-    // the volume/speed popups always used (opacity OutCubic, slight grow).
-    readonly property int popupFadeInMs: 150
-    readonly property int popupFadeOutMs: 150
-    readonly property int popupScaleMs: 220
+    // Shared transient-surface timing: 180ms open / 120ms close, or 0ms when reduceMotion is set.
+    readonly property int popupOpenMs: theme.reduceMotion ? 0 : 180
+    readonly property int popupCloseMs: theme.reduceMotion ? 0 : 120
+    readonly property int popupFadeInMs: popupOpenMs
+    readonly property int popupFadeOutMs: popupCloseMs
     width: 1100
     height: 740
     minimumWidth: 720
@@ -189,6 +189,7 @@ ApplicationWindow {
     function closeModals() {
         if (!modalOpen)
             return false
+        closeAllPopups()
         addOpen = false
         confirmAll = false
         confirmEverything = false
@@ -239,7 +240,7 @@ ApplicationWindow {
     // One place that closes every menu and popup when the view or layout
     // changes (page, history step, shelf list/gallery, dialogs, Info, focus loss).
     function closeAllPopups() {
-        if (openPopup && openPopup.opened)
+        if (openPopup && openPopup.visible && openPopup.closing !== true)
             openPopup.close()
         explorePage.closeRegions()
     }
@@ -278,17 +279,18 @@ ApplicationWindow {
     }
 
     function back() {
-        // An open menu takes Esc / Back first and the page stays put.
-        if (openPopup && openPopup.opened) {
+        // Topmost active transient surface takes Esc / Back first:
+        // open menu/dropdown, then modal card, then help overlay, then page overlays.
+        if (openPopup && openPopup.visible && openPopup.closing !== true) {
             openPopup.close()
-            return
-        }
-        if (helpOpen) {
-            helpOpen = false
             return
         }
         if (closeModals())
             return
+        if (helpOpen) {
+            helpOpen = false
+            return
+        }
         // Explore's region picker and preview card are page-level overlays: close them first.
         if (pageKind === "explore" && explorePage.closeRegions())
             return
@@ -807,7 +809,7 @@ ApplicationWindow {
     // Navigation animation: true while a held key is auto-repeating (covers skip the lift).
     property bool keyRepeating: false
     function shelfKey(event) {
-        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen) return
+        if (navPages.indexOf(pageKind) < 0 || modalOpen || helpOpen || (openPopup && openPopup.opened)) return
         navSwitchPage()
         var k = event.key
         var mods = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
@@ -1190,12 +1192,16 @@ ApplicationWindow {
         return true
     }
 
+    property int spaceToggleCount: 0
     Shortcut {
         sequence: "Space"
-        // Never steal Space from a text field or an open confirmation dialog.
-        enabled: !modalOpen && !(win.activeFocusItem instanceof TextInput)
+        // Never steal Space from a text field, modal, or open menu/popup.
+        enabled: !modalOpen && !openPopup && !explorePage.regionOpen && !(win.activeFocusItem instanceof TextInput)
         context: Qt.ApplicationShortcut
-        onActivated: backend.togglePlayback()
+        onActivated: {
+            spaceToggleCount = spaceToggleCount + 1
+            backend.togglePlayback()
+        }
     }
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
@@ -1448,8 +1454,7 @@ ApplicationWindow {
         anchors.fill: parent
         id: dialogScrim
         visible: addOpen || confirmAll || confirmEverything || confirmRemove || confirmQueue || confirmUnsubAll || confirmUnsubAll2
-        // Omarchy Stable 4.5 scrim: the theme background at 70%. A click on it cancels.
-        color: Qt.alpha(theme.background, 0.7)
+        color: theme.menuScrim
         PopupFadeIn { host: dialogScrim }
 
         MouseArea {
@@ -1529,7 +1534,7 @@ ApplicationWindow {
                 closeModals()
             }
 
-            TextField {
+            AppTextField {
                 id: feedField
                 visible: addOpen
                 width: parent.width

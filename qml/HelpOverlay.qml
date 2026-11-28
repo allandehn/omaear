@@ -33,11 +33,16 @@ Item {
     PopupFadeIn { host: root }
 
     // hoverEnabled so the page behind gets no hover highlight while Info is open.
-    MouseArea {
+    Rectangle {
         anchors.fill: parent
-        hoverEnabled: true
-        onClicked: root.dismiss()
-        onWheel: (wheel) => wheel.accepted = true
+        color: theme.menuScrim
+        z: 0
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: root.dismiss()
+            onWheel: (wheel) => wheel.accepted = true
+        }
     }
 
     Rectangle {
@@ -50,16 +55,24 @@ Item {
         readonly property real bodyHeight: Math.min(column.implicitHeight, limit)
         width: Math.min(root.width - 48, 860)
         height: pad + bodyHeight + gap + footer.implicitHeight + pad
-        color: theme.background
-        border.color: theme.selection
+        color: theme.menuBg
+        border.color: theme.menuBorder
         border.width: 1
-        radius: theme.rCard
+        radius: theme.rounding
         clip: true
 
         // Clicks on the padding stay in the card. The dim area behind it dismisses.
         MouseArea {
             anchors.fill: parent
             z: 0
+        }
+
+        QuietScroll {
+            view: scroller
+            anchors.top: scroller.top
+            anchors.bottom: scroller.bottom
+            anchors.right: parent.right
+            anchors.rightMargin: 2
         }
 
         Flickable {

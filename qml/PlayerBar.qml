@@ -19,6 +19,7 @@ Rectangle {
 
     // Ascending picker order; values match backend kRates.
     readonly property var rateChoices: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    readonly property var speedPopupObject: speedPopup
 
     // Keyboard navigation: the bar's buttons, left to right, that are showing now.
     function navItems() {
@@ -493,16 +494,30 @@ Rectangle {
     Popup {
         id: volumePopup
         parent: bar
-        enter: Transition {
-            NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
-            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        popupType: Popup.Item
+        property bool closing: false
+        enabled: !closing
+        property Transition enterAnim: Transition {
+            NumberAnimation { property: "scale"; from: 0.97; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
         }
-        exit: Transition {
-            NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
-            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
+        property Transition exitAnim: Transition {
+            NumberAnimation { property: "scale"; from: 1.0; to: 0.97; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupCloseMs }
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupCloseMs }
+        }
+        enter: theme.reduceMotion ? null : enterAnim
+        exit: theme.reduceMotion ? null : exitAnim
+        onAboutToShow: {
+            closing = false
+            win.openPopup = volumePopup
         }
         onOpened: win.openPopup = volumePopup
-        onAboutToHide: if (win.openPopup === volumePopup) win.openPopup = null
+        onAboutToHide: {
+            closing = true
+            if (win.openPopup === volumePopup)
+                win.openPopup = null
+        }
+        onClosed: closing = false
         width: 44 * theme.textScale
         height: 148 * theme.textScale
         padding: 10
@@ -512,6 +527,8 @@ Rectangle {
         closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
 
         background: AppPopupBackground {
+            fillColor: theme.popupBackground
+            strokeColor: theme.border
 
             HoverHandler {
                 id: volumePopupBgHover
@@ -519,7 +536,7 @@ Rectangle {
             }
             WheelSteps { onStep: function(n) { backend.stepVolume(n) } }
             AppTip {
-                visible: volumePopupBgHover.hovered
+                visible: volumePopupBgHover.hovered && (!win || win.active)
                 text: "Scroll to change volume"
                 x: -width - 8
                 y: Math.round((parent.height - height) / 2)
@@ -604,18 +621,46 @@ Rectangle {
     Popup {
         id: speedPopup
         parent: bar
-        enter: Transition {
-            NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
-            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        popupType: Popup.Item
+        property bool closing: false
+        property int activeIndex: -1
+        enabled: !closing
+        property Transition enterAnim: Transition {
+            NumberAnimation { property: "scale"; from: 0.97; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
         }
-        exit: Transition {
-            NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: win.popupScaleMs }
-            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: win.popupFadeOutMs }
+        property Transition exitAnim: Transition {
+            NumberAnimation { property: "scale"; from: 1.0; to: 0.97; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupCloseMs }
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupCloseMs }
         }
-        onOpened: win.openPopup = speedPopup
-        onAboutToHide: if (win.openPopup === speedPopup) win.openPopup = null
+        enter: theme.reduceMotion ? null : enterAnim
+        exit: theme.reduceMotion ? null : exitAnim
+        onAboutToShow: {
+            closing = false
+            win.openPopup = speedPopup
+            activeIndex = -1
+            for (var i = 0; i < bar.rateChoices.length; ++i) {
+                if (Math.abs(bar.rateChoices[i] - backend.playerRate) < 0.05) {
+                    activeIndex = i
+                    break
+                }
+            }
+        }
+        onOpened: {
+            win.openPopup = speedPopup
+            speedContent.forceActiveFocus()
+        }
+        onAboutToHide: {
+            closing = true
+            if (win.openPopup === speedPopup)
+                win.openPopup = null
+        }
+        onClosed: {
+            closing = false
+            activeIndex = -1
+        }
         width: 64 * theme.textScale
-        height: speedColumn.implicitHeight + topPadding + bottomPadding
+        height: Math.min(speedColumn.implicitHeight + topPadding + bottomPadding, win.height - 16)
         padding: 6
         modal: false
         dim: false
@@ -623,6 +668,8 @@ Rectangle {
         closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
 
         background: AppPopupBackground {
+            fillColor: theme.popupBackground
+            strokeColor: theme.border
 
             HoverHandler {
                 id: speedPopupBgHover
@@ -630,7 +677,7 @@ Rectangle {
             }
             WheelSteps { onStep: function(n) { backend.stepRate(-n) } }
             AppTip {
-                visible: speedPopupBgHover.hovered
+                visible: speedPopupBgHover.hovered && (!win || win.active)
                 text: "Scroll to change speed"
                 x: -width - 8
                 y: Math.round((parent.height - height) / 2)
@@ -638,6 +685,43 @@ Rectangle {
         }
 
         contentItem: Item {
+            id: speedContent
+            focus: true
+            Keys.priority: Keys.BeforeItem
+            Keys.onPressed: function(event) {
+                var n = bar.rateChoices.length
+                if (n <= 0)
+                    return
+                switch (event.key) {
+                case Qt.Key_Down:
+                case Qt.Key_J:
+                    speedPopup.activeIndex = speedPopup.activeIndex < 0 ? 0 : (speedPopup.activeIndex + 1) % n
+                    event.accepted = true
+                    break
+                case Qt.Key_Up:
+                case Qt.Key_K:
+                    speedPopup.activeIndex = speedPopup.activeIndex < 0 ? n - 1 : (speedPopup.activeIndex - 1 + n) % n
+                    event.accepted = true
+                    break
+                case Qt.Key_Home:
+                    speedPopup.activeIndex = 0
+                    event.accepted = true
+                    break
+                case Qt.Key_End:
+                    speedPopup.activeIndex = n - 1
+                    event.accepted = true
+                    break
+                case Qt.Key_Return:
+                case Qt.Key_Enter:
+                case Qt.Key_Space:
+                    if (speedPopup.activeIndex >= 0 && speedPopup.activeIndex < n) {
+                        backend.setRate(bar.rateChoices[speedPopup.activeIndex])
+                        speedPopup.close()
+                        event.accepted = true
+                    }
+                    break
+                }
+            }
             HoverHandler {
                 id: speedPopupContentHover
                 onHoveredChanged: bar.considerCloseSpeed()
@@ -653,24 +737,28 @@ Rectangle {
                     model: bar.rateChoices
                     delegate: Item {
                         id: rateRow
+                        required property var modelData
+                        required property int index
                         width: speedColumn.width
                         height: 28 * theme.textScale
 
                         readonly property real rateValue: modelData
                         readonly property bool current: Math.abs(rateValue - backend.playerRate) < 0.05
+                        readonly property bool active: index === speedPopup.activeIndex
 
                         Rectangle {
                             anchors.fill: parent
-                            // Same hover as the menus: foreground at 8%, rows rounded like the card.
-                            // The current rate is the accent text (below), no fill.
-                            radius: theme.rounding
-                            color: rateMouse.containsMouse ? Qt.alpha(theme.foreground, 0.08) : "transparent"
+                            radius: Math.min(theme.rounding, Math.floor(height / 2))
+                            color: rateRow.active ? theme.menuSelectedBg : "transparent"
+                            border.width: rateRow.active ? 1 : 0
+                            border.color: theme.menuSelectedBorder
                         }
 
                         Text {
                             anchors.centerIn: parent
                             text: bar.rateLabel(rateRow.rateValue)
-                            color: rateRow.current ? theme.accent : theme.popupText
+                            color: rateRow.active ? theme.menuSelectedFg
+                                 : rateRow.current ? theme.accent : theme.popupText
                             font.features: { "tnum": 1 }
                             font.pixelSize: theme.body
                             font.weight: Font.Normal
@@ -682,7 +770,11 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: backend.setRate(rateRow.rateValue)
+                            onEntered: speedPopup.activeIndex = rateRow.index
+                            onClicked: {
+                                backend.setRate(rateRow.rateValue)
+                                speedPopup.close()
+                            }
                         }
                     }
                 }

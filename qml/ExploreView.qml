@@ -56,6 +56,8 @@ Item {
     function tileItemAt(i) { return grid.itemAtIndex(i) }
     readonly property bool resultMenuOpen: resultMenu.opened
     readonly property Item glideRingItem: glideRing
+    readonly property Item previewCardItem: previewCard
+    readonly property real previewCardHeight: previewCard.height
     function typeIntoSearch(text) {
         searchField.forceActiveFocus()
         searchField.insert(searchField.cursorPosition, text)
@@ -151,7 +153,7 @@ Item {
             onClicked: page.dismissRequested()
         }
 
-        TextField {
+        AppTextField {
             id: searchField
             anchors.left: back.right
             anchors.leftMargin: 18
@@ -733,6 +735,23 @@ Item {
                 y: -4
                 coverSize: page.coverSize
             }
+
+            readonly property string metaTip: {
+                var parts = []
+                if (tile.model.genre) parts.push(tile.model.genre)
+                var n = tile.model.trackCount || 0
+                if (n > 0) parts.push(n + (n === 1 ? " episode" : " episodes"))
+                if (tile.model.released > 0) parts.push("Latest " + page.day(tile.model.released))
+                return parts.join(" \u00b7 ")
+            }
+            AppTip {
+                id: tileTip
+                visible: tileHover.hovered && win.pointerActive && !explore.previewOpen
+                         && !page.regionOpen && !subscribeButton.hovered && !tileMouse.pressed
+                         && (!win || win.active) && tile.metaTip.length > 0
+                text: tile.metaTip
+            }
+            readonly property var tipItem: tileTip
         }
     }
 
@@ -775,7 +794,16 @@ Item {
         visible: explore.previewOpen
         PopupFadeIn { host: previewScrim }
         z: 5
-        color: Qt.rgba(0, 0, 0, 0.45)
+        color: theme.menuScrim
+        readonly property real cardHeight: card.height
+
+        Connections {
+            target: explore
+            function onPreviewOpenChanged() {
+                if (explore.previewOpen)
+                    cardFlick.contentY = 0
+            }
+        }
 
         MouseArea {
             anchors.fill: parent
@@ -786,14 +814,15 @@ Item {
         }
 
         Rectangle {
-            id: card
+            id: previewCard
             anchors.centerIn: parent
             width: Math.min(parent.width - 48, 720 * theme.textScale)
-            height: Math.min(parent.height - 48, cardBody.implicitHeight + 40)
-            color: theme.background
-            border.color: theme.selection
+            height: Math.min(parent.height - 48,
+                             Math.max(Math.round(480 * theme.textScale), Math.round(parent.height * 0.78)))
+            color: theme.menuBg
+            border.color: theme.menuBorder
             border.width: 1
-            radius: theme.rCard
+            radius: theme.rounding
 
             MouseArea {
                 anchors.fill: parent
@@ -973,6 +1002,14 @@ Item {
                 }
             }
 
+            QuietScroll {
+                view: cardFlick
+                anchors.top: cardFlick.top
+                anchors.bottom: cardFlick.bottom
+                anchors.right: parent.right
+                anchors.rightMargin: 2
+            }
+
             IconButton {
                 id: previewClose
                 anchors.top: parent.top
@@ -1033,16 +1070,22 @@ Item {
         closePolicy: Popup.CloseOnEscape  // outside presses: Main.closePopupsAt
         modal: false
         dim: false
+        popupType: Popup.Item
         property double closedAt: 0
         property bool openedFromNav: false
         Material.elevation: 0
-        // Shared fade-in; closing stays instant (closedAt toggle logic).
-        enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: win.popupFadeInMs }
+        // Shared PopupCard fade-in (180ms or 0ms with reduceMotion); closing stays instant for toggle.
+        property Transition enterAnim: Transition {
+            NumberAnimation { property: "scale"; from: 0.97; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
+            NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]; duration: win.popupOpenMs }
         }
+        enter: theme.reduceMotion ? null : enterAnim
         exit: null
 
-        background: AppPopupBackground {}
+        background: AppPopupBackground {
+            fillColor: theme.popupBackground
+            strokeColor: theme.border
+        }
 
         onAboutToShow: {
             openedFromNav = win.navShown && win.navArea === "region"
@@ -1064,7 +1107,7 @@ Item {
         }
 
         contentItem: Item {
-            TextField {
+            AppTextField {
                 id: filterField
                 anchors.top: parent.top
                 anchors.left: parent.left
@@ -1110,6 +1153,19 @@ Item {
                     regionList.decrementCurrentIndex()
                     regionList.positionViewAtIndex(regionList.currentIndex, ListView.Contain)
                 }
+                Keys.onPressed: function(event) {
+                    if (regionList.count <= 0)
+                        return
+                    if (event.key === Qt.Key_Home) {
+                        regionList.currentIndex = 0
+                        regionList.positionViewAtBeginning()
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_End) {
+                        regionList.currentIndex = regionList.count - 1
+                        regionList.positionViewAtEnd()
+                        event.accepted = true
+                    }
+                }
             }
 
             ListView {
@@ -1138,7 +1194,7 @@ Item {
                     // unchanged; the keyboard cursor row is the same fill with accent text.
                     readonly property bool mouseOver: rowMouse.containsMouse
                     readonly property bool cursor: index === regionList.currentIndex && !mouseOver
-                    radius: theme.rounding
+                    radius: Math.min(theme.rounding, Math.floor(height / 2))
                     color: mouseOver || index === regionList.currentIndex ? Qt.alpha(theme.foreground, 0.08) : "transparent"
 
                     Text {

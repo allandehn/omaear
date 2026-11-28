@@ -38,9 +38,9 @@ Rectangle {
     signal canceled()
 
     width: Math.min(parent ? parent.width - 32 : 370, 370)
-    height: content.implicitHeight + 36
-    color: theme.background
-    border.color: theme.accent
+    height: Math.min(parent ? parent.height - 32 : content.implicitHeight + 36, content.implicitHeight + 36)
+    color: theme.menuBg
+    border.color: theme.menuBorder
     border.width: 1
     radius: theme.rounding
 
@@ -49,6 +49,7 @@ Rectangle {
         keys.forceActiveFocus()
     }
     function reset() {
+        dialogFlick.contentY = 0
         selectedIndex = startOnCancel ? 0 : 1
         if (initialFocusItem)
             initialFocusItem.forceActiveFocus()
@@ -95,13 +96,21 @@ Rectangle {
         onWheel: (wheel) => wheel.accepted = true
     }
 
-    Column {
-        id: content
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
+    Flickable {
+        id: dialogFlick
+        anchors.fill: parent
         anchors.margins: 18
-        spacing: 16
+        contentWidth: width
+        contentHeight: content.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        FastWheel { }
+
+        Column {
+            id: content
+            width: dialogFlick.width
+            spacing: 16
 
         Text {
             visible: dialog.message.length > 0
@@ -171,6 +180,15 @@ Rectangle {
                 }
             }
         }
+        }
+    }
+
+    QuietScroll {
+        view: dialogFlick
+        anchors.top: dialogFlick.top
+        anchors.bottom: dialogFlick.bottom
+        anchors.right: parent.right
+        anchors.rightMargin: 2
     }
 
     // Outlined, theme corners, at least 88x34.
@@ -190,8 +208,8 @@ Rectangle {
         implicitWidth: Math.max(Math.round(88 * theme.textScale), text.implicitWidth + 24)
         implicitHeight: Math.round(34 * theme.textScale)
         // Omarchy 4.5's ConfirmDialog has square buttons (shell/Ui/ConfirmDialog.qml:107); OmaEar
-        // rounds them with the theme corners instead, so they match the dialog border.
-        radius: cornerRadius
+        // rounds them with the theme corners instead, capped at half the height for small pills.
+        radius: Math.min(cornerRadius, Math.floor(height / 2))
         color: selected ? selectedFill : "transparent"
         border.width: 1
         border.color: selected ? selectedBorder : idleBorder
