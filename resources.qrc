@@ -30,6 +30,8 @@
         <file alias="AppPopupBackground.qml">qml/AppPopupBackground.qml</file>
         <file alias="AppMenuItem.qml">qml/AppMenuItem.qml</file>
         <file alias="AppMenuSeparator.qml">qml/AppMenuSeparator.qml</file>
+        <file alias="TextFieldMenu.qml">qml/TextFieldMenu.qml</file>
+        <file alias="AppTextField.qml">qml/AppTextField.qml</file>
         <file alias="AppTip.qml">qml/AppTip.qml</file>
         <file alias="FastWheel.qml">qml/FastWheel.qml</file>
         <file alias="QuietScroll.qml">qml/QuietScroll.qml</file>

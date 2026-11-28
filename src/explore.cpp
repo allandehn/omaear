@@ -131,6 +131,32 @@ void ExploreModel::setFeedUrl(int i, const QString &feedUrl)
     emit dataChanged(index(i), index(i), {FeedUrlRole});
 }
 
+void ExploreModel::updateLookup(int i, const ExploreResult &r)
+{
+    if (i < 0 || i >= m_rows.size())
+        return;
+    ExploreResult &cur = m_rows[i];
+    QList<int> roles;
+    if (!r.feedUrl.isEmpty() && cur.feedUrl != r.feedUrl) {
+        cur.feedUrl = r.feedUrl;
+        roles << FeedUrlRole;
+    }
+    if (!r.genre.isEmpty() && cur.genre != r.genre) {
+        cur.genre = r.genre;
+        roles << GenreRole;
+    }
+    if (r.trackCount > 0 && cur.trackCount != r.trackCount) {
+        cur.trackCount = r.trackCount;
+        roles << TrackCountRole;
+    }
+    if (r.released > 0 && cur.released != r.released) {
+        cur.released = r.released;
+        roles << ReleasedRole;
+    }
+    if (!roles.isEmpty())
+        emit dataChanged(index(i), index(i), roles);
+}
+
 void ExploreModel::setStates(const QSet<QString> &libraryFeeds, const QSet<qint64> &adding)
 {
     for (int i = 0; i < m_rows.size(); ++i) {
@@ -486,9 +512,9 @@ void Explore::lookupFeeds(const QList<qint64> &ids, const QString &cacheKey)
         mergeLookup(rows, parseSearch(reply->readAll()));
         m_cache.insert(cacheKey, rows);
         if (m_shownKey == cacheKey) {
-            // Same ids and order: update feed URLs in place (no reset, covers stay).
+            // Same ids and order: update lookup fields in place (no reset, covers stay).
             for (const auto &r : rows)
-                m_model.setFeedUrl(m_model.indexOfId(r.id), r.feedUrl);
+                m_model.updateLookup(m_model.indexOfId(r.id), r);
             refreshStates();
         }
     });

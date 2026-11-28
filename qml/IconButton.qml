@@ -66,7 +66,8 @@ Button {
     }
 
     AppTip {
-        visible: control.hovered && control.tip.length > 0
+        visible: control.hovered && !control.down && control.tip.length > 0
+                 && (typeof win === "undefined" || !win || win.active)
         text: control.tip
     }
 }

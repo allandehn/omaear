@@ -120,7 +120,7 @@ Item {
             onClicked: page.dismissRequested()
         }
 
-        TextField {
+        AppTextField {
             id: searchField
             anchors.left: back.right
             anchors.leftMargin: 18

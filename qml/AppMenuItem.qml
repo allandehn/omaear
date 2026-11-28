@@ -14,16 +14,20 @@ MenuItem {
     id: item
     property bool markable: false
     property bool marked: false
+    property string shortcut: ""
     // The mouse is on the row (own handler, so it doesn't depend on the style's hover setting).
     readonly property bool mouseOver: rowHover.hovered
-    // The keyboard cursor: the row Qt highlights while the mouse is not on it.
-    readonly property bool cursor: highlighted && !mouseOver && enabled
+    // Unified single active row driven by menu.currentIndex (mouse hover updates
+    // currentIndex so two rows are never highlighted at once).
+    readonly property bool activeRow: highlighted && enabled
+    readonly property bool cursor: activeRow
 
     font.family: "monospace"
     font.pixelSize: theme.body
     font.weight: Font.Normal
     leftPadding: 10
     rightPadding: 10 + (markable ? Math.ceil(font.pixelSize * 1.2) + 10 : 0)
+                 + (shortcut.length > 0 && !markable ? Math.ceil(shortcutLabel.implicitWidth) + 16 : 0)
     topPadding: 0
     bottomPadding: 0
     implicitHeight: Math.round(28 * theme.textScale)
@@ -38,15 +42,29 @@ MenuItem {
     contentItem: Text {
         text: item.text
         font: item.font
-        color: item.cursor ? theme.accent : theme.popupText
+        color: item.activeRow ? theme.menuSelectedFg : theme.menuFg
         opacity: item.enabled ? 1.0 : 0.45
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
 
     background: Rectangle {
-        color: (item.highlighted || item.mouseOver) && item.enabled ? Qt.alpha(theme.foreground, 0.08) : "transparent"
-        radius: theme.rounding
+        color: item.activeRow ? theme.menuSelectedBg : "transparent"
+        border.width: item.activeRow ? 1 : 0
+        border.color: theme.menuSelectedBorder
+        radius: Math.min(theme.rounding, Math.floor(height / 2))
+    }
+
+    Text {
+        id: shortcutLabel
+        visible: item.shortcut.length > 0 && !item.markable
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        anchors.verticalCenter: parent.verticalCenter
+        text: item.shortcut
+        font: item.font
+        color: item.activeRow ? theme.menuSelectedFg : Qt.alpha(theme.menuFg, 0.55)
+        opacity: item.enabled ? 1.0 : 0.45
     }
 
     Text {
@@ -64,5 +82,21 @@ MenuItem {
         id: rowHover
         enabled: item.enabled
         cursorShape: Qt.PointingHandCursor
+        onHoveredChanged: {
+            if (!hovered || !item.menu)
+                return
+            for (var i = 0; i < item.menu.count; ++i) {
+                if (item.menu.itemAt(i) === item) {
+                    item.menu.currentIndex = i
+                    break
+                }
+            }
+        }
+    }
+
+    Keys.priority: Keys.BeforeItem
+    Keys.onPressed: function(event) {
+        if (item.menu)
+            item.menu.handleKey(event)
     }
 }

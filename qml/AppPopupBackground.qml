@@ -1,13 +1,12 @@
 import QtQuick
 
-// Shared card for context menus and the volume/speed/region popups, after
-// Omarchy Stable 4.5's popup card: [popups] background and border from the live
-// theme (theme.popupBackground / theme.border: the theme's Hyprland active border,
-// accent when it has none), 1px wide, corner radius = the live Hyprland rounding
-// (theme.rounding), never a fixed value.
+// Shared card for menus and dropdown popups: 1px border and full Hyprland
+// rounding. Context menus default to [menu] tokens; dropdowns pass [popups].
 Rectangle {
-    color: theme.popupBackground
-    border.color: theme.border
+    property color fillColor: theme.menuBg
+    property color strokeColor: theme.menuBorder
+    color: fillColor
+    border.color: strokeColor
     border.width: 1
     radius: theme.rounding
 }

@@ -220,30 +220,89 @@ Theme::Theme(QObject *parent)
     watchPortal();
     requestTextScale();
 
-    // Corner radius R follows Hyprland's decoration:rounding (see the shared
-    // theme-shapes rule). Listen on Hyprland's event socket for config reloads
-    // (plus theme reload and window focus); keep the last good value on failure.
+    // Corner radius R and reduceMotion follow Hyprland's decoration:rounding and
+    // animations:enabled. Listen on Hyprland's event socket for config reloads
+    // (plus theme reload and window focus); keep the last good values on failure.
     bool okOverride = false;
     const int forced = qEnvironmentVariableIntValue("OMAEAR_ROUNDING", &okOverride);
     if (okOverride && forced >= 0) {
         m_rounding = forced;
         m_roundingFixed = true;
-    } else {
+    }
+    if (qEnvironmentVariableIsSet("OMAEAR_REDUCE_MOTION")) {
+        const QString rm = qEnvironmentVariable("OMAEAR_REDUCE_MOTION").trimmed().toLower();
+        m_reduceMotion = (rm == QLatin1String("1") || rm == QLatin1String("true"));
+        m_motionFixed = true;
+    }
+    if (!m_roundingFixed || !m_motionFixed) {
         connect(&m_roundingProc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus st) {
             if (st != QProcess::NormalExit || code != 0)
                 return;
-            const QJsonObject o = QJsonDocument::fromJson(m_roundingProc.readAllStandardOutput()).object();
-            if (!o.contains(QStringLiteral("int")))
-                return;
-            const int n = o.value(QStringLiteral("int")).toInt(-1);
-            if (n >= 0 && n != m_rounding) {
-                m_rounding = n;
+            int r = -1;
+            int anim = -1;
+            parseHyprBatch(m_roundingProc.readAllStandardOutput(), &r, &anim);
+            if (!m_roundingFixed && r >= 0 && r != m_rounding) {
+                m_rounding = r;
                 emit roundingChanged();
+            }
+            if (!m_motionFixed && anim >= 0) {
+                const bool red = (anim == 0);
+                if (red != m_reduceMotion) {
+                    m_reduceMotion = red;
+                    emit motionChanged();
+                }
             }
         });
         connect(&m_roundingProc, &QProcess::errorOccurred, this, [](QProcess::ProcessError) {});
         watchHyprland();
         refreshRounding();
+    }
+}
+
+void Theme::parseHyprBatch(const QByteArray &output, int *rounding, int *animationsEnabled)
+{
+    if (rounding)
+        *rounding = -1;
+    if (animationsEnabled)
+        *animationsEnabled = -1;
+    int depth = 0;
+    int start = -1;
+    bool inString = false;
+    bool escape = false;
+    for (int i = 0; i < output.size(); ++i) {
+        const char ch = output.at(i);
+        if (inString) {
+            if (escape)
+                escape = false;
+            else if (ch == '\\')
+                escape = true;
+            else if (ch == '"')
+                inString = false;
+            continue;
+        }
+        if (ch == '"') {
+            inString = true;
+        } else if (ch == '{') {
+            if (depth == 0)
+                start = i;
+            ++depth;
+        } else if (ch == '}' && depth > 0) {
+            --depth;
+            if (depth == 0 && start >= 0) {
+                const QJsonObject o = QJsonDocument::fromJson(output.mid(start, i - start + 1)).object();
+                const QString opt = o.value(QStringLiteral("option")).toString();
+                if (rounding && opt == QStringLiteral("decoration:rounding") && o.contains(QStringLiteral("int"))) {
+                    *rounding = o.value(QStringLiteral("int")).toInt(-1);
+                } else if (animationsEnabled && opt == QStringLiteral("animations:enabled")) {
+                    const QJsonValue b = o.value(QStringLiteral("bool"));
+                    if (b.isBool())
+                        *animationsEnabled = b.toBool() ? 1 : 0;
+                    else if (o.contains(QStringLiteral("int")))
+                        *animationsEnabled = o.value(QStringLiteral("int")).toInt(-1) == 0 ? 0 : 1;
+                }
+                start = -1;
+            }
+        }
     }
 }
 
@@ -291,11 +350,12 @@ void Theme::watchHyprland()
 
 void Theme::refreshRounding()
 {
-    if (m_roundingFixed || m_roundingProc.state() != QProcess::NotRunning
+    if ((m_roundingFixed && m_motionFixed) || m_roundingProc.state() != QProcess::NotRunning
         || !qEnvironmentVariableIsSet("HYPRLAND_INSTANCE_SIGNATURE"))
         return;
     m_roundingProc.start(QStringLiteral("hyprctl"),
-                         {QStringLiteral("-j"), QStringLiteral("getoption"), QStringLiteral("decoration:rounding")});
+                         {QStringLiteral("-j"), QStringLiteral("--batch"),
+                          QStringLiteral("getoption decoration:rounding;getoption animations:enabled")});
 }
 
 void Theme::forceRounding(int n)
@@ -307,6 +367,15 @@ void Theme::forceRounding(int n)
         return;
     m_rounding = n;
     emit roundingChanged();
+}
+
+void Theme::forceReduceMotion(bool reduce)
+{
+    m_motionFixed = true;
+    if (reduce == m_reduceMotion)
+        return;
+    m_reduceMotion = reduce;
+    emit motionChanged();
 }
 
 QString Theme::tintedSvg(const QString &name, const QColor &color) const
@@ -452,6 +521,41 @@ void Theme::loadColors()
     const QColor popupBackground = popupColor("popups.background", "popups.background-alpha", background, 1.0);
     const QColor popupText = popupColor("popups.text", "popups.text-alpha", foreground, 1.0);
     const QColor border = popupColor("popups.border", "popups.border-alpha", accent, 1.0);
+    // [tooltip] and [menu] tokens preserve resolved fallback alphas when unset.
+    const auto shellSurface = [&](const char *key, const char *alphaKey, const QColor &fallback, qreal presentDefaultAlpha) {
+        const QString k = QLatin1String(key);
+        const QString ak = QLatin1String(alphaKey);
+        const bool hasKey = shell.contains(k);
+        QColor c = hasKey ? resolveShellColor(shell.value(k), shell, palette) : QColor();
+        const bool resolvedKey = c.isValid();
+        if (!resolvedKey)
+            c = fallback;
+        bool ok = false;
+        const qreal a = shell.value(ak).toDouble(&ok);
+        if (ok)
+            c.setAlphaF(qBound<qreal>(0, a, 1));
+        else if (resolvedKey)
+            c.setAlphaF(qBound<qreal>(0, presentDefaultAlpha, 1));
+        return c;
+    };
+    QColor tooltipBgDefault = background;
+    tooltipBgDefault.setAlphaF(0.97);
+    const QColor tooltipBg = shellSurface("tooltip.background", "tooltip.background-alpha", tooltipBgDefault, 0.97);
+    const QColor tooltipFg = shellSurface("tooltip.text", "tooltip.text-alpha", foreground, 1.0);
+    const QColor tooltipBorder = shellSurface("tooltip.border", "tooltip.border-alpha", border, 1.0);
+    const QColor menuBg = shellSurface("menu.background", "menu.background-alpha", popupBackground, 1.0);
+    const QColor menuFg = shellSurface("menu.text", "menu.text-alpha", popupText, 1.0);
+    const QColor menuBorder = shellSurface("menu.border", "menu.border-alpha", border, 1.0);
+    QColor menuScrimDefault = background;
+    menuScrimDefault.setAlphaF(0.50);
+    const QColor menuScrim = shellSurface("menu.scrim", "menu.scrim-alpha", menuScrimDefault, 0.50);
+    QColor menuSelBgDefault = foreground;
+    menuSelBgDefault.setAlphaF(0.08);
+    const QColor menuSelectedBg = shellSurface("menu.selected-background", "menu.selected-background-alpha", menuSelBgDefault, 0.08);
+    const QColor menuSelectedFg = shellSurface("menu.selected-text", "menu.selected-text-alpha", accent, 1.0);
+    QColor menuSelBorderDefault = accent;
+    menuSelBorderDefault.setAlphaF(0.25);
+    const QColor menuSelectedBorder = shellSurface("menu.selected-border", "menu.selected-border-alpha", menuSelBorderDefault, 0.25);
     // Derived tints: OKLCH lightness nudges of the live colours, so hue and
     // perceived lightness stay put (blues don't drift purple, yellows don't glow).
     // Computed once per theme load, never per frame.
@@ -462,6 +566,10 @@ void Theme::loadColors()
         || accent != m_accent || blue != m_blue || selection != m_selection || muted != m_muted
         || dim != m_dim || dark != m_darkMode || urgent != m_urgent || green != m_green || border != m_border
         || popupBackground != m_popupBackground || popupText != m_popupText
+        || tooltipBg != m_tooltipBg || tooltipFg != m_tooltipFg || tooltipBorder != m_tooltipBorder
+        || menuBg != m_menuBg || menuFg != m_menuFg || menuBorder != m_menuBorder
+        || menuScrim != m_menuScrim || menuSelectedBg != m_menuSelectedBg
+        || menuSelectedFg != m_menuSelectedFg || menuSelectedBorder != m_menuSelectedBorder
         || barBackground != m_barBackground || pillBackground != m_pillBackground;
     m_barBackground = barBackground;
     m_pillBackground = pillBackground;
@@ -470,6 +578,16 @@ void Theme::loadColors()
     m_border = border;
     m_popupBackground = popupBackground;
     m_popupText = popupText;
+    m_tooltipBg = tooltipBg;
+    m_tooltipFg = tooltipFg;
+    m_tooltipBorder = tooltipBorder;
+    m_menuBg = menuBg;
+    m_menuFg = menuFg;
+    m_menuBorder = menuBorder;
+    m_menuScrim = menuScrim;
+    m_menuSelectedBg = menuSelectedBg;
+    m_menuSelectedFg = menuSelectedFg;
+    m_menuSelectedBorder = menuSelectedBorder;
     m_background = background;
     m_foreground = foreground;
     m_accent = accent;

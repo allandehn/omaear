@@ -12,6 +12,6 @@ MenuSeparator {
     contentItem: Rectangle {
         implicitWidth: 1
         implicitHeight: 1
-        color: Qt.alpha(theme.border, 0.45 * theme.border.a)
+        color: Qt.alpha(theme.menuBorder, 0.45 * theme.menuBorder.a)
     }
 }

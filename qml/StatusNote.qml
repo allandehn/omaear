@@ -34,7 +34,7 @@ SelectableText {
     // Same duration and easing as menus/popups (win.popupFadeInMs / popupFadeOutMs),
     // but no scale: the pill updates in place.
     Behavior on fade {
-        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: typeof win !== "undefined" && win ? win.popupOpenMs : 180; easing.type: Easing.OutCubic }
     }
 
     onUpdatingChanged: {

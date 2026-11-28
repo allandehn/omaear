@@ -116,6 +116,53 @@ int runSelfTest(int argc, char **argv)
               "shell colour: palette roles (accent, text = foreground)");
         const QHash<QString, QString> loop{{QStringLiteral("a.x"), QStringLiteral("b.y")}, {QStringLiteral("b.y"), QStringLiteral("a.x")}};
         check(!Theme::resolveShellColor(QStringLiteral("a.x"), loop, pal).isValid(), "shell colour: a role loop ends instead of hanging");
+
+        // hyprctl -j --batch "getoption decoration:rounding;getoption animations:enabled"
+        int rounding = -1;
+        int anim = -1;
+        Theme::parseHyprBatch(
+            QByteArrayLiteral("{\n    \"option\": \"decoration:rounding\",\n    \"int\": 8,\n    \"set\": true\n}\n\n"
+                              "{\n    \"option\": \"animations:enabled\",\n    \"bool\": false,\n    \"set\": true\n}\n"),
+            &rounding, &anim);
+        check(rounding == 8 && anim == 0, "hypr batch: parses decoration:rounding and animations:enabled=false");
+        Theme::parseHyprBatch(
+            QByteArrayLiteral("{\"option\":\"animations:enabled\",\"bool\":true}{\"option\":\"decoration:rounding\",\"int\":0}"),
+            &rounding, &anim);
+        check(rounding == 0 && anim == 1, "hypr batch: parses compact adjacent objects and animations:enabled=true");
+        Theme::parseHyprBatch(QByteArrayLiteral("not json {"), &rounding, &anim);
+        check(rounding == -1 && anim == -1, "hypr batch: malformed input leaves outputs -1");
+
+        // ExploreModel::updateLookup fills in genre, trackCount, and released without clobbering.
+        ExploreModel em;
+        ExploreResult chartRow;
+        chartRow.id = 42;
+        chartRow.title = QStringLiteral("Chart Show");
+        chartRow.genre = QStringLiteral("Arts");
+        em.setRows({chartRow});
+        QList<int> changedRoles;
+        QObject::connect(&em, &QAbstractItemModel::dataChanged, &em,
+                         [&](const QModelIndex &, const QModelIndex &, const QList<int> &roles) { changedRoles = roles; });
+        ExploreResult lookupRow;
+        lookupRow.id = 42;
+        lookupRow.feedUrl = QStringLiteral("https://example.com/feed.xml");
+        lookupRow.genre = QStringLiteral("Technology");
+        lookupRow.trackCount = 18;
+        lookupRow.released = 1793921400;
+        em.updateLookup(0, lookupRow);
+        check(em.data(em.index(0), ExploreModel::FeedUrlRole).toString() == QLatin1String("https://example.com/feed.xml")
+                  && em.data(em.index(0), ExploreModel::GenreRole).toString() == QLatin1String("Technology")
+                  && em.data(em.index(0), ExploreModel::TrackCountRole).toInt() == 18
+                  && em.data(em.index(0), ExploreModel::ReleasedRole).toLongLong() == 1793921400
+                  && changedRoles.contains(ExploreModel::GenreRole)
+                  && changedRoles.contains(ExploreModel::TrackCountRole)
+                  && changedRoles.contains(ExploreModel::ReleasedRole),
+              "explore model: updateLookup updates genre, trackCount, and released in place");
+        changedRoles.clear();
+        ExploreResult partial;
+        partial.id = 42;
+        em.updateLookup(0, partial);
+        check(changedRoles.isEmpty() && em.data(em.index(0), ExploreModel::TrackCountRole).toInt() == 18,
+              "explore model: empty lookup never clobbers populated metadata");
     }
     check(parseDuration(QStringLiteral("90")) == 90, "duration seconds");
     check(parseDuration(QStringLiteral("1:02:03")) == 3723, "duration hms");
