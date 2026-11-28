@@ -288,6 +288,8 @@ void LibrarySearch::ensureIndex()
         m_docs.append(doc);
     }
     m_indexed = true;
+    if (m_scope != 0)
+        m_scopeTitle = m_showTitles.value(m_scope);
     if (qEnvironmentVariableIsSet("OMAEAR_TIMING"))
         fprintf(stderr, "search: indexed %lld episodes in %lld ms (database read %lld ms)\n", qlonglong(m_docs.size()), qlonglong(timer.elapsed()), qlonglong(readMs));
 }
@@ -319,19 +321,31 @@ void LibrarySearch::setScope(qint64 showId)
     if (showId == m_scope)
         return;
     m_scope = showId;
-    if (showId)
-        ensureIndex(); // scopeTitle comes from the index
+    m_scopeTitle = showId ? (m_indexed ? m_showTitles.value(showId) : m_library.showTitle(showId))
+                          : QString();
     run();
 }
 
 void LibrarySearch::libraryChanged()
 {
-    if (!m_indexed)
+    if (!m_indexed) {
+        if (m_scope != 0) {
+            const QString nextTitle = m_library.showTitle(m_scope);
+            if (nextTitle != m_scopeTitle) {
+                m_scopeTitle = nextTitle;
+                emit resultsChanged();
+            }
+        }
         return;
+    }
     if (m_library.searchSignature() != m_signature) {
         m_indexed = false;
+        if (m_scope != 0)
+            m_scopeTitle = m_library.showTitle(m_scope);
         if (!m_query.isEmpty())
             run();
+        else if (m_scope != 0)
+            emit resultsChanged();
         return;
     }
     // Same episodes: only played state / progress may have moved.

@@ -65,6 +65,10 @@ Item {
 
     property real menuEpisode: 0
     property int menuIndex: -1
+    function firstRowCoverStatus() {
+        var r = list.itemAtIndex(0)
+        return r ? r.coverStatus : -1
+    }
     // Same five steps as Shelf list and Episodes (Library::listCoverSize, shared).
     readonly property var coverSteps: [44, 64, 88, 120, 160]
     readonly property real cover: coverSteps[Math.max(0, Math.min(backend.listCoverSize, coverSteps.length - 1))] * theme.textScale
@@ -223,6 +227,7 @@ Item {
                                             && backend.playerStatus !== "stopped"
             readonly property bool playing: row.model.episodeId === backend.playerEpisodeId
                                             && backend.playerStatus === "playing"
+            readonly property int coverStatus: artImage.status
             color: hover.containsMouse || handle.pressed ? theme.selection
                  : row.current ? Qt.rgba(theme.selection.r, theme.selection.g, theme.selection.b, 0.5)
                  : "transparent"
@@ -294,17 +299,13 @@ Item {
                 readonly property real coverRadius: theme.rButton // standalone row thumbnail: min(R,4)
                 layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
                 layer.smooth: true
-                layer.effect: CoverClip { art: artImage; radius: theme.rButton }
+                layer.effect: CoverClip { art: artImage.front; radius: theme.rButton }
                 Rectangle { anchors.fill: parent; color: Qt.tint(theme.background, row.color); z: -1 } // backing: follows the row background (hover, selection, highlight)
-                Image {
+                CoverImage {
                     id: artImage
                     anchors.fill: parent
                     source: row.model.cover || ""
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: false
-                    cache: true
-                    sourceSize.width: page.cover * 2
-                    sourceSize.height: page.cover * 2
+                    sourceSide: coverCache.rowSide
                 }
                 Rectangle {
                     anchors.fill: parent

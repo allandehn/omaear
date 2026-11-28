@@ -2545,6 +2545,35 @@ int runSelfTest(int argc, char **argv)
                       && s2Model->data(s2Model->index(0), EpisodeModel::PlayedRole).toBool(),
                   "mark-all-podcasts: markLibraryPlayed clears totalUnheard and syncs cached models");
 
+            // Instant pages: LibrarySearch::setScope populates scopeTitle without building index when empty,
+            // and Backend::openShow reuses a warm model until library state changes.
+            LibrarySearch instantSearch(tuneLib);
+            instantSearch.setScope(id1);
+            check(instantSearch.scopeTitle() == QStringLiteral("Alpha") && instantSearch.rowCount() == 0,
+                  "instant-pages: LibrarySearch::setScope sets scopeTitle without indexing on empty query");
+            instantSearch.setQuery(QStringLiteral("A1"));
+            QElapsedTimer searchWt;
+            searchWt.start();
+            while (instantSearch.rowCount() == 0 && searchWt.elapsed() < 1000)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            check(instantSearch.rowCount() == 1 && instantSearch.scopeTitle() == QStringLiteral("Alpha"),
+                  "instant-pages: scoped LibrarySearch returns results once queried");
+
+            tuneBackend.setEpisodeShowAll(true);
+            tuneBackend.warmEpisodes(id2);
+            auto *warmModel = qobject_cast<EpisodeModel *>(tuneBackend.episodesFor(id2));
+            check(warmModel && warmModel->rowCount() == 1,
+                  "instant-pages: warmEpisodes caches model for show 2");
+            tuneBackend.openShow(id2);
+            check(tuneBackend.openShowId() == id2 && tuneBackend.episodesFor(id2) == warmModel,
+                  "instant-pages: openShow reuses cached EpisodeModel");
+            tuneBackend.markPlayed(tuneLib.episodes(id2).first().id, false);
+            tuneBackend.setEpisodeShowAll(false);
+            tuneBackend.openShow(id2);
+            check(warmModel->rowCount() == 1
+                      && !warmModel->data(warmModel->index(0), EpisodeModel::PlayedRole).toBool(),
+                  "instant-pages: openShow refreshes cached model after played/filter change");
+
             tuneBackend.removeAllShows();
             check(tuneBackend.showCount() == 0 && tuneBackend.queueCount() == 0
                       && !QFileInfo::exists(showCover) && !QFileInfo::exists(epCover),
@@ -2674,6 +2703,48 @@ int runSelfTest(int argc, char **argv)
                     }
                     check(qAbs(idleBackend.playerPosition() - 25.01) < 0.01,
                           "idle-wakeups: sub-50ms delta crossing integer second updates playerPosition");
+
+                    // Seeking while paused updates/invalidates the cached fresh EpisodeModel for that show.
+                    idleLib.setPosition(eId, 10000);
+                    QVariantMap pausedState = st;
+                    pausedState.insert(QStringLiteral("status"), QStringLiteral("paused"));
+                    pausedState.insert(QStringLiteral("position"), 10.0);
+                    pausedState.insert(QStringLiteral("positionSignals"), true);
+                    sigState.setArguments({pausedState});
+                    bus.send(sigState);
+                    wt.restart();
+                    while ((idleBackend.playerStatus() != QStringLiteral("paused")
+                            || qAbs(idleBackend.playerPosition() - 10.0) > 0.1)
+                           && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    idleBackend.openShow(sId);
+                    idleBackend.closeShow();
+                    idleBackend.openShow(sId); // cached & marked fresh at 10000 ms
+                    auto *pausedShowModel = qobject_cast<EpisodeModel *>(idleBackend.episodesFor(sId));
+                    check(pausedShowModel && pausedShowModel->rowCount() == 1
+                              && pausedShowModel->data(pausedShowModel->index(0), EpisodeModel::PositionRole).toInt() == 10000,
+                          "instant-pages: warm paused show model starts with saved 10s position");
+                    idleBackend.closeShow();
+
+                    // Pause, seek to 45s, and return to the show.
+                    idleLib.setPosition(eId, 45000);
+                    pausedState.insert(QStringLiteral("position"), 45.0);
+                    sigState.setArguments({pausedState});
+                    bus.send(sigState);
+                    wt.restart();
+                    while (qAbs(idleBackend.playerPosition() - 45.0) > 0.1 && wt.elapsed() < 1000) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(2);
+                    }
+                    idleBackend.openShow(sId);
+                    pausedShowModel = qobject_cast<EpisodeModel *>(idleBackend.episodesFor(sId));
+                    check(pausedShowModel && pausedShowModel->rowCount() == 1
+                              && pausedShowModel->data(pausedShowModel->index(0), EpisodeModel::PositionRole).toInt() == 45000
+                              && countRepeatingTimers() == 0,
+                          "instant-pages: seeking while paused updates cached show row position and keeps 0 timers");
+                    idleBackend.closeShow();
 
                     bus.unregisterService(svcName);
                     wt.restart();

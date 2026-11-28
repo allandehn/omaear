@@ -87,6 +87,11 @@ bool startupTiming()
 }
 
 namespace {
+bool pageTimingEnabled()
+{
+    static const bool on = startupTiming() || qEnvironmentVariableIntValue("OMAEAR_UI_TEST") == 1;
+    return on;
+}
 QElapsedTimer &showPressTimer()
 {
     static QElapsedTimer timer;
@@ -98,6 +103,26 @@ bool &showPressPending()
     return pending;
 }
 double &lastClickToShown()
+{
+    static double ms = -1;
+    return ms;
+}
+QElapsedTimer &pageSwitchTimer()
+{
+    static QElapsedTimer timer;
+    return timer;
+}
+bool &pageSwitchPending()
+{
+    static bool pending = false;
+    return pending;
+}
+QString &pageSwitchLabel()
+{
+    static QString label;
+    return label;
+}
+double &lastPageSwitch()
 {
     static double ms = -1;
     return ms;
@@ -139,6 +164,37 @@ void CoverCache::armShowShown(QObject *window)
 double CoverCache::lastClickToShownMs() const
 {
     return lastClickToShown();
+}
+
+void CoverCache::markPageSwitch(const QString &label)
+{
+    if (!pageTimingEnabled())
+        return;
+    pageSwitchLabel() = label;
+    pageSwitchTimer().start();
+    pageSwitchPending() = true;
+}
+
+void CoverCache::armPageShown(QObject *window)
+{
+    if (!pageTimingEnabled() || !pageSwitchPending())
+        return;
+    auto *win = qobject_cast<QQuickWindow *>(window);
+    if (!win)
+        return;
+    pageSwitchPending() = false;
+    const QString label = pageSwitchLabel();
+    QObject::connect(win, &QQuickWindow::frameSwapped, win, [label]() {
+        lastPageSwitch() = pageSwitchTimer().nsecsElapsed() / 1e6;
+        if (startupTiming())
+            fprintf(stderr, "timing: page-switch %s %.2f ms\n",
+                    qPrintable(label), lastPageSwitch());
+    }, Qt::SingleShotConnection);
+}
+
+double CoverCache::lastPageSwitchMs() const
+{
+    return lastPageSwitch();
 }
 
 QString localCoverSource(const QString &path)
@@ -228,22 +284,50 @@ QImage loadCover(const QString &path, int requestW, int requestH, bool *hit = nu
 
 void prewarmCovers(const QStringList &paths, const QList<int> &sides)
 {
-    if (startupTiming())
-        fprintf(stderr, "timing: prewarm start %lld ms\n", qint64(startupTimer().elapsed()));
-    QThreadPool::globalInstance()->start([] { pruneLegacyThumbs(); }, -1);
-    // One task per cover on the global pool (all cores), tile size first.
-    auto *left = new QAtomicInt(int(paths.size() * sides.size()));
+    if (paths.isEmpty() || sides.isEmpty())
+        return;
+    static bool prunedLegacy = false;
+    if (!prunedLegacy) {
+        prunedLegacy = true;
+        QThreadPool::globalInstance()->start([] { pruneLegacyThumbs(); }, -1);
+    }
+    struct Job {
+        QString path;
+        int side;
+    };
+    QList<Job> jobs;
+    jobs.reserve(paths.size() * sides.size());
     for (int side : sides) {
+        if (side <= 0)
+            continue;
         for (const QString &path : paths) {
-            QThreadPool::globalInstance()->start([path, side, left]() {
-                loadCover(path, side, side);
-                if (left->fetchAndAddOrdered(-1) == 1) {
-                    if (startupTiming())
-                        fprintf(stderr, "timing: prewarm done %lld ms\n", qint64(startupTimer().elapsed()));
-                    delete left;
-                }
-            }, side == sides.constFirst() ? 1 : 0);
+            if (path.isEmpty() || !QFileInfo::exists(path))
+                continue;
+            const QString key = cacheKey(path, side, side);
+            QMutexLocker lock(&cacheMutex);
+            if (!memoryCache().contains(key))
+                jobs.append({path, side});
         }
+    }
+    if (jobs.isEmpty())
+        return;
+    if (startupTiming())
+        fprintf(stderr, "timing: prewarm start %lld ms (%d jobs)\n",
+                qint64(startupTimer().elapsed()), int(jobs.size()));
+    // One task per uncached cover on the global pool (all cores), tile size first.
+    auto *left = new QAtomicInt(int(jobs.size()));
+    const int firstSide = sides.constFirst();
+    for (const Job &job : std::as_const(jobs)) {
+        const QString path = job.path;
+        const int side = job.side;
+        QThreadPool::globalInstance()->start([path, side, left]() {
+            loadCover(path, side, side);
+            if (left->fetchAndAddOrdered(-1) == 1) {
+                if (startupTiming())
+                    fprintf(stderr, "timing: prewarm done %lld ms\n", qint64(startupTimer().elapsed()));
+                delete left;
+            }
+        }, side == firstSide ? 1 : 0);
     }
 }
 

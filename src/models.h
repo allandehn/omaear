@@ -68,8 +68,11 @@ public:
     void setRows(const QList<EpisodeRow> &rows);
     // Swap one row to a cached file without resetting the list.
     void setImagePath(qint64 episodeId, const QString &imagePath);
+    // Update one episode's saved progress in place without resetting the list.
+    bool setPositionMs(qint64 episodeId, int positionMs);
     // Move one row without a reset (live drag reordering in the queue).
     bool moveRow(int from, int to);
+    const QList<EpisodeRow> &rows() const { return m_rows; }
     QList<qint64> ids() const;
     // Keyboard navigation: map list index <-> episode id.
     Q_INVOKABLE qint64 episodeIdAt(int row) const;

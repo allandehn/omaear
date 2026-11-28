@@ -57,14 +57,21 @@ Item {
             win.openEpisodePage(item.model.episodeId)
     }
 
+    Timer {
+        id: warmTimer
+        interval: 1
+        onTriggered: if (page.visible) librarySearch.warm()
+    }
+
     onVisibleChanged: {
         if (visible) {
-            librarySearch.warm()
+            warmTimer.restart()
             if (resultsFocused && selected >= 0 && selected < list.count)
                 focusResults()
             else
                 focusSearch()
         } else {
+            warmTimer.stop()
             // Hidden: never keep keys (arrows, Enter) on the list or field.
             list.focus = false
             searchField.focus = false
@@ -373,7 +380,7 @@ Item {
                     // Asynchronous here: results change on every keystroke, and a
                     // first-time cover decode must never hold up typing. Memory-cached
                     // covers still arrive within a frame.
-                    asynchronous: true
+                    asynchronous: !coverCache.ready(source, coverCache.rowSide)
                     cache: true
                     sourceSize.width: coverCache.rowSide / Screen.devicePixelRatio
                     sourceSize.height: coverCache.rowSide / Screen.devicePixelRatio

@@ -6,7 +6,6 @@ Planned work and ideas for OmaEar.
 
 - [ ] **Shelf right-click menu** — The menu stays where it opened, shows the podcast's name as a title, and every action stays tied to that podcast even if the Shelf reorders underneath; it closes if that podcast disappears.
 - [ ] **In progress page** — A page listing every started but unfinished episode across all podcasts (newest listened first), with the same covers, keys and right-click menu as the Queue; Enter resumes where you left off.
-- [ ] **Instant pages everywhere** — Moving between pages once things are cached feels very fast; make that the norm. Keep recently visited pages and their covers ready, and measure page-switch time so it never regresses.
 - [ ] **Smaller binary** — Strip the release binary.
 
 ## Nice to have
@@ -21,6 +20,8 @@ Planned work and ideas for OmaEar.
 - [ ] **`libmpv` playback engine** — Replace `QMediaPlayer` + `GrowingMediaDevice` + external `pipewire -c` mono filter-chain with `libmpv` (native HTTP range seeking, caching, speed, and mono downmix).
 
 ## Done
+
+- [x] **Instant pages everywhere** — Unified all page covers (`EpisodeView`, `QueueView`, `NowPlaying`, `PlayerBar`, and `Backend::openShowCover`/`openEpisodeCover`) onto memory/disk-thumb cached `CoverImage` + `image://covers/`, skipped redundant `prewarmCovers` / `syncEpisodeModel` work for warm shows and direct `openEpisode` opens, resolved `LibrarySearch::scopeTitle` without eager indexing, deferred `SearchView` index warming past first paint, cached linkified notes and scroll offsets in `EpisodeView`, and added `CoverCache` page-switch timing + `uitest` checks (`OMAEAR_UI_TEST_INSTANT=pages`).
 
 - [x] **Fewer idle wakeups** — Replaced the 500 ms `pollPlayer()` timer with event-driven `StateChanged`/`PositionChanged` D-Bus signals + `QDBusServiceWatcher` ownership tracking, replaced the 2 s `/proc/self/exe` polling timer with `QFileSystemWatcher`, and replaced Theme's 1 s `hyprctl` poll with Hyprland `.socket2.sock` `configreloaded` events. Zero repeating `QTimer`s while idle.
 

@@ -177,21 +177,14 @@ Rectangle {
             readonly property real coverRadius: theme.rCard
             layer.enabled: coverRadius > 0 && GraphicsInfo.api !== GraphicsInfo.Software // no shader effects there: stay square
             layer.smooth: true
-            layer.effect: CoverClip { art: barImage; radius: barArt.coverRadius }
+            layer.effect: CoverClip { art: barImage.front; radius: barArt.coverRadius }
             Rectangle { anchors.fill: parent; color: bar.color; z: -1 } // backing: the bar surface
 
-            Image {
+            CoverImage {
                 id: barImage
                 anchors.fill: parent
                 source: backend.playerArt
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                // Decode at display size (64px buckets x devicePixelRatio), never
-                // the full 3000px original (~36 MB). Buckets: textScale steps don't re-decode.
-                readonly property int decodeSide: Math.max(64, Math.ceil(barArt.width * Screen.devicePixelRatio / 64) * 64)
-                sourceSize.width: decodeSide
-                sourceSize.height: decodeSide
-                smooth: true
+                sourceSide: coverCache.rowSide
                 visible: backend.playerArt !== ""
             }
             Rectangle {

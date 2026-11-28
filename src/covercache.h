@@ -62,6 +62,9 @@ public:
     Q_INVOKABLE void cancelShowPress();
     Q_INVOKABLE void armShowShown(QObject *window);
     Q_INVOKABLE double lastClickToShownMs() const;
+    Q_INVOKABLE void markPageSwitch(const QString &label);
+    Q_INVOKABLE void armPageShown(QObject *window);
+    Q_INVOKABLE double lastPageSwitchMs() const;
 };
 
 // Decoded episode/show covers, memory-cached (Qt Quick's own cache keeps only

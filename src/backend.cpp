@@ -91,17 +91,15 @@ bool coverBytesMatch(const QString &path, const QByteArray &bytes)
 
 QString episodeCoverUrl(const EpisodeRow &row)
 {
-    if (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
-        return QUrl::fromLocalFile(row.imagePath).toString();
+    const QString local = localCoverSource(row.imagePath);
+    if (!local.isEmpty())
+        return local;
     return row.imageUrl;
 }
 
 QString showCoverUrl(const Library &library, qint64 showId)
 {
-    const QString path = library.showImage(showId);
-    if (path.isEmpty() || !QFileInfo::exists(path))
-        return {};
-    return QUrl::fromLocalFile(path).toString();
+    return localCoverSource(library.showImage(showId));
 }
 
 // Episode local cache, then remote URL, then show cover. Used by Now Playing / PlayerBar.
@@ -251,8 +249,11 @@ void Backend::syncEpisodeModel(qint64 showId, bool fetchCovers)
     EpisodeModel *model = episodeModel(showId, true);
     const QList<EpisodeRow> rows = visibleEpisodes(showId);
     model->setRows(rows);
-    if (fetchCovers)
+    m_freshEpisodeModels.insert(showId);
+    if (fetchCovers) {
+        m_coversRequestedShows.insert(showId);
         ensureEpisodeCovers(rows);
+    }
 }
 
 QString Backend::coverForShow(qint64 showId) const
@@ -289,14 +290,17 @@ void Backend::warmEpisodes(qint64 showId)
 {
     if (showId == 0 || !m_library.hasShow(showId))
         return;
-    if (!m_episodeModels.contains(showId))
+    if (!m_episodeModels.contains(showId) || !m_freshEpisodeModels.contains(showId))
         syncEpisodeModel(showId, false);
+    EpisodeModel *model = episodeModel(showId, false);
+    if (!model)
+        return;
     QStringList paths;
     const QString showArt = m_library.showImage(showId);
     if (!showArt.isEmpty() && QFileInfo::exists(showArt))
         paths.append(showArt);
     int n = 0;
-    for (const EpisodeRow &row : visibleEpisodes(showId)) {
+    for (const EpisodeRow &row : model->rows()) {
         if (row.imagePath.isEmpty() || !QFileInfo::exists(row.imagePath))
             continue;
         paths.append(row.imagePath);
@@ -316,6 +320,8 @@ void Backend::dropWarmEpisodes(qint64 showId)
 
 void Backend::discardEpisodeModel(qint64 showId)
 {
+    m_freshEpisodeModels.remove(showId);
+    m_coversRequestedShows.remove(showId);
     EpisodeModel *model = m_episodeModels.take(showId);
     if (!model)
         return;
@@ -337,6 +343,7 @@ QObject *Backend::episodesFor(qint64 showId)
 
 void Backend::reloadShows()
 {
+    m_freshEpisodeModels.clear();
     const QList<ShowRow> rows = m_library.shows();
     if (rows.size() != m_showCount) {
         m_showCount = rows.size();
@@ -392,7 +399,8 @@ void Backend::reloadEpisodes()
 {
     if (m_openShowId == 0)
         return;
-    syncEpisodeModel(m_openShowId);
+    if (m_episodeModels.contains(m_openShowId))
+        syncEpisodeModel(m_openShowId);
     refreshOpenEpisode();
 }
 
@@ -498,7 +506,18 @@ void Backend::openShow(qint64 showId)
             || (m_status.startsWith(QStringLiteral("Updated ")) && m_status.endsWith(QStringLiteral(" failed")))))
         setStatus({});
     m_openShowId = showId;
-    syncEpisodeModel(showId);
+    const bool warmFresh = m_episodeModels.contains(showId)
+        && m_freshEpisodeModels.contains(showId)
+        && !(showId == m_playerShowId && m_playerStatus == QStringLiteral("playing"));
+    if (warmFresh) {
+        if (!m_coversRequestedShows.contains(showId)) {
+            m_coversRequestedShows.insert(showId);
+            if (EpisodeModel *model = episodeModel(showId, false))
+                ensureEpisodeCovers(model->rows());
+        }
+    } else {
+        syncEpisodeModel(showId);
+    }
     m_openShowTitle = m_library.showTitle(showId);
     m_openShowCover = showCoverUrl(m_library, showId);
     m_openShowUnheard = m_library.showUnheard(showId);
@@ -552,7 +571,6 @@ void Backend::openEpisode(qint64 episodeId)
     if (m_openShowId == 0 || m_openShowId != row.showId) {
         // openShow clears any prior episode; set this one after.
         m_openShowId = row.showId;
-        syncEpisodeModel(row.showId);
         m_openShowTitle = m_library.showTitle(row.showId);
         m_openShowCover = showCoverUrl(m_library, row.showId);
         m_openShowUnheard = m_library.showUnheard(row.showId);
@@ -567,6 +585,11 @@ void Backend::openEpisode(qint64 episodeId)
     m_openEpisodePlayed = row.played;
     m_openEpisodePositionMs = row.positionMs;
     emit openEpisodeChanged();
+    const QString warmArt = (!row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
+        ? row.imagePath
+        : m_library.showImage(row.showId);
+    if (!warmArt.isEmpty() && QFileInfo::exists(warmArt))
+        prewarmCovers({warmArt}, {kCoverTileSide});
     if (!row.imageUrl.isEmpty())
         downloadEpisodeCover(row.id, row.imageUrl);
 }
@@ -1341,6 +1364,8 @@ void Backend::reloadArtwork(qint64 showId)
 {
     if (showId == 0)
         return;
+    m_freshEpisodeModels.remove(showId);
+    m_coversRequestedShows.remove(showId);
     // Keep the on-disk cover in place until a new file is written. A failed
     // fetch then leaves the current art showing. Bump the generation so an
     // in-flight reply cannot race the new download.
@@ -1568,6 +1593,8 @@ void Backend::stopPlayback()
 
 void Backend::seekTo(double seconds)
 {
+    if (m_playerShowId != 0)
+        m_freshEpisodeModels.remove(m_playerShowId);
     callPlayer(QStringLiteral("SeekTo"), {seconds});
 }
 
@@ -1805,6 +1832,7 @@ void Backend::setEpisodeShowAll(bool showAll)
     if (showAll == m_library.episodeShowAll())
         return;
     m_library.setEpisodeShowAll(showAll);
+    m_freshEpisodeModels.clear();
     if (m_openShowId != 0)
         syncEpisodeModel(m_openShowId);
     // Hidden shows keep their previous filter until opened again, and openShow
@@ -1974,11 +2002,13 @@ void Backend::applyPlayerState(const QVariantMap &state)
     QString showTitle = state.value(QStringLiteral("showTitle")).toString();
     QString art = state.value(QStringLiteral("art")).toString();
     QString description = state.value(QStringLiteral("description")).toString();
+    int savedPositionMs = -1;
     // Prefer library episode art (cache or URL) over whatever the player last published,
     // so Now Playing / PlayerBar never stay stuck on show cover after a download lands.
     if (episodeId != 0) {
         const EpisodeRow row = m_library.episode(episodeId);
         if (row.id != 0) {
+            savedPositionMs = row.positionMs;
             const QString preferred = preferredPlayerArt(m_library, row);
             if (!preferred.isEmpty())
                 art = preferred;
@@ -2015,6 +2045,10 @@ void Backend::applyPlayerState(const QVariantMap &state)
     const bool startedPlaying = status == QStringLiteral("playing") && m_playerStatus != status && episodeId != 0;
     m_sawPlayed = played;
 
+    const qint64 prevPlayerEpisodeId = m_playerEpisodeId;
+    const qint64 prevPlayerShowId = m_playerShowId;
+    const bool stoppedPlaying = m_playerStatus == QStringLiteral("playing")
+        && status != QStringLiteral("playing");
     m_playerEpisodeId = episodeId;
     m_playerShowId = showId;
     m_playerTitle = title;
@@ -2030,8 +2064,33 @@ void Backend::applyPlayerState(const QVariantMap &state)
     m_playerVolume = qBound(0.0, volume, 1.0);
     m_playerDuration = duration;
     m_playerHasPositionSignals = state.value(QStringLiteral("positionSignals")).toBool();
-    if (qAbs(position - m_playerPosition) > 0.05
-        || std::floor(position) != std::floor(m_playerPosition)) {
+    const bool posChanged = qAbs(position - m_playerPosition) > 0.05
+        || std::floor(position) != std::floor(m_playerPosition);
+    if (episodeId != prevPlayerEpisodeId || stoppedPlaying || posChanged) {
+        if (prevPlayerShowId != 0)
+            m_freshEpisodeModels.remove(prevPlayerShowId);
+        if (showId != 0)
+            m_freshEpisodeModels.remove(showId);
+    }
+    if (episodeId != 0 && showId != 0 && savedPositionMs >= 0) {
+        if (EpisodeModel *model = episodeModel(showId, false)) {
+            if (model->setPositionMs(episodeId, savedPositionMs))
+                m_freshEpisodeModels.remove(showId);
+        }
+        if (m_openEpisodeId == episodeId && m_openEpisodePositionMs != savedPositionMs) {
+            m_openEpisodePositionMs = savedPositionMs;
+            emit openEpisodeChanged();
+        }
+    }
+    if (episodeId != 0 && episodeId != prevPlayerEpisodeId) {
+        const EpisodeRow row = m_library.episode(episodeId);
+        const QString warmArt = (row.id != 0 && !row.imagePath.isEmpty() && QFileInfo::exists(row.imagePath))
+            ? row.imagePath
+            : m_library.showImage(showId);
+        if (!warmArt.isEmpty() && QFileInfo::exists(warmArt))
+            prewarmCovers({warmArt}, {kCoverRowSide, kCoverTileSide});
+    }
+    if (posChanged) {
         m_playerPosition = position;
         emit playerPositionChanged();
     }
@@ -2053,11 +2112,22 @@ void Backend::reloadQueue()
 {
     const int before = m_queueModel.rowCount();
     const QList<qint64> oldIds = m_queueModel.ids();
-    m_queueModel.setRows(m_library.queue());
+    const QList<EpisodeRow> rows = m_library.queue();
+    m_queueModel.setRows(rows);
     m_queueSlots.clear();
     const QList<qint64> ids = m_queueModel.ids();
     for (int i = 0; i < ids.size(); ++i)
         m_queueSlots.insert(ids.at(i), i + 1);
+    QStringList paths;
+    const int limit = qMin(24, int(rows.size()));
+    paths.reserve(limit);
+    for (int i = 0; i < limit; ++i) {
+        const QString &p = rows.at(i).imagePath;
+        if (!p.isEmpty() && QFileInfo::exists(p))
+            paths.append(p);
+    }
+    if (!paths.isEmpty())
+        prewarmCovers(paths, {kCoverRowSide});
     if (before != m_queueModel.rowCount() || oldIds != m_queueModel.ids())
         emit queueChanged();
 }
