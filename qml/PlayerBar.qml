@@ -19,6 +19,7 @@ Rectangle {
 
     // Ascending picker order; values match backend kRates.
     readonly property var rateChoices: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    readonly property var speedPopupObject: speedPopup
 
     // Keyboard navigation: the bar's buttons, left to right, that are showing now.
     function navItems() {
@@ -506,7 +507,10 @@ Rectangle {
         }
         enter: theme.reduceMotion ? null : enterAnim
         exit: theme.reduceMotion ? null : exitAnim
-        onAboutToShow: closing = false
+        onAboutToShow: {
+            closing = false
+            win.openPopup = volumePopup
+        }
         onOpened: win.openPopup = volumePopup
         onAboutToHide: {
             closing = true
@@ -633,6 +637,7 @@ Rectangle {
         exit: theme.reduceMotion ? null : exitAnim
         onAboutToShow: {
             closing = false
+            win.openPopup = speedPopup
             activeIndex = -1
             for (var i = 0; i < bar.rateChoices.length; ++i) {
                 if (Math.abs(bar.rateChoices[i] - backend.playerRate) < 0.05) {

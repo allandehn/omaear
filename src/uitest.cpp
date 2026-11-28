@@ -2140,6 +2140,64 @@ void startUiTest(QQmlApplicationEngine &engine)
             t->key(Qt::Key_Escape);
         }},
         {250, [t]() {
+            t->eval("backend.setShelfView('gallery'); shelfView.moreMenuObject.popupAt(null)");
+        }},
+        {250, [t]() {
+            t->frozenAt = t->eval("win.spaceToggleCount").toInt();
+            t->expect(t->eval("shelfView.moreMenuObject.opened && win.openPopup === shelfView.moreMenuObject").toBool(),
+                      "transient: moreMenu opened via popupAt");
+            t->key(Qt::Key_J);
+            t->key(Qt::Key_Space);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!shelfView.moreMenuObject.opened && backend.shelfView === 'list'"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Space activates AppMenu row without toggling playback");
+            t->eval("shelfView.moreMenuObject.popupAt(null)");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("shelfView.moreMenuObject.opened && shelfView.moreMenuObject.currentIndex === 0").toBool(),
+                      "transient: moreMenu reopens on Gallery");
+            t->key(Qt::Key_Return);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!shelfView.moreMenuObject.opened && backend.shelfView === 'gallery'"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Return activates AppMenu row without toggling playback");
+            t->eval("backend.setRate(1.0); playerBar.visible = true; playerBar.openSpeedPopup()");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("playerBar.speedPopupObject.opened && win.openPopup === playerBar.speedPopupObject").toBool(),
+                      "transient: speedPopup opens and sets openPopup");
+            t->key(Qt::Key_J);
+            t->key(Qt::Key_Space);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!playerBar.speedPopupObject.opened && Math.abs(backend.playerRate - 1.25) < 0.05"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Space activates speedPopup row without toggling playback");
+            t->eval("playerBar.openSpeedPopup()");
+        }},
+        {250, [t]() {
+            t->expect(t->eval("playerBar.speedPopupObject.opened").toBool(),
+                      "transient: speedPopup reopens for Return check");
+            t->key(Qt::Key_K);
+            t->key(Qt::Key_Return);
+        }},
+        {250, [t]() {
+            t->expect(t->eval("!playerBar.speedPopupObject.opened && Math.abs(backend.playerRate - 1.0) < 0.05"
+                              " && backend.playerStatus === 'stopped'").toBool()
+                          && t->eval("win.spaceToggleCount").toInt() == t->frozenAt,
+                      "transient: Return activates speedPopup row without toggling playback");
+            t->eval("playerBar.visible = Qt.binding(function() { return backend.playerEpisodeId !== 0 && !win.nowPlayingOpen })");
+            t->key(Qt::Key_Space);
+        }},
+        {200, [t]() {
+            t->expect(t->eval("win.spaceToggleCount").toInt() == t->frozenAt + 1,
+                      "transient: Space resumes toggling playback once menus and popups close");
             t->eval("win.openExplorePage()");
             seedExplore(*t->engine, 4);
         }},

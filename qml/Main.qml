@@ -1192,12 +1192,16 @@ ApplicationWindow {
         return true
     }
 
+    property int spaceToggleCount: 0
     Shortcut {
         sequence: "Space"
-        // Never steal Space from a text field or an open confirmation dialog.
-        enabled: !modalOpen && !(win.activeFocusItem instanceof TextInput)
+        // Never steal Space from a text field, modal, or open menu/popup.
+        enabled: !modalOpen && !openPopup && !explorePage.regionOpen && !(win.activeFocusItem instanceof TextInput)
         context: Qt.ApplicationShortcut
-        onActivated: backend.togglePlayback()
+        onActivated: {
+            spaceToggleCount = spaceToggleCount + 1
+            backend.togglePlayback()
+        }
     }
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]

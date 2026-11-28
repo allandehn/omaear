@@ -98,7 +98,7 @@ To also remove the OmaEar package source, delete the `[omaear]` section from `/e
 
 ## Build from source
 
-Needs Qt 6 (Quick, Quick Controls, Multimedia, SQL, Network, D-Bus), all already on Omarchy.
+Needs Qt 6.9+ (Quick, Quick Controls, Multimedia, SQL, Network, D-Bus), all already on Omarchy.
 
 ```
 qmake6
